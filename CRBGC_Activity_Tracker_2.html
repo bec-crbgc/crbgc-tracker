@@ -1212,7 +1212,7 @@ function downloadDashboardPDF() {
       const commencements    = acts.filter(a=>a.type==="commencement").length;
       const registrations    = acts.filter(a=>a.type==="registration").length;
       const acapContacts     = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
-      const callsAttempted   = acts.filter(a=>a.type==="employer_call").length;
+      const callsAttempted   = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))).length;
       const callsMeaningful  = acts.filter(isMeaningfulCall).length;
       const siteVisits       = acts.filter(a=>a.type==="site_visit").length;
       const newEmployers     = acts.filter(a=>a.type==="new_employer_met"||a.type==="new_employer_db").length;
@@ -1606,7 +1606,9 @@ function renderToday(coord,state,day){
       ${dueToday.map((f,fi)=>`<div style="padding:8px 0;${fi<dueToday.length-1?'border-bottom:.5px solid #c5d8fc':''}">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="tag" style="background:#1a73e8;color:#fff;font-size:10px">${activityLabel(f.type)}</span>
-          <span style="font-size:12px;font-weight:600;color:var(--tp)">${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--tp)">${f.bizName||f.acapOrg||f.leadName||f.studentName||""}</span>
+          ${f.contactName?`<span style="font-size:11px;color:var(--ts)">${f.contactName}</span>`:""}
+          ${f.relType?`<span style="font-size:10px;background:var(--s2);color:var(--tm);padding:1px 5px;border-radius:10px">${f.relType}</span>`:""}
           ${(f.mobile||f.phone||"")?`<a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a>`:""}
           ${(f.snoozeCount||0)>=3?`<span style="background:var(--red);color:var(--redt);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">🔴 Snoozed ${f.snoozeCount}x</span>`:
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
@@ -1729,7 +1731,7 @@ function renderActItem(a, viewCoord){
 // EMPLOYER CALLS TAB
 // ═══════════════════════════════════════════════════════════
 function renderCalls(coord,state,day){
-  const calls=(day.activities||[]).filter(a=>a.type==="employer_call");
+  const calls=(day.activities||[]).filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_")));
   const attempted=calls.length;
   const connected=calls.filter(a=>a.callOutcome&&a.callOutcome.startsWith("Connected")).length;
   const meaningful=calls.filter(isMeaningfulCall).length;
@@ -2120,12 +2122,14 @@ function renderHistory(coord,state){
       !(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_"))) &&
       !STATE_NAMES.includes(a.bizName)
     );
+    // Only show dates from tracker start date onwards
+    if(d < TRACKER_START) return;
     if(acts.length===0&&!day.focus) return;
     const status=dayStatus(day);
     h+=`<div class="wk-day">
       <div class="wk-day-hdr" onclick="S.wkExpanded['h${d}']=!S.wkExpanded['h${d}'];render()">
         <div>
-          <span class="bold small">${dayOfWeek(d)} ${fmtDate(d)}</span>
+          <span class="bold small">${fmtDate(d)}</span>
           ${day.focus?`<div class="small muted mt8">${day.focus}</div>`:""}
         </div>
         <div style="display:flex;align-items:center;gap:8px">
@@ -2162,7 +2166,7 @@ function renderDailyDashboard(){
     const commencements   = acts.filter(a=>a.type==="commencement").length;
     const registrations   = acts.filter(a=>a.type==="registration").length;
     const acapContacts    = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
-    const callsAttempted  = acts.filter(a=>a.type==="employer_call").length;
+    const callsAttempted  = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))).length;
     const callsMeaningful = acts.filter(isMeaningfulCall).length;
     const siteVisits      = acts.filter(a=>a.type==="site_visit").length;
     const newEmployers    = acts.filter(a=>a.type==="new_employer_met"||a.type==="new_employer_db").length;
