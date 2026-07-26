@@ -355,7 +355,7 @@ function activityLabel(type){
     intro_call:"Intro Call",acap_contact:"ACAP Contact",acap_f2f:"ACAP F2F Visit",
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit",
     new_employer_met:"New Employer Met",new_employer_db:"New Employer to DB",
-    pipeline:"Pipeline",lead:"Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",follow_up_closed:"Follow-up Closed",
+    pipeline:"Pipeline",lead:"Add Student Lead to Database",enrolment_pipeline:"Enrolment Pipeline Follow-up",follow_up_closed:"Follow-up Closed",
   };
   return labels[type]||type;
 }
@@ -1652,26 +1652,38 @@ function renderToday(coord,state,day){
   h+=`<div class="sect-hdr">Log activity</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px;">
     ${[
-      {type:"commencement",label:"Commencement",icon:"ti-award",bg:"var(--o1)",col:"var(--o1t)"},
-      {type:"enrolment",label:"Enrolment",icon:"ti-school",bg:"var(--o1)",col:"var(--o1t)"},
-      {type:"registration",label:"Registration",icon:"ti-file-check",bg:"var(--o1)",col:"var(--o1t)"},
-      {type:"intro_call",label:"Intro Call",icon:"ti-phone-call",bg:"var(--o1)",col:"var(--o1t)"},
-      {type:"acap_contact",label:"ACAP Contact",icon:"ti-users",bg:"var(--o2)",col:"var(--o2t)"},
-      {type:"acap_f2f",label:"ACAP F2F",icon:"ti-map-pin",bg:"var(--o2)",col:"var(--o2t)"},
-      {type:"event",label:"Event",icon:"ti-calendar-event",bg:"var(--o2)",col:"var(--o2t)"},
-      {type:"lead",label:"Student Lead",icon:"ti-user-star",bg:"var(--o3)",col:"var(--o3t)"},
-      {type:"new_employer_db",label:"Employer to DB",icon:"ti-database-plus",bg:"var(--o3)",col:"var(--o3t)"},
-      {type:"new_employer_met",label:"Employer Met",icon:"ti-handshake",bg:"var(--o3)",col:"var(--o3t)"},
-
-      {type:"enrolment_pipeline",label:"Enrolment Pipeline Follow-up",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)",wide:true},
-    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.wide?'flex-direction:row;grid-column:span 3;width:100%;justify-content:center;gap:8px;padding:10px 16px;':'flex-direction:column;'}align-items:center;gap:4px;">
-      <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}
-    </button>`).join("")}
+      {type:"enrolment",        label:"Enrolment",                    icon:"ti-school",        bg:"var(--o1)",col:"var(--o1t)"},
+      {type:"commencement",     label:"Commencement",                  icon:"ti-award",          bg:"var(--o1)",col:"var(--o1t)"},
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
   </div>
+  <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
+    ${[
+      {type:"enrolment_pipeline",label:"Enrolment Pipeline Follow-up",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)"},
+      {type:"registration",     label:"Registration",                  icon:"ti-file-check",    bg:"var(--o1)",col:"var(--o1t)"},
+      {type:"intro_call",       label:"Intro Call",                    icon:"ti-phone-call",    bg:"var(--o1)",col:"var(--o1t)"},
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.label.length>20?"flex-direction:row;justify-content:center;gap:6px;":"flex-direction:column;"}align-items:center;gap:4px;">
+      <i class="ti ${btn.icon}" style="font-size:${btn.label.length>20?16:20}px"></i>${btn.label}</button>`).join("")}
   </div>
-  <div style="padding:8px 12px;display:flex;gap:8px;">
-    <button onclick="S.tab='visits';render()" style="flex:1;background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:12px;font-size:12px;font-weight:600;cursor:pointer;"><i class="ti ti-building"></i> Log Site Visit</button>
-    <button onclick="S.tab='calls';render()" style="flex:1;background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:12px;font-size:12px;font-weight:600;cursor:pointer;"><i class="ti ti-phone"></i> Log Employer Call</button>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
+    ${[
+      {type:"acap_contact",label:"ACAP Contact",   icon:"ti-users",          bg:"var(--o2)",col:"var(--o2t)"},
+      {type:"acap_f2f",   label:"ACAP F2F",        icon:"ti-map-pin",        bg:"var(--o2)",col:"var(--o2t)"},
+      {type:"event",      label:"Event",            icon:"ti-calendar-event", bg:"var(--o2)",col:"var(--o2t)"},
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
+    ${[
+      {type:"new_employer_db", label:"Add Employer to Database",      icon:"ti-database-plus",bg:"var(--o3)",col:"var(--o3t)"},
+      {type:"lead",            label:"Add Student Lead to Database",  icon:"ti-user-star",    bg:"var(--o3)",col:"var(--o3t)"},
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
+  </div>
+  <div style="padding:8px 12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+    <button onclick="S.tab='calls';render()" style="background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:10px 6px;font-size:11px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;"><i class="ti ti-phone" style="font-size:18px"></i>Log Employer Call</button>
+    <button onclick="S.tab='visits';render()" style="background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:10px 6px;font-size:11px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;"><i class="ti ti-building" style="font-size:18px"></i>Log Site Visit</button>
+    <button onclick="openActivityModal('new_employer_met')" style="background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:10px 6px;font-size:11px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;"><i class="ti ti-handshake" style="font-size:18px"></i>Employer Met</button>
   </div>`;
 
   if(today_acts.length>0){
@@ -2761,7 +2773,11 @@ function renderActivityModal(type,data){
       '<input id="acap_org" list="acap_org_list" value="'+(data.acapOrg||"").replace(/"/g,"&quot;")+'" oninput="onAcapOrgInput(this.value)" placeholder="Type or select ACAP..." required>'+
       '<datalist id="acap_org_list">'+acapOpts+'</datalist>'+acapHint+'</div>';
     fields+=fld("Contact name","acap_contact","text",data.contactName||"",null,"true");
-    fields+=fld("Contact outcome","acap_outcome","select",data.activityOutcome||"",["","No opportunity identified",...CONTACT_OUTCOMES_ALL.slice(1)],"true");
+    const ACAP_OUTCOMES=["","Connected — discussed partnership opportunity","Connected — existing referral pathway confirmed",
+      "Connected — new referral pathway agreed","Meeting booked","Event collaboration agreed",
+      "No opportunity identified","No answer","Voicemail left","Not interested",
+      "Do not contact — removed from list","Other"];
+    fields+=fld("Contact outcome","acap_outcome","select",data.activityOutcome||"",ACAP_OUTCOMES,"true");
     fields+=`<div id="acap_meaningful_hint" style="font-size:11px;padding:4px 8px;border-radius:4px;margin-bottom:8px;display:none"></div>`;
   }
 
@@ -2844,17 +2860,12 @@ function renderActivityModal(type,data){
   if(type==="enrolment_pipeline"){
     fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
     fields+=fldRow([
-      fld("State","ep_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]),
-      fld("Trade / qualification","ep_trade","text",data.trade||""),
-    ]);
-    fields+=fldRow([
       fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
       fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
     ]);
     fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...CALL_OUTCOMES],"true");
-    fields+=fld("Barrier to registration","ep_barrier","text",data.barrier||"");
+    fields+=fld("Barrier to enrolment","ep_barrier","text",data.barrier||"");
     fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
-    fields+=fld("Expected registration date","ep_expreg","date",data.expectedReg||"");
   }
 
   if(type==="pipeline"){
@@ -3010,17 +3021,12 @@ function saveActivityFromModal(type){
   if(type==="enrolment_pipeline"){
     fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
     fields+=fldRow([
-      fld("State","ep_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]),
-      fld("Trade / qualification","ep_trade","text",data.trade||""),
-    ]);
-    fields+=fldRow([
       fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
       fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
     ]);
     fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...CALL_OUTCOMES],"true");
-    fields+=fld("Barrier to registration","ep_barrier","text",data.barrier||"");
+    fields+=fld("Barrier to enrolment","ep_barrier","text",data.barrier||"");
     fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
-    fields+=fld("Expected registration date","ep_expreg","date",data.expectedReg||"");
   }
 
   if(type==="enrolment_pipeline"){ act.studentName=g("ep_name");act.studentState=g("ep_state");act.trade=g("ep_trade");act.prevStage=g("ep_prev");act.newStage=g("ep_new");act.contactOutcome=g("ep_contact");act.barrier=g("ep_barrier");act.actionToday=g("ep_action");act.expectedReg=g("ep_expreg"); }
