@@ -3288,10 +3288,7 @@ function getAllDueToday(coord){
   const result=[];
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
-    const realActs=(day.activities||[]).filter(a=>
-      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
-    );
-    realActs.forEach(a=>{
+    (day.activities||[]).forEach(a=>{
       const _cd=S.date||TODAY; if(a.followUpDate===_cd && a.status!=="Completed" && a.status!=="Closed"){
         result.push({...a,_date:d});
       }
@@ -3313,10 +3310,7 @@ function getAllOverdueFollowups(coord){
   const result=[];
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
-    const realActs=(day.activities||[]).filter(a=>
-      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
-    );
-    realActs.forEach(a=>{
+    (day.activities||[]).forEach(a=>{
       if(a.followUpDate && isOverdue(a.followUpDate) && a.status!=="Completed" && a.status!=="Closed") result.push({...a,_date:d});
     });
   });
