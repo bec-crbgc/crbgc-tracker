@@ -3485,10 +3485,14 @@ function onEcBizInput(val){
   const emp=findEmployer(S.user.coord,val);
   const hint=document.getElementById("ec_emp_hint");
   if(emp&&hint){
-    hint.innerHTML='<i class="ti ti-info-circle"></i> Last contact: '+(emp.lastContact||"—")+" · Next contact: "+(emp.nextContact||"—")+(emp.notes?" · "+emp.notes.substring(0,80):"");
+    const relStr=emp.empRelationship?" · "+emp.empRelationship:"";
+    hint.innerHTML='<i class="ti ti-info-circle"></i> Last contact: '+(emp.lastContact||"—")+" · Next: "+(emp.nextContact||"—")+relStr;
   } else if(hint){ hint.innerHTML=""; }
   if(emp){
     const c=document.getElementById("ec_contact"); if(c&&!c.value) c.value=emp.contactName||"";
+    const p=document.getElementById("ec_phone"); if(p&&!p.value) p.value=emp.phone||"";
+    const em=document.getElementById("ec_email"); if(em&&!em.value) em.value=emp.email||"";
+    const rel=document.getElementById("ec_rel"); if(rel&&!rel.value&&emp.empRelationship) rel.value=emp.empRelationship;
   }
 }
 
