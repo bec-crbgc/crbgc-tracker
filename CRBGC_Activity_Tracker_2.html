@@ -355,7 +355,7 @@ function activityLabel(type){
     intro_call:"Intro Call",acap_contact:"ACAP Contact",acap_f2f:"ACAP F2F Visit",
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit",
     new_employer_met:"New Employer Met",new_employer_db:"New Employer to DB",
-    pipeline:"Pipeline",lead:"Student Lead",follow_up_closed:"Follow-up Closed",
+    pipeline:"Pipeline",lead:"Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",follow_up_closed:"Follow-up Closed",
   };
   return labels[type]||type;
 }
@@ -1419,7 +1419,9 @@ function renderApp(){
   </div>`;
 
   // Tab bar
-  h+=`<div class="tabs">${tabs.map(t=>`<button class="tb${S.tab===t?" on":""}" onclick="S.tab='${t}';render()">${tabLabels[t]}</button>`).join("")}</div>`;
+  h+=`<div class="tabs" id="tabBar">${tabs.map(t=>`<button class="tb${S.tab===t?" on":""}" onclick="S.tab='${t}';render();scrollTabIntoView('${t}')">${tabLabels[t]}</button>`).join("")}</div>
+    <button onclick="scrollTabs(-1)" style="position:absolute;left:0;top:0;height:32px;width:24px;background:linear-gradient(to right,#fff,transparent);border:none;cursor:pointer;font-size:16px;color:var(--hdr);z-index:5;display:flex;align-items:center;justify-content:center;padding:0">‹</button>
+    <button onclick="scrollTabs(1)" style="position:absolute;right:0;top:0;height:32px;width:24px;background:linear-gradient(to left,#fff,transparent);border:none;cursor:pointer;font-size:16px;color:var(--hdr);z-index:5;display:flex;align-items:center;justify-content:center;padding:0">›</button>`;
 
   // Tab content
   if(S.tab==="today")      h+=renderToday(coord,state,day);
@@ -1651,25 +1653,27 @@ function renderToday(coord,state,day){
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px;">
     ${[
       {type:"commencement",label:"Commencement",icon:"ti-award",bg:"var(--o1)",col:"var(--o1t)"},
-      {type:"registration",label:"Registration",icon:"ti-file-check",bg:"var(--o1)",col:"var(--o1t)"},
       {type:"enrolment",label:"Enrolment",icon:"ti-school",bg:"var(--o1)",col:"var(--o1t)"},
+      {type:"registration",label:"Registration",icon:"ti-file-check",bg:"var(--o1)",col:"var(--o1t)"},
       {type:"intro_call",label:"Intro Call",icon:"ti-phone-call",bg:"var(--o1)",col:"var(--o1t)"},
       {type:"acap_contact",label:"ACAP Contact",icon:"ti-users",bg:"var(--o2)",col:"var(--o2t)"},
       {type:"acap_f2f",label:"ACAP F2F",icon:"ti-map-pin",bg:"var(--o2)",col:"var(--o2t)"},
       {type:"event",label:"Event",icon:"ti-calendar-event",bg:"var(--o2)",col:"var(--o2t)"},
       {type:"lead",label:"Student Lead",icon:"ti-user-star",bg:"var(--o3)",col:"var(--o3t)"},
-      {type:"new_employer_met",label:"Employer Met",icon:"ti-handshake",bg:"var(--o3)",col:"var(--o3t)"},
       {type:"new_employer_db",label:"Employer to DB",icon:"ti-database-plus",bg:"var(--o3)",col:"var(--o3t)"},
-    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+      {type:"new_employer_met",label:"Employer Met",icon:"ti-handshake",bg:"var(--o3)",col:"var(--o3t)"},
+
+      {type:"enrolment_pipeline",label:"Enrolment Pipeline Follow-up",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)",wide:true},
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.wide?'flex-direction:row;grid-column:span 3;width:100%;justify-content:center;gap:8px;padding:10px 16px;':'flex-direction:column;'}align-items:center;gap:4px;">
       <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}
     </button>`).join("")}
   </div>
+  </div>
   <div style="padding:8px 12px;display:flex;gap:8px;">
-    <button onclick="S.tab='calls';render()" style="flex:1;background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:12px;font-size:12px;font-weight:600;cursor:pointer;"><i class="ti ti-phone"></i> Log Employer Call</button>
     <button onclick="S.tab='visits';render()" style="flex:1;background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:12px;font-size:12px;font-weight:600;cursor:pointer;"><i class="ti ti-building"></i> Log Site Visit</button>
+    <button onclick="S.tab='calls';render()" style="flex:1;background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:12px;font-size:12px;font-weight:600;cursor:pointer;"><i class="ti ti-phone"></i> Log Employer Call</button>
   </div>`;
 
-  // Today's logged activities
   if(today_acts.length>0){
     h+=`<div class="sect-hdr">Today's log</div>
     <div style="padding:0 12px;">
@@ -1689,7 +1693,7 @@ function renderActItem(a, viewCoord){
   return `<div class="act-item">
     <div class="act-item-hdr">
       <span class="tag" style="background:${col.bg};color:${col.txt}">${activityLabel(a.type)}</span>
-      <span class="act-time">${a.timestamp||""}</span>
+      ${a.type!=="follow_up_closed"?`<span class="act-time">${a.timestamp||""}</span>`:""}
       ${overdue?`<span class="overdue-badge">⚠ Follow-up overdue</span>`:""}
       ${canDelete?`<button class="act-edit" onclick="editActivity('${a.id}','${delCoord}')" title="Edit" style="background:none;border:none;cursor:pointer;color:var(--ts);padding:2px 4px;margin-right:2px"><i class="ti ti-pencil" style="font-size:14px"></i></button>`:""}      ${canDelete?`<button class="act-del" onclick="deleteActivity('${a.id}','${delCoord}')" title="Delete"><i class="ti ti-trash"></i></button>`:""}
     </div>
@@ -1732,7 +1736,7 @@ function renderCalls(coord,state,day){
         <div class="act-item-hdr">
           ${meaningful_icon}<span class="bold small">${a.bizName||"—"}</span>
           <span class="muted small">${a.contactName||""}</span>
-          <span class="act-time">${a.timestamp||""}</span>
+          ${a.type!=="follow_up_closed"?`<span class="act-time">${a.timestamp||""}</span>`:""}
           <button class="act-del" onclick="deleteActivity('${a.id}')"><i class="ti ti-trash"></i></button>
         </div>
         <div class="small" style="color:var(--ts)">
@@ -2571,6 +2575,39 @@ const MEANINGFUL_OUTCOMES = [
   "Registration submitted",
 ];
 
+// Outcomes that count as meaningful for general contact activities
+const CONTACT_OUTCOMES_MEANINGFUL = [
+  "Connected — meaningful conversation",
+  "Connected — discussed and resolved",
+  "Connected — next steps agreed",
+  "Meeting booked",
+  "Meeting held",
+  "Signed up",
+  "Registered",
+  "Enrolled",
+  "F2F visit — productive",
+  "Event attended — engaged",
+];
+
+const CONTACT_OUTCOMES_ALL = [
+  "",
+  "Connected — meaningful conversation",
+  "Connected — next steps agreed",
+  "Meeting booked",
+  "Meeting held",
+  "F2F visit — productive",
+  "Event attended — engaged",
+  "Signed up",
+  "Registered",
+  "Enrolled",
+  "No answer",
+  "Voicemail left",
+  "Follow-up message sent",
+  "Not interested",
+  "Do not contact — removed from list",
+  "Other",
+];
+
 function renderCloseFollowupModal(m) {
   return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
   <div class="modal">
@@ -2724,7 +2761,8 @@ function renderActivityModal(type,data){
       '<input id="acap_org" list="acap_org_list" value="'+(data.acapOrg||"").replace(/"/g,"&quot;")+'" oninput="onAcapOrgInput(this.value)" placeholder="Type or select ACAP..." required>'+
       '<datalist id="acap_org_list">'+acapOpts+'</datalist>'+acapHint+'</div>';
     fields+=fld("Contact name","acap_contact","text",data.contactName||"",null,"true");
-    fields+=fld("Activity outcome","acap_outcome","select",data.activityOutcome||"",["","No opportunity identified",...ACTIVITY_OUTCOMES.slice(1)]);
+    fields+=fld("Contact outcome","acap_outcome","select",data.activityOutcome||"",["","No opportunity identified",...CONTACT_OUTCOMES_ALL.slice(1)],"true");
+    fields+=`<div id="acap_meaningful_hint" style="font-size:11px;padding:4px 8px;border-radius:4px;margin-bottom:8px;display:none"></div>`;
   }
 
   // ── EVENT ──────────────────────────────────────────────────────────────
@@ -2803,6 +2841,22 @@ function renderActivityModal(type,data){
   }
 
   // ── PIPELINE ───────────────────────────────────────────────────────────
+  if(type==="enrolment_pipeline"){
+    fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
+    fields+=fldRow([
+      fld("State","ep_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]),
+      fld("Trade / qualification","ep_trade","text",data.trade||""),
+    ]);
+    fields+=fldRow([
+      fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
+      fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
+    ]);
+    fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...CALL_OUTCOMES],"true");
+    fields+=fld("Barrier to registration","ep_barrier","text",data.barrier||"");
+    fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
+    fields+=fld("Expected registration date","ep_expreg","date",data.expectedReg||"");
+  }
+
   if(type==="pipeline"){
     fields+=fld("Lead / student name","pl_name","text",data.leadName||"",null,"true");
     fields+=fldRow([
@@ -2814,6 +2868,7 @@ function renderActivityModal(type,data){
       fld("New stage","pl_new","select",data.newStage||"",[""].concat(PIPELINE_STAGES),"true"),
     ]);
     fields+=fld("Contact outcome","pl_contact","select",data.contactOutcome||"",[""].concat(CALL_OUTCOMES));
+    fields+=fld("Pipeline type","pl_pipeline_type","select",data.pipelineType||"",["","Student Lead","Enrolment Pipeline"],"true");
     fields+=fld("Barrier to registration","pl_barrier","text",data.barrier||"");
     fields+=fld("Action completed today","pl_action","textarea",data.actionToday||"");
     fields+=fld("Expected registration date","pl_expreg","date",data.expectedReg||"");
@@ -2867,6 +2922,17 @@ function fldRow(fields){
 // ═══════════════════════════════════════════════════════════
 // SAVE HANDLERS
 // ═══════════════════════════════════════════════════════════
+function scrollTabs(dir) {
+  const bar = document.getElementById("tabBar");
+  if (bar) bar.scrollLeft += dir * 120;
+}
+function scrollTabIntoView(tab) {
+  const bar = document.getElementById("tabBar");
+  if (!bar) return;
+  const btn = bar.querySelector(".tb.on");
+  if (btn) btn.scrollIntoView({behavior:"smooth", block:"nearest", inline:"center"});
+}
+
 function saveFocus(){
   const v=document.getElementById("focus_sel")?.value;
   const day=getDay(); day.focus=v; saveDay(day); render();
@@ -2941,7 +3007,24 @@ function saveActivityFromModal(type){
   }
   if(type==="site_visit"){ act.bizName=g("sv_biz");act.suburb=g("sv_suburb");act.contactName=g("sv_contact");act.mobile=g("sv_mobile");act.email=g("sv_email");act.trade=g("sv_trade");act.relType=g("sv_rel");act.activityOutcome=g("sv_outcome"); }
   if(["new_employer_met","new_employer_db"].includes(type)){ act.bizName=g("ne_biz");act.contactName=g("ne_contact");act.relType=g("ne_rel");act.email=g("ne_email");act.phone=g("ne_phone");act.postcode=g("ne_postcode");act.activityOutcome=g("ne_outcome"); }
-  if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg"); }
+  if(type==="enrolment_pipeline"){
+    fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
+    fields+=fldRow([
+      fld("State","ep_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]),
+      fld("Trade / qualification","ep_trade","text",data.trade||""),
+    ]);
+    fields+=fldRow([
+      fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
+      fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
+    ]);
+    fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...CALL_OUTCOMES],"true");
+    fields+=fld("Barrier to registration","ep_barrier","text",data.barrier||"");
+    fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
+    fields+=fld("Expected registration date","ep_expreg","date",data.expectedReg||"");
+  }
+
+  if(type==="enrolment_pipeline"){ act.studentName=g("ep_name");act.studentState=g("ep_state");act.trade=g("ep_trade");act.prevStage=g("ep_prev");act.newStage=g("ep_new");act.contactOutcome=g("ep_contact");act.barrier=g("ep_barrier");act.actionToday=g("ep_action");act.expectedReg=g("ep_expreg"); }
+  if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.pipelineType=g("pl_pipeline_type");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg"); }
 
   // Common
   act.nextAction=g("cm_next"); act.followUpDate=g("cm_fudate");
@@ -2954,6 +3037,8 @@ function saveActivityFromModal(type){
   if(type==="intro_call" && !act.bizName) errors.push("Employer / business name is required");
   if(type==="intro_call" && !act.contactName) errors.push("Contact person is required");
   if(type==="intro_call" && !act.regDate) errors.push("Registration / assignment date is required");
+  if(["acap_contact","acap_f2f"].includes(type) && !act.acapOrg) errors.push("ACAP organisation is required");
+  if(["acap_contact","acap_f2f"].includes(type) && !act.activityOutcome) errors.push("Contact outcome is required for ACAP activities");
   if(["employer_call"].includes(type) && !act.bizName) errors.push("Business name is required");
   if(["employer_call"].includes(type) && !act.callOutcome) errors.push("Call outcome is required");
   if(["employer_call"].includes(type) && !act.relType) errors.push("Employer relationship is required");
@@ -3386,6 +3471,21 @@ function onSvBizInput(val){
 
 function attachHandlers(){
   // Conditionally show meaningful call fields
+  const acapOutSel=document.getElementById("acap_outcome");
+  if(acapOutSel){
+    acapOutSel.addEventListener("change",function(){
+      const hint=document.getElementById("acap_meaningful_hint");
+      if(!hint) return;
+      const v=this.value;
+      if(!v){hint.style.display="none";return;}
+      const meaningful=CONTACT_OUTCOMES_MEANINGFUL.indexOf(v)!==-1;
+      hint.style.display="";
+      hint.style.background=meaningful?"var(--green)":"var(--amber)";
+      hint.style.color=meaningful?"var(--greent)":"var(--ambert)";
+      hint.textContent=meaningful?"✅ Meaningful contact — counts toward daily target":"○ Non-meaningful contact — does not count toward target";
+    });
+  }
+
   const callOutSel=document.getElementById("ec_outcome");
   if(callOutSel){
     callOutSel.addEventListener("change",function(){
