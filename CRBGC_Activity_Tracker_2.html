@@ -1593,7 +1593,7 @@ function renderDailyPaceCard(coord, state, T) {
 function renderToday(coord,state,day){
   const T=weeklyTotals(coord,S.date);
   const status=dayStatus(day);
-  const today_acts=(day.activities||[]).filter(a=>!["employer_call","site_visit","pipeline"].includes(a.type));
+  const today_acts=(day.activities||[]).filter(a=>!["employer_call","site_visit","pipeline"].includes(a.type)&&(!a.id||(!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))));
   const overdueFollowups=getAllOverdueFollowups(coord);
 
   let h=``;
