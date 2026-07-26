@@ -407,7 +407,10 @@ function weeklyTotals(coord,ds){
     else if(st==="partial") T.days_partial++;
     else T.days_none++;
     if(day.eodStatus==="complete") T.days_complete++;
-    (day.activities||[]).forEach(a=>{
+    const realActs=(day.activities||[]).filter(a=>
+      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
+    );
+    realActs.forEach(a=>{
       if(a.type==="commencement") T.commencement++;
       if(a.type==="registration") T.registration++;
       if(a.type==="enrolment") T.enrolment++;
@@ -1714,6 +1717,7 @@ function renderActItem(a, viewCoord){
     <div style="font-size:12px;color:var(--ts)">
       ${a.bizName||a.studentName||a.leadName||a.acapOrg||a.eventName||""}
       ${a.contactName?` · ${a.contactName}`:""}
+      ${a.relType?` <span style="font-size:10px;background:var(--s2);color:var(--tm);padding:1px 5px;border-radius:10px">${a.relType}</span>`:""}
       ${a.callOutcome?` · <em>${a.callOutcome}</em>`:""}
       ${a.activityOutcome?` · ${a.activityOutcome}`:""}
     </div>
@@ -1955,7 +1959,7 @@ function renderThisWeek(coord,state){
       ${expanded?`<div class="wk-day-body">
         ${day.focus?`<div style="margin-bottom:8px"><span class="focus-badge"><i class="ti ti-target"></i> ${day.focus}</span></div>`:""}
         ${acts.length===0?`<div class="small muted">No activities logged</div>`:""}
-        ${acts.map(a=>renderActItem(a)).join("")}
+        ${acts.filter(a=>!(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")))).map(a=>renderActItem(a)).join("")}
         ${day.eodResult?`<div style="margin-top:8px;padding:8px 10px;background:var(--s1);border-radius:var(--r);border-left:3px solid var(--hdr)">
           <div class="small bold">EOD result</div>
           <div class="small muted mt8">${day.eodResult}</div>
@@ -2110,7 +2114,12 @@ function renderHistory(coord,state){
   h+=`<div class="sect-hdr">Recent days</div>`;
   allDates.forEach(d=>{
     const day=loadDay(coord,d);
-    const acts=day.activities||[];
+    // Filter out auto follow-up rows and badly-mapped rows (bizName = state)
+    const STATE_NAMES = ["VIC","NSW","QLD","ACT","SA","WA","TAS","NT"];
+    const acts=(day.activities||[]).filter(a=>
+      !(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_"))) &&
+      !STATE_NAMES.includes(a.bizName)
+    );
     if(acts.length===0&&!day.focus) return;
     const status=dayStatus(day);
     h+=`<div class="wk-day">
@@ -3275,7 +3284,10 @@ function getAllDueToday(coord){
   const result=[];
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
-    (day.activities||[]).forEach(a=>{
+    const realActs=(day.activities||[]).filter(a=>
+      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
+    );
+    realActs.forEach(a=>{
       const _cd=S.date||TODAY; if(a.followUpDate===_cd && a.status!=="Completed" && a.status!=="Closed"){
         result.push({...a,_date:d});
       }
@@ -3297,7 +3309,10 @@ function getAllOverdueFollowups(coord){
   const result=[];
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
-    (day.activities||[]).forEach(a=>{
+    const realActs=(day.activities||[]).filter(a=>
+      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
+    );
+    realActs.forEach(a=>{
       if(a.followUpDate && isOverdue(a.followUpDate) && a.status!=="Completed" && a.status!=="Closed") result.push({...a,_date:d});
     });
   });
@@ -3631,7 +3646,10 @@ async function pushData() {
       nwins:day.nwins||"", nblockers:day.nblockers||"",
       npipeline:day.npipeline||"", ncampaign:day.ncampaign||"",
     });
-    (day.activities||[]).forEach(a=>{
+    const realActs=(day.activities||[]).filter(a=>
+      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
+    );
+    realActs.forEach(a=>{
       actRows.push(actToRow(a, day, coord, state));
       if(a.type==="lead"){
         const auDate=d.split("-").reverse().join("/");
