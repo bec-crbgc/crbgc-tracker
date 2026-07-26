@@ -355,13 +355,13 @@ function activityLabel(type){
     intro_call:"Intro Call",acap_contact:"ACAP Contact",acap_f2f:"ACAP F2F Visit",
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit",
     new_employer_met:"New Employer Met",new_employer_db:"New Employer to DB",
-    pipeline:"Pipeline",lead:"Add Student Lead to Database",enrolment_pipeline:"Enrolment Pipeline Follow-up",follow_up_closed:"Follow-up Closed",
+    pipeline:"Pipeline",lead:"Add Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",add_acap:"Add ACAP",follow_up_closed:"Follow-up Closed",
   };
   return labels[type]||type;
 }
 function activityColor(type){
   if(["commencement","registration","enrolment","intro_call"].includes(type)) return {bg:S1="#E1F5EE",txt:"#085041"};
-  if(["acap_contact","acap_f2f","event"].includes(type)) return {bg:"#E6F1FB",txt:"#0C447C"};
+  if(["acap_contact","acap_f2f","event","add_acap"].includes(type)) return {bg:"#E6F1FB",txt:"#0C447C"};
   return {bg:"#FAEEDA",txt:"#633806"};
 }
 
@@ -1657,9 +1657,9 @@ function renderToday(coord,state,day){
     ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
       <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
   </div>
-  <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
     ${[
-      {type:"enrolment_pipeline",label:"Enrolment Pipeline Follow-up",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)"},
+      {type:"enrolment_pipeline",label:"Enrolment Pipeline",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)"},
       {type:"registration",     label:"Registration",                  icon:"ti-file-check",    bg:"var(--o1)",col:"var(--o1t)"},
       {type:"intro_call",       label:"Intro Call",                    icon:"ti-phone-call",    bg:"var(--o1)",col:"var(--o1t)"},
     ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.label.length>20?"flex-direction:row;justify-content:center;gap:6px;":"flex-direction:column;"}align-items:center;gap:4px;">
@@ -1674,17 +1674,19 @@ function renderToday(coord,state,day){
       <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
-    ${[
-      {type:"new_employer_db", label:"Add Employer to Database",      icon:"ti-database-plus",bg:"var(--o3)",col:"var(--o3t)"},
-      {type:"lead",            label:"Add Student Lead to Database",  icon:"ti-user-star",    bg:"var(--o3)",col:"var(--o3t)"},
-    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
-      <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
-  </div>
-  <div style="padding:8px 12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
     <button onclick="S.tab='calls';render()" style="background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:10px 6px;font-size:11px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;"><i class="ti ti-phone" style="font-size:18px"></i>Log Employer Call</button>
     <button onclick="S.tab='visits';render()" style="background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:10px 6px;font-size:11px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;"><i class="ti ti-building" style="font-size:18px"></i>Log Site Visit</button>
     <button onclick="openActivityModal('new_employer_met')" style="background:var(--o3);color:var(--o3t);border:1.5px solid transparent;border-radius:var(--r);padding:10px 6px;font-size:11px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;"><i class="ti ti-handshake" style="font-size:18px"></i>Employer Met</button>
-  </div>`;
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 8px;">
+    ${[
+      {type:"new_employer_db", label:"Add Employer",    icon:"ti-database-plus",bg:"var(--o3)",col:"var(--o3t)"},
+      {type:"lead",            label:"Add Student Lead",icon:"ti-user-star",    bg:"var(--o3)",col:"var(--o3t)"},
+      {type:"add_acap",        label:"Add ACAP",        icon:"ti-users-plus",   bg:"var(--o2)",col:"var(--o2t)"},
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
+  </div>
+`;
 
   if(today_acts.length>0){
     h+=`<div class="sect-hdr">Today's log</div>
@@ -2727,9 +2729,9 @@ function renderActivityModal(type,data){
   const isEdit=!!data.id;
   const baseTitles={
     commencement:"Log Commencement",registration:"Log Registration",enrolment:"Log Enrolment",
-    intro_call:"Log Intro Call",acap_contact:"Log ACAP Contact",acap_f2f:"Log ACAP F2F Visit",
+    intro_call:"Log Intro Call",acap_contact:"Log ACAP Contact",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
     event:"Log Event",employer_call:"Log Employer Call",site_visit:"Log Site Visit",
-    new_employer_met:"Log New Employer Met",new_employer_db:"Add Employer to Database",
+    new_employer_met:"Log New Employer Met",new_employer_db:"Add Employer",
     pipeline:"Log Pipeline Contact",lead:"Log Student Lead",
   };
   const titles = {};
@@ -2761,6 +2763,23 @@ function renderActivityModal(type,data){
   }
 
   // ── ACAP ───────────────────────────────────────────────────────────────
+  if(type==="add_acap"){
+    const acapCacheA=getAcapCache(S.user.coord);
+    const acapOptsA=acapCacheA.map(function(a){
+      return '<option value="'+a.org.replace(/"/g,"&quot;")+'">'+a.org+(a.contactName?" — "+a.contactName:"")+'</option>';
+    }).join("");
+    fields+='<div class="field"><label>ACAP organisation<span class="req">*</span></label>'+
+      '<input id="add_acap_org" list="add_acap_org_list" value="'+(data.acapOrg||"").replace(/"/g,"&quot;")+'" oninput="onAcapOrgInput(this.value)" placeholder="Type or select ACAP..." required>'+
+      '<datalist id="add_acap_org_list">'+acapOptsA+'</datalist>'+
+      '<div id="acap_org_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
+    fields+=fld("Contact name","add_acap_contact","text",data.contactName||"");
+    fields+=fld("Position","add_acap_position","text",data.position||"");
+    fields+=fld("State","add_acap_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
+    fields+=fld("Region","add_acap_region","text",data.suburb||"");
+    fields+=fld("Email","add_acap_email","email",data.email||"");
+    fields+=fld("Mobile","add_acap_mobile","text",data.mobile||"");
+  }
+
   if(["acap_contact","acap_f2f"].includes(type)){
     const acapCache=getAcapCache(S.user.coord);
     const acapOpts=acapCache.map(function(a){
@@ -3005,6 +3024,24 @@ function saveActivityFromModal(type){
     act.within24h=g("swithin24"); act.callOutcome=g("scallout");
     act.studentName=g("ic_student"); act.trade=g("strade"); act.followUp=g("sfollowup");
   }
+  if(type==="add_acap"){
+    const acapCacheA=getAcapCache(S.user.coord);
+    const acapOptsA=acapCacheA.map(function(a){
+      return '<option value="'+a.org.replace(/"/g,"&quot;")+'">'+a.org+(a.contactName?" — "+a.contactName:"")+'</option>';
+    }).join("");
+    fields+='<div class="field"><label>ACAP organisation<span class="req">*</span></label>'+
+      '<input id="add_acap_org" list="add_acap_org_list" value="'+(data.acapOrg||"").replace(/"/g,"&quot;")+'" oninput="onAcapOrgInput(this.value)" placeholder="Type or select ACAP..." required>'+
+      '<datalist id="add_acap_org_list">'+acapOptsA+'</datalist>'+
+      '<div id="acap_org_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
+    fields+=fld("Contact name","add_acap_contact","text",data.contactName||"");
+    fields+=fld("Position","add_acap_position","text",data.position||"");
+    fields+=fld("State","add_acap_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
+    fields+=fld("Region","add_acap_region","text",data.suburb||"");
+    fields+=fld("Email","add_acap_email","email",data.email||"");
+    fields+=fld("Mobile","add_acap_mobile","text",data.mobile||"");
+  }
+
+  if(type==="add_acap"){ act.acapOrg=g("add_acap_org");act.contactName=g("add_acap_contact");act.position=g("add_acap_position");act.studentState=g("add_acap_state");act.suburb=g("add_acap_region");act.email=g("add_acap_email");act.mobile=g("add_acap_mobile"); }
   if(["acap_contact","acap_f2f"].includes(type)){ act.acapOrg=g("acap_org");act.contactName=g("acap_contact");act.activityOutcome=g("acap_outcome"); }
   if(type==="event"){ act.eventName=g("ev_name");act.location=g("ev_loc");act.attendees=g("ev_att");act.activityOutcome=g("ev_outcome");act.notes=g("ev_notes"); }
   if(type==="employer_call"){ act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");
@@ -3043,7 +3080,7 @@ function saveActivityFromModal(type){
   if(type==="intro_call" && !act.bizName) errors.push("Employer / business name is required");
   if(type==="intro_call" && !act.contactName) errors.push("Contact person is required");
   if(type==="intro_call" && !act.regDate) errors.push("Registration / assignment date is required");
-  if(["acap_contact","acap_f2f"].includes(type) && !act.acapOrg) errors.push("ACAP organisation is required");
+  if(["acap_contact","acap_f2f","add_acap"].includes(type) && !act.acapOrg) errors.push("ACAP organisation is required");
   if(["acap_contact","acap_f2f"].includes(type) && !act.activityOutcome) errors.push("Contact outcome is required for ACAP activities");
   if(["employer_call"].includes(type) && !act.bizName) errors.push("Business name is required");
   if(["employer_call"].includes(type) && !act.callOutcome) errors.push("Call outcome is required");
