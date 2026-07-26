@@ -3867,7 +3867,8 @@ async function pullFollowups(coord, state) {
       if(!exists) day.activities.push(a);
       saveDay(day);
     });
-    try{localStorage.setItem(PFX+"followups:"+coord,JSON.stringify(followups));}catch(e_){}
+    // Cache the full followups list for due-today and overdue checks
+    try{localStorage.setItem(PFX+"followups:"+coord,JSON.stringify(data.followups||[]));}catch(e_){}
     render();
   } catch(e){
     // silent
