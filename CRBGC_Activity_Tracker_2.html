@@ -354,7 +354,7 @@ function activityLabel(type){
     commencement:"Commencement",registration:"Registration",enrolment:"Enrolment",
     intro_call:"Intro Call",acap_contact:"ACAP Contact",acap_f2f:"ACAP F2F Visit",
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit",
-    new_employer_met:"New Employer Met",new_employer_db:"New Employer to DB",
+    new_employer_met:"Employer Met",new_employer_db:"Add Employer",add_employer:"Add Employer",
     pipeline:"Pipeline",lead:"Add Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",add_acap:"Add ACAP",follow_up_closed:"Follow-up Closed",
   };
   return labels[type]||type;
@@ -1603,12 +1603,12 @@ function renderToday(coord,state,day){
       ${dueToday.map((f,fi)=>`<div style="padding:8px 0;${fi<dueToday.length-1?'border-bottom:.5px solid #c5d8fc':''}">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="tag" style="background:#1a73e8;color:#fff;font-size:10px">${activityLabel(f.type)}</span>
-          <span style="font-size:12px;font-weight:600;color:var(--tp)">${f.bizName||f.acapOrg||f.leadName||f.studentName||f.contactName||""}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--tp)">${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}</span>
           ${(f.mobile||f.phone||"")?`<a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a>`:""}
           ${(f.snoozeCount||0)>=3?`<span style="background:var(--red);color:var(--redt);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">🔴 Snoozed ${f.snoozeCount}x</span>`:
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
           <div style="margin-left:auto;display:flex;gap:6px">
-            <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${f.bizName||f.acapOrg||f.leadName||f.studentName||f.contactName||""}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+            <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
             <button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>
           </div>
         </div>
@@ -2861,18 +2861,23 @@ function renderActivityModal(type,data){
   }
 
   // ── NEW EMPLOYER MET / DB ──────────────────────────────────────────────
-  if(["new_employer_met","new_employer_db"].includes(type)){
+  if(["new_employer_met","new_employer_db","add_employer"].includes(type)){
     fields+=fld("Business name","ne_biz","text",data.bizName||"",null,"true");
     fields+=fld("Contact person","ne_contact","text",data.contactName||"",null,"true");
+    fields+=fld("Position","ne_position","text",data.position||"");
     fields+=fld("Employer relationship","ne_rel","select",data.relType||"",[""].concat(REL_TYPES),"true");
     fields+=fldRow([
       fld("Email","ne_email","email",data.email||""),
       fld("Phone","ne_phone","tel",data.phone||""),
     ]);
-    if(type==="new_employer_db"){
-      fields+=fld("Postcode","ne_postcode","text",data.postcode||"");
+    fields+=fldRow([
+      fld("Region","ne_region","text",data.suburb||""),
+      fld("Postcode","ne_postcode","text",data.postcode||""),
+    ]);
+    fields+=fld("State","ne_state","select",data.studentState||"",[""].concat(Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)));
+    if(type!=="new_employer_met"){
+      fields+=fld("Activity outcome","ne_outcome","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES),"true");
     }
-    fields+=fld("Activity outcome","ne_outcome","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES),"true");
   }
 
   // ── PIPELINE ───────────────────────────────────────────────────────────
@@ -3054,7 +3059,12 @@ function saveActivityFromModal(type){
     }
   }
   if(type==="site_visit"){ act.bizName=g("sv_biz");act.suburb=g("sv_suburb");act.contactName=g("sv_contact");act.mobile=g("sv_mobile");act.email=g("sv_email");act.trade=g("sv_trade");act.relType=g("sv_rel");act.activityOutcome=g("sv_outcome"); }
-  if(["new_employer_met","new_employer_db"].includes(type)){ act.bizName=g("ne_biz");act.contactName=g("ne_contact");act.relType=g("ne_rel");act.email=g("ne_email");act.phone=g("ne_phone");act.postcode=g("ne_postcode");act.activityOutcome=g("ne_outcome"); }
+  if(["new_employer_met","new_employer_db","add_employer"].includes(type)){
+    act.bizName=g("ne_biz");act.contactName=g("ne_contact");act.position=g("ne_position");
+    act.relType=g("ne_rel");act.email=g("ne_email");act.phone=g("ne_phone");
+    act.suburb=g("ne_region");act.postcode=g("ne_postcode");act.studentState=g("ne_state");
+    act.activityOutcome=g("ne_outcome");
+  }
   if(type==="enrolment_pipeline"){
     fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
     fields+=fldRow([
@@ -3629,7 +3639,14 @@ async function pushData() {
       }
       if(a.type==="new_employer_db"){
         const auDate=d.split("-").reverse().join("/");
-        empRows.push([auDate,"Y",state,a.bizName||"",a.contactName||"","",a.email||"",a.phone||"","","","","","",a.postcode||"","Tracker","","",auDate,"","","","","","",""]);
+        // Columns: A=DateAdded, B=Active, C=EmpRelationship, D=State, E=BizName,
+        //          F=ContactName, G=Position, H=Email, I=Phone, J-L=Website/FB/IG,
+        //          M=Region, N=Address, O=Postcode, P=ProfileBuilder,
+        //          Q=LastContact, R=Notes, S=FURequired, T=NextContact, U=ActivityOutcome
+        empRows.push([auDate,"Y",a.relType||"New Prospect",state,a.bizName||"",
+          a.contactName||"","",a.email||"",a.phone||"","","","",
+          "","",a.postcode||"","",
+          auDate,"","","","",""]);
       }
     });
   });
