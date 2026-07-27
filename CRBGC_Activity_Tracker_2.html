@@ -1737,22 +1737,20 @@ function renderActItem(a, viewCoord){
   // Manager can delete any record; coordinators can only delete their own
   const canDelete = S.user.isManager || !viewCoord || viewCoord === S.user.coord;
   const delCoord = viewCoord || S.user.coord;
+  const name=a.bizName||a.studentName||a.leadName||a.acapOrg||a.eventName||"";
   return `<div class="act-item">
     <div class="act-item-hdr" style="padding-right:44px">
       <span class="tag" style="background:${col.bg};color:${col.txt}">${activityLabel(a.type)}</span>
+      <span style="font-size:12px;font-weight:600;color:var(--tp)">${name}</span>
+      ${a.contactName?`<span style="font-size:11px;color:var(--ts)">${a.contactName}</span>`:""}
       ${overdue?`<span class="overdue-badge">⚠ Follow-up overdue</span>`:""}
     </div>
     ${canDelete?`<div class="act-btns">
       <button class="act-edit" onclick="editActivity('${a.id}','${delCoord}')" title="Edit"><i class="ti ti-pencil"></i></button>
       <button class="act-del" onclick="deleteActivity('${a.id}','${delCoord}')" title="Delete"><i class="ti ti-trash"></i></button>
     </div>`:""}
-    <div style="font-size:12px;color:var(--ts)">
-      ${a.bizName||a.studentName||a.leadName||a.acapOrg||a.eventName||""}
-      ${a.contactName?` · ${a.contactName}`:""}
-      ${a.relType?` <span style="font-size:10px;background:var(--s2);color:var(--tm);padding:1px 5px;border-radius:10px">${a.relType}</span>`:""}
-      ${a.callOutcome?` · <em>${a.callOutcome}</em>`:""}
-      ${a.activityOutcome?` · ${a.activityOutcome}`:""}
-    </div>
+    ${a.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${a.relType}</div>`:""}
+    ${(a.callOutcome||a.activityOutcome)?`<div style="font-size:12px;color:var(--ts);margin-top:2px">${a.callOutcome||a.activityOutcome}</div>`:""}
     ${a.nextAction?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate):""}</div>`:""}
   </div>`;
 }
@@ -1792,8 +1790,8 @@ function renderCalls(coord,state,day){
           <button class="act-del" onclick="deleteActivity('${a.id}')" title="Delete"><i class="ti ti-trash"></i></button>
         </div>
         <div class="small" style="color:var(--ts)">
+          ${a.relType?`<div style="margin-bottom:2px">${a.relType}</div>`:""}
           <span class="tag" style="background:${a.callOutcome&&a.callOutcome.startsWith("Connected")?"var(--green)":"var(--s2)"};color:var(--greent)">${a.callOutcome||"—"}</span>
-          ${a.relType?`<span style="margin-left:6px;color:var(--tm)">${a.relType}</span>`:""}
         </div>
         ${a.meaningfulDiscussion?`<div class="small muted mt8">${a.meaningfulDiscussion}</div>`:""}
         ${a.activityOutcome?`<div class="small mt8"><strong>Outcome:</strong> ${a.activityOutcome}</div>`:""}
@@ -1842,7 +1840,8 @@ function renderVisits(coord,state,day){
             <button class="act-edit" onclick="editActivity('${a.id}')" title="Edit"><i class="ti ti-pencil"></i></button>
             <button class="act-del" onclick="deleteActivity('${a.id}')" title="Delete"><i class="ti ti-trash"></i></button>
           </div>
-          <div class="small" style="color:var(--ts)">${a.relType||""} ${a.activityOutcome?` · ${a.activityOutcome}`:""}</div>
+          ${a.relType?`<div class="small" style="color:var(--ts)">${a.relType}</div>`:""}
+          ${a.activityOutcome?`<div class="small" style="color:var(--ts)">${a.activityOutcome}</div>`:""}
           ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate):""}</div>`:""}
         </div>`;
       });
