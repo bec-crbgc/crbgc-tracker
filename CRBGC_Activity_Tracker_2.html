@@ -2666,7 +2666,7 @@ const CONTACT_OUTCOMES_ALL = [
 ];
 
 function renderCloseFollowupModal(m) {
-  return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
+  return `<div class="modal-bg">
   <div class="modal">
     <div class="modal-title" style="color:#085041"><i class="ti ti-checkbox"></i> Close follow-up</div>
     <div style="background:var(--o1);padding:10px 12px;border-radius:var(--r);margin-bottom:16px;font-size:13px">
@@ -3094,7 +3094,7 @@ function renderActivityModal(type,data){
   }
   fields+=fld("Notes","cm_notes","textarea",data.notes||"");
 
-  return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
+  return `<div class="modal-bg">
   <div class="modal">
     <div class="modal-title"><i class="ti ti-plus"></i> ${titles[type]||type}</div>
     ${fields}
