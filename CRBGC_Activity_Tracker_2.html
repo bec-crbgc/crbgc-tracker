@@ -1608,7 +1608,6 @@ function renderToday(coord,state,day){
           <span class="tag" style="background:#1a73e8;color:#fff;font-size:10px">${activityLabel(f.type)}</span>
           <span style="font-size:12px;font-weight:600;color:var(--tp)">${f.bizName||f.acapOrg||f.leadName||f.studentName||""}</span>
           ${f.contactName?`<span style="font-size:11px;color:var(--ts)">${f.contactName}</span>`:""}
-          ${f.relType?`<span style="font-size:10px;background:var(--s2);color:var(--tm);padding:1px 5px;border-radius:10px">${f.relType}</span>`:""}
           ${(f.snoozeCount||0)>=3?`<span style="background:var(--red);color:var(--redt);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">🔴 Snoozed ${f.snoozeCount}x</span>`:
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
           <div style="margin-left:auto;display:flex;gap:6px">
@@ -1616,6 +1615,7 @@ function renderToday(coord,state,day){
             <button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>
           </div>
         </div>
+        ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
         ${(f.mobile||f.phone||"")?`<div style="margin-top:4px"><a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a></div>`:""}
         ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
       </div>`).join("")}
