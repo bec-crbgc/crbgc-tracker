@@ -483,7 +483,19 @@ function weeklyTotals(coord,ds){
         if(a.newStage==="Registered") T.reg_done++;
         if(a.newStage==="Enrolled") T.enrolled_done++;
       }
-      if(a.followUpDate){
+    });
+
+    // Follow-up open/overdue counts must include ALL activities with a
+    // follow-up date — including auto-generated employer/ACAP/student
+    // reminders (auto_fu_/auto_acap_/sl_), which realActs deliberately
+    // excludes since they aren't "real" logged activities. But that
+    // exclusion was wrong for THIS count specifically: it made the KR
+    // panel's follow-up totals massively undercount versus the "X overdue"
+    // badges shown elsewhere (getAllOverdueFollowups), which correctly
+    // include auto-generated reminders since those make up the majority
+    // of actual open follow-ups.
+    (day.activities||[]).forEach(a=>{
+      if(a.followUpDate && a.status!=="Completed" && a.status!=="Closed"){
         T.followup_open++;
         if(isOverdue(a.followUpDate)) T.followup_overdue++;
       }
@@ -1752,7 +1764,7 @@ function renderActItem(a, viewCoord){
     </div>`:""}
     ${a.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${a.relType}</div>`:""}
     ${(a.callOutcome||a.activityOutcome)?`<div style="font-size:12px;color:var(--ts);margin-top:2px">${a.callOutcome||a.activityOutcome}</div>`:""}
-    ${a.nextAction?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate):""}</div>`:""}
+    ${a.nextAction?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate):""}</div>`:""}
   </div>`;
 }
 
@@ -1796,7 +1808,7 @@ function renderCalls(coord,state,day){
         </div>
         ${a.meaningfulDiscussion?`<div class="small muted mt8">${a.meaningfulDiscussion}</div>`:""}
         ${a.activityOutcome?`<div class="small mt8"><strong>Outcome:</strong> ${a.activityOutcome}</div>`:""}
-        ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate)+(isOverdue(a.followUpDate)?'<span class="overdue"> OVERDUE</span>':''):""}
+        ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate)+(isOverdue(a.followUpDate)?'<span class="overdue"> OVERDUE</span>':''):""}
         </div>`:""}
       </div>`;
     }).join("")}
@@ -1843,7 +1855,7 @@ function renderVisits(coord,state,day){
           </div>
           ${a.relType?`<div class="small" style="color:var(--ts)">${a.relType}</div>`:""}
           ${a.activityOutcome?`<div class="small" style="color:var(--ts)">${a.activityOutcome}</div>`:""}
-          ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate):""}</div>`:""}
+          ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate):""}</div>`:""}
         </div>`;
       });
     });
@@ -1884,7 +1896,7 @@ function renderPipeline(coord,state,day){
         </div>
         ${moved?`<div class="small" style="color:var(--ts)">${a.prevStage} <i class="ti ti-arrow-right" style="font-size:11px"></i> <strong>${a.newStage}</strong></div>`:`<div class="small muted">${a.newStage||a.prevStage||""}</div>`}
         ${a.barrier?`<div class="small muted mt8"><i class="ti ti-lock"></i> Barrier: ${a.barrier}</div>`:""}
-        ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate):""}</div>`:""}
+        ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate):""}</div>`:""}
       </div>`;
     }).join("")}
     </div>`;
@@ -3061,7 +3073,14 @@ function renderActivityModal(type,data){
 
   // ── PIPELINE ───────────────────────────────────────────────────────────
   if(type==="enrolment_pipeline"){
-    fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
+    const epCache=getEnrolmentPipelineCache(S.user.coord);
+    const epOpts=epCache.map(function(s){
+      return '<option value="'+s.name.replace(/"/g,"&quot;")+'">'+s.name+(s.stage?" — "+s.stage:"")+'</option>';
+    }).join("");
+    fields+='<div class="field"><label>Student name<span class="req">*</span></label>'+
+      '<input id="ep_name" list="ep_name_list" value="'+(data.studentName||"").replace(/"/g,"&quot;")+'" oninput="onEpNameInput(this.value)" placeholder="Type or select student..." required>'+
+      '<datalist id="ep_name_list">'+epOpts+'</datalist>'+
+      '<div id="ep_name_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
     fields+=fldRow([
       fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
       fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
@@ -3703,6 +3722,16 @@ function onEcBizInput(val){
   }
 }
 
+function onEpNameInput(val){
+  const student=findEnrolmentPipelineStudent(S.user.coord,val);
+  const hint=document.getElementById("ep_name_hint");
+  if(student){
+    if(hint) hint.innerHTML='<i class="ti ti-info-circle"></i> Current stage: '+(student.stage||"—");
+    const prev=document.getElementById("ep_prev");
+    if(prev && student.stage && PIPELINE_STAGES.includes(student.stage)) prev.value=student.stage;
+  } else if(hint){ hint.innerHTML=""; }
+}
+
 function onAcapOrgInput(val){
   const acap=findAcap(S.user.coord,val);
   const hint=document.getElementById("acap_org_hint");
@@ -4029,6 +4058,7 @@ async function loadFromCloud() {
     // Pull employer and ACAP databases in background
     pullEmployers(coord);
     pullAcaps(coord);
+    pullEnrolmentPipeline(coord);
 
     S.status={ok:true,msg:"✓ Loaded from cloud — "+new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})};
   } catch(e){
@@ -4075,6 +4105,32 @@ async function pullEmployers(coord) {
 
 // ── ACAP cache ────────────────────────────────────────────────────────────
 function acapCacheKey(coord){ return PFX+"acaps:"+coord; }
+function enrolmentPipelineCacheKey(coord){ return PFX+"enrolPipeline:"+coord; }
+function getEnrolmentPipelineCache(coord){
+  try{ const c=localStorage.getItem(enrolmentPipelineCacheKey(coord)); return c?JSON.parse(c):[]; }
+  catch(e){ return []; }
+}
+function setEnrolmentPipelineCache(coord, students){
+  try{ localStorage.setItem(enrolmentPipelineCacheKey(coord), JSON.stringify(students)); }
+  catch(e){}
+}
+function findEnrolmentPipelineStudent(coord, name) {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  return getEnrolmentPipelineCache(coord).find(function(s) {
+    const sn = (s.name||"").trim().toLowerCase();
+    return sn===n || sn.indexOf(n)!==-1 || n.indexOf(sn)!==-1;
+  })||null;
+}
+async function pullEnrolmentPipeline(coord) {
+  try {
+    const url = WEBAPP_URL+"?action=get_enrolment_pipeline&coord="+encodeURIComponent(coord);
+    const data = await jsonpFetch(url);
+    if (!data.ok) return;
+    setEnrolmentPipelineCache(coord, data.students||[]);
+    if(!S.modal) render();
+  } catch(e) {}
+}
 
 function getAcapCache(coord){
   try{ const c=localStorage.getItem(acapCacheKey(coord)); return c?JSON.parse(c):[]; }
