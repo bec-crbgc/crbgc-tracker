@@ -2915,7 +2915,7 @@ function renderActivityModal(type,data){
 
   let fields=``;
   const needsOutcome=!["commencement","registration","enrolment"].includes(type);
-  const needsFollowup=!["commencement","registration","enrolment","event","intro_call"].includes(type);
+  const needsFollowup=!["commencement","registration","enrolment","intro_call"].includes(type);
 
   // ── STUDENT/COMMENCEMENT TYPES ─────────────────────────────────────────
   if(["commencement","registration","enrolment","lead"].includes(type)){
@@ -2987,7 +2987,6 @@ function renderActivityModal(type,data){
     fields+=fld("Location","ev_loc","text",data.location||"");
     fields+=fld("Approximate attendees","ev_att","number",data.attendees||"");
     fields+=fld("Activity outcome","ev_outcome","select",data.activityOutcome||"",["","No opportunity identified",...ACTIVITY_OUTCOMES.slice(1)]);
-    fields+=fld("Notes","ev_notes","textarea",data.notes||"");
   }
 
   // ── EMPLOYER CALL ──────────────────────────────────────────────────────
@@ -3214,26 +3213,9 @@ function saveActivityFromModal(type){
     act.within24h=g("swithin24"); act.callOutcome=g("scallout");
     act.studentName=g("ic_student"); act.trade=g("strade"); act.followUp=g("sfollowup");
   }
-  if(type==="add_acap"){
-    const acapCacheA=getAcapCache(S.user.coord);
-    const acapOptsA=acapCacheA.map(function(a){
-      return '<option value="'+a.org.replace(/"/g,"&quot;")+'">'+a.org+(a.contactName?" — "+a.contactName:"")+'</option>';
-    }).join("");
-    fields+='<div class="field"><label>ACAP organisation<span class="req">*</span></label>'+
-      '<input id="add_acap_org" list="add_acap_org_list" value="'+(data.acapOrg||"").replace(/"/g,"&quot;")+'" oninput="onAcapOrgInput(this.value)" placeholder="Type or select ACAP..." required>'+
-      '<datalist id="add_acap_org_list">'+acapOptsA+'</datalist>'+
-      '<div id="acap_org_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
-    fields+=fld("Contact name","add_acap_contact","text",data.contactName||"");
-    fields+=fld("Position","add_acap_position","text",data.position||"");
-    fields+=fld("State","add_acap_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
-    fields+=fld("Region","add_acap_region","text",data.suburb||"");
-    fields+=fld("Email","add_acap_email","email",data.email||"");
-    fields+=fld("Mobile","add_acap_mobile","text",data.mobile||"");
-  }
-
   if(type==="add_acap"){ act.acapOrg=g("add_acap_org");act.contactName=g("add_acap_contact");act.position=g("add_acap_position");act.studentState=g("add_acap_state");act.suburb=g("add_acap_region");act.email=g("add_acap_email");act.mobile=g("add_acap_mobile"); }
   if(["acap_contact","acap_f2f"].includes(type)){ act.acapOrg=g("acap_org");act.contactName=g("acap_contact");act.activityOutcome=g("acap_outcome"); }
-  if(type==="event"){ act.eventName=g("ev_name");act.location=g("ev_loc");act.attendees=g("ev_att");act.activityOutcome=g("ev_outcome");act.notes=g("ev_notes"); }
+  if(type==="event"){ act.eventName=g("ev_name");act.location=g("ev_loc");act.attendees=g("ev_att");act.activityOutcome=g("ev_outcome"); }
   if(type==="employer_call"){ act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");
     // If "Do not contact" — mark employer inactive in WIP immediately
     if(act.callOutcome==="Do not contact — removed from list" && act.bizName){
@@ -3250,17 +3232,6 @@ function saveActivityFromModal(type){
     act.suburb=g("ne_region");act.postcode=g("ne_postcode");act.studentState=g("ne_state");
     act.activityOutcome=g("ne_outcome");
   }
-  if(type==="enrolment_pipeline"){
-    fields+=fld("Student name","ep_name","text",data.studentName||"",null,"true");
-    fields+=fldRow([
-      fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
-      fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
-    ]);
-    fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...CALL_OUTCOMES],"true");
-    fields+=fld("Barrier to enrolment","ep_barrier","text",data.barrier||"");
-    fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
-  }
-
   if(type==="enrolment_pipeline"){ act.studentName=g("ep_name");act.studentState=g("ep_state");act.trade=g("ep_trade");act.prevStage=g("ep_prev");act.newStage=g("ep_new");act.contactOutcome=g("ep_contact");act.barrier=g("ep_barrier");act.actionToday=g("ep_action");act.expectedReg=g("ep_expreg"); }
   if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.pipelineType=g("pl_pipeline_type");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg"); }
 
