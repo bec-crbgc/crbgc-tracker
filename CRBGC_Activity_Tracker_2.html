@@ -167,7 +167,7 @@ const PIPELINE_STAGES = [
   "New lead","Initial contact attempted","Contact established",
   "Eligibility being confirmed","Employer required","Employer identified",
   "Awaiting documents","Sign-up booked","Sign-up completed",
-  "Enrolment processing","Registration submitted","Registered","On hold","Closed/lost"
+  "Enrolment processing","Registration submitted","Registered","Enrolled","On hold","Closed/lost"
 ];
 
 const ACT_OUTCOME_NEEDS_FOLLOWUP = [
@@ -428,7 +428,7 @@ function weeklyTotals(coord,ds){
     new_employer_met:0,new_employer_acq:0,new_employer_db:0,
     lead:0,opp_generated:0,
     pipeline_contacted:0,pipeline_progressed:0,
-    signup_booked:0,signup_done:0,reg_submitted:0,reg_done:0,
+    signup_booked:0,signup_done:0,reg_submitted:0,reg_done:0,enrolled_done:0,
     followup_open:0,followup_overdue:0,
     days_complete:0,days_productive:0,days_partial:0,days_none:0,
   };
@@ -474,13 +474,14 @@ function weeklyTotals(coord,ds){
       if(a.relType==="New employer acquired") T.new_employer_acq++;
       if(a.type==="lead") T.lead++;
       if(a.activityOutcome&&["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)) T.opp_generated++;
-      if(a.type==="pipeline"){
+      if(["pipeline","enrolment_pipeline"].includes(a.type)){
         T.pipeline_contacted++;
         if(a.newStage&&a.prevStage&&a.newStage!==a.prevStage) T.pipeline_progressed++;
         if(a.newStage==="Sign-up booked") T.signup_booked++;
         if(a.newStage==="Sign-up completed") T.signup_done++;
         if(a.newStage==="Registration submitted") T.reg_submitted++;
         if(a.newStage==="Registered") T.reg_done++;
+        if(a.newStage==="Enrolled") T.enrolled_done++;
       }
       if(a.followUpDate){
         T.followup_open++;
@@ -1969,6 +1970,8 @@ function renderThisWeek(coord,state){
       <div class="funnel-step"><div class="num">${T.signup_booked}</div><div class="small muted">Sign-ups</div></div>
       <div class="funnel-arrow">→</div>
       <div class="funnel-step"><div class="num">${T.registration}</div><div class="small muted">Regs</div></div>
+      <div class="funnel-arrow">→</div>
+      <div class="funnel-step"><div class="num">${T.enrolled_done}</div><div class="small muted">Enrolled</div></div>
     </div>
   </div>`;
 
@@ -2572,6 +2575,8 @@ function renderDashboard(){
         <div class="funnel-step"><div class="num">${T.registration}</div><div class="small muted">Regs</div></div>
         <div class="funnel-arrow">→</div>
         <div class="funnel-step"><div class="num">${T.commencement}</div><div class="small muted">Commencements</div></div>
+        <div class="funnel-arrow">→</div>
+        <div class="funnel-step"><div class="num">${T.enrolled_done}</div><div class="small muted">Enrolled</div></div>
       </div>
 
       <!-- Follow-ups -->
@@ -2945,20 +2950,14 @@ function renderActivityModal(type,data){
 
   // ── ACAP ───────────────────────────────────────────────────────────────
   if(type==="add_acap"){
-    const acapCacheA=getAcapCache(S.user.coord);
-    const acapOptsA=acapCacheA.map(function(a){
-      return '<option value="'+a.org.replace(/"/g,"&quot;")+'">'+a.org+(a.contactName?" — "+a.contactName:"")+'</option>';
-    }).join("");
-    fields+='<div class="field"><label>ACAP organisation<span class="req">*</span></label>'+
-      '<input id="add_acap_org" list="add_acap_org_list" value="'+(data.acapOrg||"").replace(/"/g,"&quot;")+'" oninput="onAcapOrgInput(this.value)" placeholder="Type or select ACAP..." required>'+
-      '<datalist id="add_acap_org_list">'+acapOptsA+'</datalist>'+
-      '<div id="acap_org_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
+    fields+=fld("ACAP organisation","add_acap_org","text",data.acapOrg||"",null,"true");
     fields+=fld("Contact name","add_acap_contact","text",data.contactName||"");
     fields+=fld("Position","add_acap_position","text",data.position||"");
     fields+=fld("State","add_acap_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
     fields+=fld("Region","add_acap_region","text",data.suburb||"");
     fields+=fld("Email","add_acap_email","email",data.email||"");
     fields+=fld("Mobile","add_acap_mobile","text",data.mobile||"");
+    fields+=fld("Profile Builder","add_acap_profile","textarea",data.profileNotes||"");
   }
 
   if(["acap_contact","acap_f2f"].includes(type)){
@@ -3213,7 +3212,7 @@ function saveActivityFromModal(type){
     act.within24h=g("swithin24"); act.callOutcome=g("scallout");
     act.studentName=g("ic_student"); act.trade=g("strade"); act.followUp=g("sfollowup");
   }
-  if(type==="add_acap"){ act.acapOrg=g("add_acap_org");act.contactName=g("add_acap_contact");act.position=g("add_acap_position");act.studentState=g("add_acap_state");act.suburb=g("add_acap_region");act.email=g("add_acap_email");act.mobile=g("add_acap_mobile"); }
+  if(type==="add_acap"){ act.acapOrg=g("add_acap_org");act.contactName=g("add_acap_contact");act.position=g("add_acap_position");act.studentState=g("add_acap_state");act.suburb=g("add_acap_region");act.email=g("add_acap_email");act.mobile=g("add_acap_mobile");act.profileNotes=g("add_acap_profile"); }
   if(["acap_contact","acap_f2f"].includes(type)){ act.acapOrg=g("acap_org");act.contactName=g("acap_contact");act.activityOutcome=g("acap_outcome"); }
   if(type==="event"){ act.eventName=g("ev_name");act.location=g("ev_loc");act.attendees=g("ev_att");act.activityOutcome=g("ev_outcome"); }
   if(type==="employer_call"){ act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");
@@ -3756,7 +3755,7 @@ function actToRow(a, day, coord, state) {
     day.focus||"", day.focusOther||"",
     a.type, a.timestamp||"",
     a.bizName||"", a.contactName||"", a.relType||"",
-    a.callOutcome||"", a.meaningfulDiscussion||"",
+    a.callOutcome||"", (a.type==="add_acap"?(a.profileNotes||""):(a.meaningfulDiscussion||"")),
     a.suburb||"", a.mobile||"", a.email||"",
     a.studentName||"", a.studentState||"", a.trade||"",
     a.prevStage||"", a.newStage||"", a.contactOutcome||"",
