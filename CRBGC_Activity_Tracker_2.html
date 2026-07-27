@@ -206,7 +206,19 @@ const WEEKLY_TARGETS = {
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const TODAY = new Date().toISOString().substring(0,10);
+// TODAY must be the LOCAL calendar date, not UTC. new Date().toISOString()
+// always returns UTC — for Australian timezones (UTC+10/+11), that means
+// roughly midnight to 10-11am local time, it silently returns YESTERDAY's
+// date instead of today's. This caused early-morning sessions to compute
+// the wrong "today", which cascades into S.date's default and any
+// follow-up/due-date filtering that falls back to it.
+function toLocalYMD(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const day=String(d.getDate()).padStart(2,"0");
+  return y+"-"+m+"-"+day;
+}
+const TODAY = toLocalYMD(new Date());
 let S = {
   user: lsGet("user") || null,   // {coord, isManager}
   date: TODAY,
@@ -2753,8 +2765,50 @@ function renderSettingsModal(){
       <button onclick="if(confirm('Clear ALL local data? This cannot be undone.'))clearAllData()" class="btn-danger btn-sm">Clear local data</button>
       <button onclick="S.user=null;lsDel('user');closeModal();render()" class="btn-ghost btn-sm">Switch user</button>
       <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
+      <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
     </div>
   </div></div>`;
+}
+
+// ── Debug: trace exactly what getAllDueToday sees at each stage ─────────
+// Use this when the raw server fetch (debugFollowups) matches across
+// devices but the Due Today card still shows different counts — that
+// means the discrepancy is happening in local filtering/merging, not in
+// the data itself, and this shows exactly where.
+function debugDueToday(){
+  const coord=S.user.coord;
+  const _cd = S.date||TODAY;
+  const days = allDays(coord);
+
+  const fromDays=[];
+  days.forEach(d=>{
+    const day=loadDay(coord,d);
+    (day.activities||[]).forEach(a=>{
+      if(a.followUpDate===_cd) fromDays.push(a.type+" | "+a.id+" | status="+a.status+" | bucket="+d);
+    });
+  });
+
+  const fromCache=[];
+  try{
+    const cf=localStorage.getItem(PFX+"followups:"+coord);
+    if(cf) JSON.parse(cf).forEach(a=>{
+      if(a.followUpDate===_cd) fromCache.push(a.type+" | "+a.id+" | status="+a.status);
+    });
+  }catch(e){}
+
+  const finalResult = getAllDueToday(coord);
+  const byType={};
+  finalResult.forEach(f=>{ byType[f.type]=(byType[f.type]||0)+1; });
+
+  alert(
+    "Selected date (S.date||TODAY): "+_cd+"\n"+
+    "System TODAY constant: "+TODAY+"\n"+
+    "Known local day-keys: "+days.length+"\n\n"+
+    "From day.activities, matching date ("+fromDays.length+"):\n"+fromDays.join("\n")+"\n\n"+
+    "From followups cache, matching date ("+fromCache.length+"):\n"+fromCache.join("\n")+"\n\n"+
+    "FINAL getAllDueToday() result: "+finalResult.length+"\n"+
+    Object.keys(byType).map(t=>t+": "+byType[t]).join("\n")
+  );
 }
 
 // ── Debug: fetch raw follow-ups via the app's own code path ─────────────
@@ -3307,6 +3361,7 @@ function snoozeFollowup(id, date, coord) {
     return "";
   })();
   const isAcapSnooze = snoozeActType==="acap_contact"||snoozeActType==="acap_f2f";
+  const isStudentSnooze = snoozeActType==="lead"||snoozeActType==="enrolment_pipeline";
   // Get org name for ACAP
   let acapOrg_ = "";
   if (isAcapSnooze) {
@@ -3317,18 +3372,33 @@ function snoozeFollowup(id, date, coord) {
       if(!acapOrg_){const cf=localStorage.getItem(PFX+"followups:"+coord);if(cf){const fc=JSON.parse(cf).find(function(a){return a.id===id;});if(fc)acapOrg_=fc.acapOrg||fc.bizName||"";}}
     } catch(e){}
   }
+  // Get student/lead name for Student Lead / Enrolment Pipeline
+  let studentName_ = "";
+  if (isStudentSnooze) {
+    try {
+      const dc=loadDay(coord,date);
+      const ac=(dc.activities||[]).find(function(a){return a.id===id;});
+      studentName_ = ac ? (ac.studentName||ac.leadName||"") : "";
+      if(!studentName_){const cf=localStorage.getItem(PFX+"followups:"+coord);if(cf){const fc=JSON.parse(cf).find(function(a){return a.id===id;});if(fc)studentName_=fc.studentName||fc.leadName||"";}}
+    } catch(e){}
+  }
   if (isAcapSnooze && acapOrg_) {
     fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrg_,
+      body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrg_,id,
         nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze"})
     }).catch(function(){});
-  } else if (!isAcapSnooze && bizName) {
+  } else if (isStudentSnooze && studentName_) {
+    fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+      body:JSON.stringify({type:"update_student_followup",coord,name:studentName_,type:snoozeActType,
+        nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze"})
+    }).catch(function(){});
+  } else if (!isAcapSnooze && !isStudentSnooze && bizName) {
     fetch(WEBAPP_URL, {
       method:"POST", mode:"no-cors",
       headers:{"Content-Type":"text/plain"},
       body:JSON.stringify({
         type:"update_employer_followup",
-        coord, bizName,
+        coord, bizName, id,
         nextContactDate:tomorrowStr,
         lastContactDate:S.date||TODAY,
         action:"snooze"
@@ -3465,7 +3535,9 @@ function confirmCloseFollowup(id, date, coord) {
   S.modal = null;
   S.unsyncedChanges = true;
 
-  // Update WIP Employer DB next contact date
+  // Update WIP database (Employer/ACAP next contact date, or Student
+  // Lead/Enrolment Pipeline follow-up date) so this closure actually
+  // persists server-side, not just in this device's local cache.
   try {
     // Try local day record first, then cloud cache
     const origDay2 = loadDay(coord, date);
@@ -3476,39 +3548,45 @@ function confirmCloseFollowup(id, date, coord) {
     }
     // Also check the act variable already retrieved above
     if (!origAct2 && act) origAct2 = act;
-    const bizName2 = origAct2 ? (origAct2.bizName||"") : "";
-    if (bizName2) {
-      // If meaningful — clear next contact date (will be reset by auto scheduler)
-      // If not meaningful — set next contact date to today + 6 weeks
-      const today_ = S.date||TODAY;
-      let nextDate = "";
-      if (!isMeaningful) {
-        const n = new Date(today_+"T12:00:00"); n.setDate(n.getDate()+42);
-        nextDate = n.toISOString().substring(0,10);
-      }
-      const fuAction = outcome==="Do not contact — removed from list"
-        ? "do_not_contact"
-        : isMeaningful ? "closed_meaningful" : "closed_no_contact";
-      const isAcapClose = origAct2 && (origAct2.type==="acap_contact"||origAct2.type==="acap_f2f");
-      const acapOrgClose = isAcapClose ? (origAct2.acapOrg||origAct2.bizName||"") : "";
-      if (isAcapClose && acapOrgClose) {
-        fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-          body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrgClose,
-            nextContactDate:nextDate,lastContactDate:today_,action:fuAction})
-        }).catch(function(){});
-      } else if (!isAcapClose && bizName2) {
-        fetch(WEBAPP_URL, {
-          method:"POST", mode:"no-cors",
-          headers:{"Content-Type":"text/plain"},
-          body:JSON.stringify({
-            type:"update_employer_followup",
-            coord, bizName:bizName2,
-            nextContactDate:nextDate,
-            lastContactDate:today_,
-            action: fuAction
-          })
-        }).catch(function(){});
-      }
+
+    const today_ = S.date||TODAY;
+    let nextDate = "";
+    if (!isMeaningful) {
+      const n = new Date(today_+"T12:00:00"); n.setDate(n.getDate()+42);
+      nextDate = n.toISOString().substring(0,10);
+    }
+    const fuAction = outcome==="Do not contact — removed from list"
+      ? "do_not_contact"
+      : isMeaningful ? "closed_meaningful" : "closed_no_contact";
+
+    const isAcapClose = origAct2 && (origAct2.type==="acap_contact"||origAct2.type==="acap_f2f");
+    const isStudentClose = origAct2 && (origAct2.type==="lead"||origAct2.type==="enrolment_pipeline");
+    const acapOrgClose = isAcapClose ? (origAct2.acapOrg||origAct2.bizName||"") : "";
+    const bizName2 = (!isAcapClose && !isStudentClose && origAct2) ? (origAct2.bizName||"") : "";
+    const studentName2 = isStudentClose ? (origAct2.studentName||origAct2.leadName||"") : "";
+
+    if (isAcapClose && acapOrgClose) {
+      fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+        body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrgClose,id,
+          nextContactDate:nextDate,lastContactDate:today_,action:fuAction})
+      }).catch(function(){});
+    } else if (isStudentClose && studentName2) {
+      fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
+        body:JSON.stringify({type:"update_student_followup",coord,name:studentName2,type:origAct2.type,
+          nextContactDate:nextDate,lastContactDate:today_,action:fuAction})
+      }).catch(function(){});
+    } else if (bizName2) {
+      fetch(WEBAPP_URL, {
+        method:"POST", mode:"no-cors",
+        headers:{"Content-Type":"text/plain"},
+        body:JSON.stringify({
+          type:"update_employer_followup",
+          coord, bizName:bizName2, id,
+          nextContactDate:nextDate,
+          lastContactDate:today_,
+          action: fuAction
+        })
+      }).catch(function(){});
     }
   } catch(e_){}
 
