@@ -2815,6 +2815,7 @@ function renderSettingsModal(){
       <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
       <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
       <button onclick="debugMergeFollowups()" class="btn-ghost btn-sm">Debug merge (fix + diagnose)</button>
+      <button onclick="debugEnrolmentPipeline()" class="btn-ghost btn-sm">Debug enrolment pipeline cache</button>
       <button onclick="showErrorLog()" class="btn-ghost btn-sm">Show error log</button>
       <button onclick="clearErrorLog()" class="btn-ghost btn-sm">Clear error log</button>
     </div>
@@ -2832,6 +2833,28 @@ function renderSettingsModal(){
 // wraps its whole forEach in one try/catch, so if a SINGLE entry throws,
 // the rest silently never get processed and nobody would ever know. This
 // isolates exactly which entry (if any) is causing that.
+async function debugEnrolmentPipeline(){
+  const coord=S.user.coord;
+  // Raw server fetch — bypasses local cache entirely
+  let rawList=[];
+  try{
+    const url=WEBAPP_URL+"?action=get_enrolment_pipeline&coord="+encodeURIComponent(coord);
+    const data=await jsonpFetch(url);
+    if(data.ok) rawList=data.students||[];
+  }catch(e){}
+  // What's currently stored locally (what the autocomplete actually reads from)
+  const localList=getEnrolmentPipelineCache(coord);
+  alert(
+    "Coord: "+coord+"\n\n"+
+    "RAW server fetch: "+rawList.length+" students\n"+
+    rawList.slice(0,5).map(s=>s.name+" — "+(s.stage||"(no stage)")).join("\n")+
+    (rawList.length>5?"\n...":"")+"\n\n"+
+    "LOCAL cache (what autocomplete uses): "+localList.length+" students\n"+
+    localList.slice(0,5).map(s=>s.name+" — "+(s.stage||"(no stage)")).join("\n")+
+    (localList.length>5?"\n...":"")
+  );
+}
+
 async function debugMergeFollowups(){
   const coord=S.user.coord, state=STATES[coord];
   const url=WEBAPP_URL+"?action=get_followups&coord="+encodeURIComponent(coord)+"&state="+state;
