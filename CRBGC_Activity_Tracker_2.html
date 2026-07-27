@@ -1675,9 +1675,13 @@ function renderToday(coord,state,day){
   // Due today
   const dueToday=getAllDueToday(coord);
   if(dueToday.length>0){
+    const dueTodayOpen=!!S.dueTodayExpanded;
     h+=`<div class="card" style="border-color:#1a73e8;background:#E8F0FE;">
-      <div class="card-title" style="color:#1a73e8"><i class="ti ti-checkbox"></i> ${dueToday.length} follow-up${dueToday.length>1?"s":""} due today</div>
-      ${dueToday.map((f,fi)=>`<div style="padding:8px 0;${fi<dueToday.length-1?'border-bottom:.5px solid #c5d8fc':''}">
+      <div class="card-title" style="color:#1a73e8;cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="S.dueTodayExpanded=!S.dueTodayExpanded;render()">
+        <span><i class="ti ti-checkbox"></i> ${dueToday.length} follow-up${dueToday.length>1?"s":""} due today</span>
+        <i class="ti ${dueTodayOpen?"ti-chevron-up":"ti-chevron-down"}" style="font-size:14px"></i>
+      </div>
+      ${dueTodayOpen?dueToday.map((f,fi)=>`<div style="padding:8px 0;${fi<dueToday.length-1?'border-bottom:.5px solid #c5d8fc':''}">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="tag" style="background:#1a73e8;color:#fff;font-size:10px">${activityLabel(f.type)}</span>
           <span style="font-size:12px;font-weight:600;color:var(--tp)">${f.bizName||f.acapOrg||f.leadName||f.studentName||""}</span>
@@ -1694,8 +1698,8 @@ function renderToday(coord,state,day){
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
         ${(f.mobile||f.phone||"")?`<div style="margin-top:4px"><a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a></div>`:""}
         ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
-      </div>`).join("")}
-      <div style="font-size:11px;color:#1a73e8;margin-top:8px">✓ Done marks it complete · Snooze moves follow-up date to tomorrow</div>
+      </div>`).join(""):""}
+      ${dueTodayOpen?`<div style="font-size:11px;color:#1a73e8;margin-top:8px">✓ Done marks it complete · Snooze moves follow-up date to tomorrow</div>`:""}
     </div>`;
   }
 
