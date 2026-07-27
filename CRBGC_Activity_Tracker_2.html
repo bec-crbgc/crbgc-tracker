@@ -70,6 +70,13 @@ button{padding:8px 16px;border-radius:var(--r);border:1.5px solid var(--bds);cur
 .progress-bar{height:4px;background:var(--bd);border-radius:2px;margin-top:4px;overflow:hidden;}
 .progress-fill{height:100%;border-radius:2px;transition:width .3s;}
 /* Activity log items */
+.ep-dropdown{position:absolute;top:100%;left:0;right:0;z-index:50;background:#fff;border:1px solid var(--bd);border-radius:var(--r);max-height:220px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.15);margin-top:2px;}
+.ep-dropdown.hidden{display:none;}
+.ep-dropdown-item{padding:10px 12px;font-size:13px;cursor:pointer;border-bottom:.5px solid var(--bd);}
+.ep-dropdown-item:last-child{border-bottom:none;}
+.ep-dropdown-item:hover, .ep-dropdown-item:active{background:var(--s2);}
+.ep-dropdown-item .muted{color:var(--tm);font-size:11px;}
+.ep-dropdown-empty{padding:10px 12px;font-size:12px;color:var(--tm);font-style:italic;}
 .act-item{background:var(--s1);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;border:.5px solid var(--bd);position:relative;}
 .act-item-hdr{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
 .act-btns{position:absolute;top:8px;right:8px;display:flex;gap:2px;}
@@ -3120,13 +3127,12 @@ function renderActivityModal(type,data){
 
   // ── PIPELINE ───────────────────────────────────────────────────────────
   if(type==="enrolment_pipeline"){
-    const epCache=getEnrolmentPipelineCache(S.user.coord);
-    const epOpts=epCache.map(function(s){
-      return '<option value="'+s.name.replace(/"/g,"&quot;")+'">'+s.name+(s.stage?" — "+s.stage:"")+'</option>';
-    }).join("");
-    fields+='<div class="field"><label>Student name<span class="req">*</span></label>'+
-      '<input id="ep_name" list="ep_name_list" value="'+(data.studentName||"").replace(/"/g,"&quot;")+'" oninput="onEpNameInput(this.value)" placeholder="Type or select student..." required>'+
-      '<datalist id="ep_name_list">'+epOpts+'</datalist>'+
+    fields+='<div class="field" style="position:relative">'+
+      '<label>Student name<span class="req">*</span></label>'+
+      '<input id="ep_name" value="'+(data.studentName||"").replace(/"/g,"&quot;")+'" '+
+      'oninput="onEpNameInput(this.value)" onfocus="onEpNameFocus()" onblur="hideEpDropdownDelayed()" '+
+      'placeholder="Tap to select or type student name..." autocomplete="off" required>'+
+      '<div id="ep_name_dropdown" class="ep-dropdown hidden"></div>'+
       '<div id="ep_name_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
     fields+=fldRow([
       fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
@@ -3793,7 +3799,43 @@ function onEcBizInput(val){
   }
 }
 
+function renderEpDropdown(filterText){
+  const dd=document.getElementById("ep_name_dropdown");
+  if(!dd) return;
+  const cache=getEnrolmentPipelineCache(S.user.coord);
+  const filter=(filterText||"").trim().toLowerCase();
+  const matches=filter?cache.filter(function(s){return s.name.toLowerCase().indexOf(filter)!==-1;}):cache;
+  if(!matches.length){
+    dd.innerHTML='<div class="ep-dropdown-empty">'+(filter?"No matches — will be logged as a new entry":"No students found")+'</div>';
+  } else {
+    dd.innerHTML=matches.slice(0,50).map(function(s){
+      const safe=s.name.replace(/'/g,"\\'").replace(/"/g,"&quot;");
+      return '<div class="ep-dropdown-item" onmousedown="selectEpName(\''+safe+'\')">'+s.name+(s.stage?' <span class="muted">— '+s.stage+'</span>':'')+'</div>';
+    }).join("");
+  }
+  dd.classList.remove("hidden");
+}
+function onEpNameFocus(){
+  const input=document.getElementById("ep_name");
+  renderEpDropdown(input?input.value:"");
+}
+function hideEpDropdownDelayed(){
+  // Delay so a tap on a dropdown item (which uses onmousedown, firing
+  // before blur) has already registered before we hide the list.
+  setTimeout(function(){
+    const dd=document.getElementById("ep_name_dropdown");
+    if(dd) dd.classList.add("hidden");
+  }, 150);
+}
+function selectEpName(name){
+  const input=document.getElementById("ep_name");
+  if(input) input.value=name;
+  onEpNameInput(name);
+  const dd=document.getElementById("ep_name_dropdown");
+  if(dd) dd.classList.add("hidden");
+}
 function onEpNameInput(val){
+  renderEpDropdown(val);
   const student=findEnrolmentPipelineStudent(S.user.coord,val);
   const hint=document.getElementById("ep_name_hint");
   if(student){
