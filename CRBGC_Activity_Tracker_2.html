@@ -244,6 +244,24 @@ function loadDay(coord,date){
 function saveDay(day){ lsSet(dayKey(day.coord,day.date),day); }
 function getDay(){ return loadDay(S.user.coord, S.date); }
 
+// ── Pending deletions tracker ──────────────────────────────────────────────
+// Deletions must be sent to the server explicitly (as an id list), rather
+// than relying on the deleted item's absence from the push payload — the
+// server no longer treats "not in payload" as "delete it" (see multi-device
+// sync fix), since that would let one device's stale local cache silently
+// wipe out another device's entries that it simply hadn't pulled yet.
+function pendingDeletesKey(coord){ return "pendingDeletes:"+coord; }
+function getPendingDeletes(coord){ return lsGet(pendingDeletesKey(coord)) || []; }
+function addPendingDelete(coord, id){
+  const list = getPendingDeletes(coord);
+  if(!list.includes(id)) list.push(id);
+  lsSet(pendingDeletesKey(coord), list);
+}
+function clearPendingDeletes(coord, ids){
+  const remaining = getPendingDeletes(coord).filter(id=>!ids.includes(id));
+  lsSet(pendingDeletesKey(coord), remaining);
+}
+
 // ── Employer database cache ───────────────────────────────────────────────
 function empCacheKey(coord){ return PFX+"employers:"+coord; }
 
@@ -3159,6 +3177,7 @@ function deleteActivity(id, coord){
   const day = loadDay(targetCoord, S.date);
   day.activities=(day.activities||[]).filter(a=>a.id!==id);
   saveDay(day);
+  addPendingDelete(targetCoord, id);
   S.unsyncedChanges=true;
   S.status={ok:true,msg:"Activity deleted — syncing…"};
   schedulePush();
@@ -3679,9 +3698,11 @@ async function pushData() {
   });
 
   // Push activities
+  const deletedIds = getPendingDeletes(coord);
   try {
-    const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows});
-    if(r.ok) pushed+=actRows.length; else errors.push("Activities: "+r.msg);
+    const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows,deletedIds});
+    if(r.ok) { pushed+=actRows.length; clearPendingDeletes(coord, deletedIds); }
+    else errors.push("Activities: "+r.msg);
   } catch(e){ errors.push("Activities: "+e.message); }
 
   // Push day meta (focus, EOD, notes)
