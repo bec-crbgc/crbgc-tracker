@@ -408,7 +408,7 @@ function weeklyTotals(coord,ds){
     else T.days_none++;
     if(day.eodStatus==="complete") T.days_complete++;
     const realActs=(day.activities||[]).filter(a=>
-      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
+      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))
     );
     realActs.forEach(a=>{
       if(a.type==="commencement") T.commencement++;
@@ -1593,7 +1593,7 @@ function renderDailyPaceCard(coord, state, T) {
 function renderToday(coord,state,day){
   const T=weeklyTotals(coord,S.date);
   const status=dayStatus(day);
-  const today_acts=(day.activities||[]).filter(a=>!["employer_call","site_visit","pipeline"].includes(a.type)&&(!a.id||(!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))));
+  const today_acts=(day.activities||[]).filter(a=>!["employer_call","site_visit","pipeline"].includes(a.type)&&(!a.id||(!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))));
   const overdueFollowups=getAllOverdueFollowups(coord);
 
   let h=``;
@@ -1961,7 +1961,7 @@ function renderThisWeek(coord,state){
       ${expanded?`<div class="wk-day-body">
         ${day.focus?`<div style="margin-bottom:8px"><span class="focus-badge"><i class="ti ti-target"></i> ${day.focus}</span></div>`:""}
         ${acts.length===0?`<div class="small muted">No activities logged</div>`:""}
-        ${acts.filter(a=>!(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")))).map(a=>renderActItem(a)).join("")}
+        ${acts.filter(a=>!(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")||a.id.startsWith("sl_")))).map(a=>renderActItem(a)).join("")}
         ${day.eodResult?`<div style="margin-top:8px;padding:8px 10px;background:var(--s1);border-radius:var(--r);border-left:3px solid var(--hdr)">
           <div class="small bold">EOD result</div>
           <div class="small muted mt8">${day.eodResult}</div>
@@ -2119,7 +2119,7 @@ function renderHistory(coord,state){
     // Filter out auto follow-up rows and badly-mapped rows (bizName = state)
     const STATE_NAMES = ["VIC","NSW","QLD","ACT","SA","WA","TAS","NT"];
     const acts=(day.activities||[]).filter(a=>
-      !(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_"))) &&
+      !(a.id&&(a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")||a.id.startsWith("sl_"))) &&
       !STATE_NAMES.includes(a.bizName)
     );
     // Only show dates from tracker start date onwards
@@ -3656,7 +3656,7 @@ async function pushData() {
       npipeline:day.npipeline||"", ncampaign:day.ncampaign||"",
     });
     const realActs=(day.activities||[]).filter(a=>
-      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_"))
+      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))
     );
     realActs.forEach(a=>{
       actRows.push(actToRow(a, day, coord, state));
