@@ -72,9 +72,11 @@ button{padding:8px 16px;border-radius:var(--r);border:1.5px solid var(--bds);cur
 /* Activity log items */
 .act-item{background:var(--s1);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;border:.5px solid var(--bd);position:relative;}
 .act-item-hdr{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
-.act-time{font-size:11px;color:var(--tm);}
-.act-del{position:absolute;top:8px;right:8px;background:none;border:none;color:var(--tm);cursor:pointer;font-size:14px;padding:2px;}
+.act-btns{position:absolute;top:8px;right:8px;display:flex;gap:2px;}
+.act-del{background:none;border:none;color:var(--tm);cursor:pointer;font-size:14px;padding:2px 4px;}
 .act-del:hover{color:var(--redt);}
+.act-edit{background:none;border:none;color:var(--tm);cursor:pointer;font-size:14px;padding:2px 4px;}
+.act-edit:hover{color:var(--hdr);}
 /* Day status badges */
 .day-status{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
 .ds-productive{background:var(--green);color:var(--greent);}
@@ -1736,12 +1738,14 @@ function renderActItem(a, viewCoord){
   const canDelete = S.user.isManager || !viewCoord || viewCoord === S.user.coord;
   const delCoord = viewCoord || S.user.coord;
   return `<div class="act-item">
-    <div class="act-item-hdr">
+    <div class="act-item-hdr" style="padding-right:44px">
       <span class="tag" style="background:${col.bg};color:${col.txt}">${activityLabel(a.type)}</span>
-      ${a.type!=="follow_up_closed"?`<span class="act-time">${a.timestamp||""}</span>`:""}
       ${overdue?`<span class="overdue-badge">⚠ Follow-up overdue</span>`:""}
-      ${canDelete?`<button class="act-edit" onclick="editActivity('${a.id}','${delCoord}')" title="Edit" style="background:none;border:none;cursor:pointer;color:var(--ts);padding:2px 4px;margin-right:2px"><i class="ti ti-pencil" style="font-size:14px"></i></button>`:""}      ${canDelete?`<button class="act-del" onclick="deleteActivity('${a.id}','${delCoord}')" title="Delete"><i class="ti ti-trash"></i></button>`:""}
     </div>
+    ${canDelete?`<div class="act-btns">
+      <button class="act-edit" onclick="editActivity('${a.id}','${delCoord}')" title="Edit"><i class="ti ti-pencil"></i></button>
+      <button class="act-del" onclick="deleteActivity('${a.id}','${delCoord}')" title="Delete"><i class="ti ti-trash"></i></button>
+    </div>`:""}
     <div style="font-size:12px;color:var(--ts)">
       ${a.bizName||a.studentName||a.leadName||a.acapOrg||a.eventName||""}
       ${a.contactName?` · ${a.contactName}`:""}
@@ -1779,11 +1783,13 @@ function renderCalls(coord,state,day){
     ${calls.map(a=>{
       const meaningful_icon=isMeaningfulCall(a)?'<i class="ti ti-star-filled" style="color:var(--greent);font-size:11px"></i>':'';
       return `<div class="act-item">
-        <div class="act-item-hdr">
+        <div class="act-item-hdr" style="padding-right:44px">
           ${meaningful_icon}<span class="bold small">${a.bizName||"—"}</span>
           <span class="muted small">${a.contactName||""}</span>
-          ${a.type!=="follow_up_closed"?`<span class="act-time">${a.timestamp||""}</span>`:""}
-          <button class="act-del" onclick="deleteActivity('${a.id}')"><i class="ti ti-trash"></i></button>
+        </div>
+        <div class="act-btns">
+          <button class="act-edit" onclick="editActivity('${a.id}')" title="Edit"><i class="ti ti-pencil"></i></button>
+          <button class="act-del" onclick="deleteActivity('${a.id}')" title="Delete"><i class="ti ti-trash"></i></button>
         </div>
         <div class="small" style="color:var(--ts)">
           <span class="tag" style="background:${a.callOutcome&&a.callOutcome.startsWith("Connected")?"var(--green)":"var(--s2)"};color:var(--greent)">${a.callOutcome||"—"}</span>
@@ -1828,10 +1834,13 @@ function renderVisits(coord,state,day){
       h+=`<div style="margin-bottom:4px;font-size:11px;font-weight:700;color:var(--tm);text-transform:uppercase;letter-spacing:.5px;">${suburb} · ${vs.length} employer${vs.length>1?"s":""}</div>`;
       vs.forEach(a=>{
         h+=`<div class="act-item">
-          <div class="act-item-hdr">
+          <div class="act-item-hdr" style="padding-right:44px">
             <span class="bold small">${a.bizName||"—"}</span>
             <span class="muted small">${a.contactName||""}</span>
-            <button class="act-del" onclick="deleteActivity('${a.id}')"><i class="ti ti-trash"></i></button>
+          </div>
+          <div class="act-btns">
+            <button class="act-edit" onclick="editActivity('${a.id}')" title="Edit"><i class="ti ti-pencil"></i></button>
+            <button class="act-del" onclick="deleteActivity('${a.id}')" title="Delete"><i class="ti ti-trash"></i></button>
           </div>
           <div class="small" style="color:var(--ts)">${a.relType||""} ${a.activityOutcome?` · ${a.activityOutcome}`:""}</div>
           ${a.nextAction?`<div class="small muted mt8"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · "+fmtDateShort(a.followUpDate):""}</div>`:""}
@@ -1864,11 +1873,14 @@ function renderPipeline(coord,state,day){
     ${pipes.map(a=>{
       const moved=a.newStage&&a.prevStage&&a.newStage!==a.prevStage;
       return `<div class="act-item">
-        <div class="act-item-hdr">
+        <div class="act-item-hdr" style="padding-right:44px">
           <span class="bold small">${a.leadName||"—"}</span>
           <span class="muted small">${a.trade||""}</span>
           ${moved?'<span class="tag" style="background:var(--green);color:var(--greent);font-size:10px">↑ Progressed</span>':""}
-          <button class="act-del" onclick="deleteActivity('${a.id}')"><i class="ti ti-trash"></i></button>
+        </div>
+        <div class="act-btns">
+          <button class="act-edit" onclick="editActivity('${a.id}')" title="Edit"><i class="ti ti-pencil"></i></button>
+          <button class="act-del" onclick="deleteActivity('${a.id}')" title="Delete"><i class="ti ti-trash"></i></button>
         </div>
         ${moved?`<div class="small" style="color:var(--ts)">${a.prevStage} <i class="ti ti-arrow-right" style="font-size:11px"></i> <strong>${a.newStage}</strong></div>`:`<div class="small muted">${a.newStage||a.prevStage||""}</div>`}
         ${a.barrier?`<div class="small muted mt8"><i class="ti ti-lock"></i> Barrier: ${a.barrier}</div>`:""}
