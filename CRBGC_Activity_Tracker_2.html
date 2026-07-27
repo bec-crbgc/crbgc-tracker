@@ -2761,6 +2761,13 @@ function renderActivityModal(type,data){
     fields+=fld("Student name","sname","text",data.studentName||"",null,"true");
     fields+=fld("State","sstate","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
     fields+=fld("Trade / qualification","strade","text",data.trade||"");
+    if(type==="lead"){
+      fields+=fldRow([
+        fld("Previous stage","slead_prev","select",data.prevStage||"",[""].concat(PIPELINE_STAGES)),
+        fld("New stage","slead_new","select",data.newStage||"",[""].concat(PIPELINE_STAGES),"true"),
+      ]);
+      fields+=fld("Contact outcome","slead_outcome","select",data.contactOutcome||"",[""].concat(CALL_OUTCOMES));
+    }
   }
   if(type==="intro_call"){
     // Intro call = employer call within 24hrs of new registration/assignment
@@ -3034,6 +3041,10 @@ function saveActivityFromModal(type){
   // Collect fields by type
   if(["commencement","registration","enrolment","lead"].includes(type)){
     act.studentName=g("sname"); act.studentState=g("sstate"); act.trade=g("strade");
+    if(type==="lead"){
+      act.prevStage=g("slead_prev"); act.newStage=g("slead_new");
+      act.contactOutcome=g("slead_outcome");
+    }
   }
   if(type==="intro_call"){
     act.bizName=g("ic_biz"); act.contactName=g("ic_contact");
@@ -3858,13 +3869,14 @@ async function pullFollowups(coord, state) {
     const data=await jsonpFetch(url);
     if(!data.ok) return;
     // Merge follow-up activities into their respective days in localStorage
+    // Always update existing entries so phone/name changes come through
     (data.followups||[]).forEach(a=>{
       if(!a.date) return;
       const day=loadDay(coord, a.date);
-      // Only add if not already present
       if(!day.activities) day.activities=[];
-      const exists=day.activities.find(x=>x.id===a.id);
-      if(!exists) day.activities.push(a);
+      const idx=day.activities.findIndex(x=>x.id===a.id);
+      if(idx>=0) day.activities[idx]=a; // update existing
+      else day.activities.push(a);      // add new
       saveDay(day);
     });
     // Cache the full followups list for due-today and overdue checks
