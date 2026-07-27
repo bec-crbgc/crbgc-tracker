@@ -1642,6 +1642,32 @@ function renderToday(coord,state,day){
 
   let h=``;
 
+  // Overdue alerts — moved above Due Today, collapsible (minimised by default)
+  if(overdueFollowups.length>0){
+    const overdueOpen=!!S.overdueExpanded;
+    h+=`<div class="card" style="border-color:var(--redt);background:#FFF5F5;">
+      <div class="card-title" style="color:var(--redt);cursor:pointer;display:flex;align-items:center;justify-content:space-between" onclick="S.overdueExpanded=!S.overdueExpanded;render()">
+        <span><i class="ti ti-alert-triangle"></i> ${overdueFollowups.length} overdue follow-up${overdueFollowups.length>1?"s":""}</span>
+        <i class="ti ${overdueOpen?"ti-chevron-up":"ti-chevron-down"}" style="font-size:14px"></i>
+      </div>
+      ${overdueOpen?overdueFollowups.map((f,fi)=>`<div style="padding:8px 0;${fi<overdueFollowups.length-1?'border-bottom:.5px solid #fcc':''}">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="tag" style="background:var(--redt);color:#fff;font-size:10px">${activityLabel(f.type)}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--tp)">${f.bizName||f.acapOrg||f.leadName||f.studentName||""}</span>
+          ${f.contactName?`<span style="font-size:11px;color:var(--ts)">${f.contactName}</span>`:""}
+          <span style="font-size:10px;background:var(--redt);color:#fff;padding:1px 6px;border-radius:20px;font-weight:600;margin-left:auto">Due ${fmtDateShort(f.followUpDate)}</span>
+        </div>
+        ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
+        ${(f.mobile||f.phone||"")?`<div style="margin-top:4px"><a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a></div>`:""}
+        ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
+        <div style="margin-top:6px;display:flex;gap:6px">
+          <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+          <button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>
+        </div>
+      </div>`).join(""):""}
+    </div>`;
+  }
+
   // Due today
   const dueToday=getAllDueToday(coord);
   if(dueToday.length>0){
@@ -1664,18 +1690,6 @@ function renderToday(coord,state,day){
         ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
       </div>`).join("")}
       <div style="font-size:11px;color:#1a73e8;margin-top:8px">✓ Done marks it complete · Snooze moves follow-up date to tomorrow</div>
-    </div>`;
-  }
-
-  // Overdue alerts
-  if(overdueFollowups.length>0){
-    h+=`<div class="card" style="border-color:var(--redt);background:#FFF5F5;">
-      <div class="card-title" style="color:var(--redt)"><i class="ti ti-alert-triangle"></i> ${overdueFollowups.length} overdue follow-up${overdueFollowups.length>1?"s":""}</div>
-      ${overdueFollowups.slice(0,3).map(f=>`<div style="font-size:12px;color:var(--redt);padding:4px 0;border-bottom:.5px solid #fcc;">
-        <strong>${activityLabel(f.type)}</strong> — ${f.bizName||f.acapOrg||f.leadName||f.studentName||""} · Due ${fmtDateShort(f.followUpDate)}<br>
-        <span style="color:var(--ts)">${f.nextAction||""}</span>
-      </div>`).join("")}
-      ${overdueFollowups.length>3?`<div class="small muted mt8">+${overdueFollowups.length-3} more — see History tab</div>`:""}
     </div>`;
   }
 
