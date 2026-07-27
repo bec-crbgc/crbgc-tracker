@@ -16,7 +16,7 @@
   font-family:Arial,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:#f0f2f5;min-height:100vh;font-size:14px;color:var(--tp);}
+body{background:#f0f2f5;min-height:100vh;font-size:14px;color:var(--tp);overscroll-behavior-y:contain;}
 #app{max-width:520px;margin:0 auto;padding:0 0 80px;}
 /* Header */
 .hdr{background:var(--hdr);color:#fff;padding:12px 16px;position:sticky;top:0;z-index:100;}
@@ -102,8 +102,8 @@ button{padding:8px 16px;border-radius:var(--r);border:1.5px solid var(--bds);cur
 /* Focus badge */
 .focus-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:var(--o2);color:var(--o2t);}
 /* Modal */
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-end;}
-.modal{background:#fff;border-radius:var(--r2) var(--r2) 0 0;width:100%;max-width:520px;margin:0 auto;padding:20px 16px;max-height:90vh;overflow-y:auto;}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:flex-end;overscroll-behavior:contain;}
+.modal{background:#fff;border-radius:var(--r2) var(--r2) 0 0;width:100%;max-width:520px;margin:0 auto;padding:20px 16px;max-height:90vh;overflow-y:auto;overscroll-behavior:contain;}
 .modal-title{font-size:16px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;}
 /* User setup */
 .user-setup{background:#fff;border-radius:var(--r2);margin:20px 12px;padding:24px;}
@@ -2767,6 +2767,8 @@ function renderSettingsModal(){
       <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
       <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
       <button onclick="debugMergeFollowups()" class="btn-ghost btn-sm">Debug merge (fix + diagnose)</button>
+      <button onclick="showErrorLog()" class="btn-ghost btn-sm">Show error log</button>
+      <button onclick="clearErrorLog()" class="btn-ghost btn-sm">Clear error log</button>
     </div>
   </div></div>`;
 }
@@ -4179,6 +4181,34 @@ function downloadWeeklyNotes(){
   const win=window.open("","_blank","width=900,height=700");
   win.document.write(html); win.document.close(); win.focus();
   setTimeout(()=>win.print(),400);
+}
+
+// ═══════════════════════════════════════════════════════════
+// GLOBAL ERROR CAPTURE — surfaces uncaught errors visibly and keeps a
+// log, since silent JS errors on mobile are otherwise invisible to us.
+// ═══════════════════════════════════════════════════════════
+window._errorLog = [];
+window.addEventListener("error", function(e){
+  const msg = (e.error && e.error.stack) ? e.error.stack : e.message;
+  window._errorLog.push(new Date().toLocaleTimeString()+" | "+msg);
+  try{ lsSet("errorLog", window._errorLog); }catch(e_){}
+  alert("⚠ App error caught:\n\n"+msg+"\n\nThe app state was NOT reset — check if your form data is still there. If not, use Settings → 'Show error log' and share it.");
+});
+window.addEventListener("unhandledrejection", function(e){
+  const msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+  window._errorLog.push(new Date().toLocaleTimeString()+" | (promise) "+msg);
+  try{ lsSet("errorLog", window._errorLog); }catch(e_){}
+  alert("⚠ App error caught (async):\n\n"+msg);
+});
+function showErrorLog(){
+  const log = lsGet("errorLog") || [];
+  if(!log.length){ alert("No errors logged since last page load/clear."); return; }
+  alert("Error log ("+log.length+"):\n\n"+log.slice(-15).join("\n\n"));
+}
+function clearErrorLog(){
+  window._errorLog=[];
+  try{ localStorage.removeItem(lsKey("errorLog")); }catch(e){}
+  alert("Error log cleared.");
 }
 
 // ═══════════════════════════════════════════════════════════
