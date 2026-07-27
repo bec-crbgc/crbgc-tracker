@@ -3189,8 +3189,9 @@ function closeModal(){
 function saveActivityFromModal(type){
   const editId = S.modal?.editId || null;
   const editCoord = S.modal?.editCoord || null;
+  const editDate = S.modal?.editDate || null;
   const isEdit = !!editId;
-  const day = isEdit ? loadDay(editCoord||S.user.coord, S.date) : getDay();
+  const day = isEdit ? loadDay(editCoord||S.user.coord, editDate||S.date) : getDay();
   const existingAct = isEdit ? (day.activities||[]).find(a=>a.id===editId) : null;
   const act = isEdit && existingAct
     ? {...existingAct}  // copy existing, preserve id and timestamp
@@ -3274,12 +3275,27 @@ function saveActivityFromModal(type){
   render();
 }
 
+function findActivityAnyDay(coord, id) {
+  // Activities rendered in This Week / History may belong to a day other
+  // than whatever is currently selected as S.date — search every known
+  // day bucket for this coordinator rather than assuming S.date, which
+  // previously caused "Activity not found" (edit) or silent no-op (delete)
+  // whenever the item being acted on wasn't from the currently-selected day.
+  const days = allDays(coord);
+  for (const d of days) {
+    const day = loadDay(coord, d);
+    const act = (day.activities||[]).find(a=>a.id===id);
+    if (act) return {day, act, date:d};
+  }
+  return null;
+}
+
 function editActivity(id, coord) {
-  const day = loadDay(coord||S.user.coord, S.date);
-  const act = (day.activities||[]).find(a=>a.id===id);
-  if (!act) { alert("Activity not found"); return; }
+  const targetCoord = coord || S.user.coord;
+  const found = findActivityAnyDay(targetCoord, id);
+  if (!found) { alert("Activity not found"); return; }
   // Use same modal type as new activity, pass existing data so fields pre-fill
-  S.modal = {type:"activity", actType:act.type, data:act, editId:act.id, editCoord:coord||S.user.coord};
+  S.modal = {type:"activity", actType:found.act.type, data:found.act, editId:found.act.id, editCoord:targetCoord, editDate:found.date};
   render();
 }
 
@@ -3287,9 +3303,10 @@ function deleteActivity(id, coord){
   if(!confirm("Delete this activity?")) return;
   // Manager can delete from any coordinator's records
   const targetCoord = coord || S.user.coord;
-  const day = loadDay(targetCoord, S.date);
-  day.activities=(day.activities||[]).filter(a=>a.id!==id);
-  saveDay(day);
+  const found = findActivityAnyDay(targetCoord, id);
+  if (!found) { alert("Activity not found"); return; }
+  found.day.activities=(found.day.activities||[]).filter(a=>a.id!==id);
+  saveDay(found.day);
   addPendingDelete(targetCoord, id);
   S.unsyncedChanges=true;
   S.status={ok:true,msg:"Activity deleted — syncing…"};
@@ -4188,19 +4205,6 @@ function clearErrorLog(){
   alert("Error log cleared.");
 }
 
-// ═══════════════════════════════════════════════════════════
-// INIT
-// ═══════════════════════════════════════════════════════════
-render();
-// Load from cloud after initial render
-if(S.user) loadFromCloud();
-
-// Auto-push every 5 minutes if there are unsynced changes
-// Auto-push every 5 minutes as fallback
-setInterval(function(){
-  if(S.unsyncedChanges && !S.syncing && S.user) pushData();
-}, 5*60*1000);
-
 // Realtime push — debounced 3 seconds after activity save
 let _pushDebounceTimer = null;
 let _lastPushTime = 0;
@@ -4218,6 +4222,20 @@ function recentlyPushed() {
   // Returns true if a push happened in the last 90 seconds (cloud may be stale)
   return (Date.now() - _lastPushTime) < 90000;
 }
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+render();
+// Load from cloud after initial render
+if(S.user) loadFromCloud();
+
+// Auto-push every 5 minutes if there are unsynced changes
+// Auto-push every 5 minutes as fallback
+setInterval(function(){
+  if(S.unsyncedChanges && !S.syncing && S.user) pushData();
+}, 5*60*1000);
+
 
 // Warn before closing if unsynced
 window.addEventListener("beforeunload", function(e){
