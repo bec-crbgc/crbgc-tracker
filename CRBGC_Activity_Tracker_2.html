@@ -3813,7 +3813,7 @@ async function post(type, payload) {
 
 async function pushData() {
   if(S.syncing) return;
-  S.syncing=true; S.status={ok:true,msg:"Syncing…"}; render();
+  S.syncing=true; S.status={ok:true,msg:"Syncing…"}; if(!S.modal) render();
 
   const coord=S.user.coord, state=STATES[coord];
   const monday=mondayOf(S.date);
@@ -3901,7 +3901,7 @@ async function pushData() {
     S.lastSynced=new Date().toISOString();
     lsSet("lastSynced:"+coord,S.lastSynced);
   }
-  S.syncing=false; render();
+  S.syncing=false; if(!S.modal) render();
 }
 
 // ── JSONP fetch — works from local file:// and SharePoint ────────────────
@@ -4019,7 +4019,7 @@ async function loadFromCloud() {
     pullFollowups(coord, state);
     return;
   }
-  S.loading=true; render();
+  S.loading=true; if(!S.modal) render();
   try {
     const coord=S.user.coord;
     const state=STATES[coord];
@@ -4039,7 +4039,7 @@ async function loadFromCloud() {
     const isLocal = location.protocol === "content:" || location.protocol === "file:";
     S.status={ok:false, msg: isLocal ? "⚠ Open via SharePoint/OneDrive link for live sync — local file mode detected." : "Cloud load failed — showing local data. "+e.message};
   }
-  S.loading=false; render();
+  S.loading=false; if(!S.modal) render();
 }
 
 async function pullFollowups(coord, state) {
@@ -4060,7 +4060,7 @@ async function pullFollowups(coord, state) {
     });
     // Cache the full followups list for due-today and overdue checks
     try{localStorage.setItem(PFX+"followups:"+coord,JSON.stringify(data.followups||[]));}catch(e_){}
-    render();
+    if(!S.modal) render();
   } catch(e){
     // silent
   }
@@ -4073,7 +4073,7 @@ async function pullEmployers(coord) {
     const data = await jsonpFetch(url);
     if (!data.ok) return;
     setEmployerCache(coord, data.employers||[]);
-    render();
+    if(!S.modal) render();
   } catch(e) {}
 }
 
@@ -4105,7 +4105,7 @@ async function pullAcaps(coord) {
     const data = await jsonpFetch(url);
     if (!data.ok) return;
     setAcapCache(coord, data.acaps||[]);
-    render();
+    if(!S.modal) render();
   } catch(e) {}
 }
 
