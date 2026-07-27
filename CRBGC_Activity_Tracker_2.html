@@ -2748,12 +2748,39 @@ function renderSettingsModal(){
       <label>Web App URL</label>
       <input id="set_url" value="${WEBAPP_URL}" style="font-size:12px">
     </div>
-    <div style="display:flex;gap:8px;margin-top:12px">
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       <button onclick="closeModal()" class="btn-primary btn-sm">Done</button>
       <button onclick="if(confirm('Clear ALL local data? This cannot be undone.'))clearAllData()" class="btn-danger btn-sm">Clear local data</button>
       <button onclick="S.user=null;lsDel('user');closeModal();render()" class="btn-ghost btn-sm">Switch user</button>
+      <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
     </div>
   </div></div>`;
+}
+
+// ── Debug: fetch raw follow-ups via the app's own code path ─────────────
+// Uses jsonpFetch (same function pullFollowups uses) so results are directly
+// comparable across devices — no browser-tab auth/caching confounds like
+// navigating to the raw exec URL directly can introduce.
+async function debugFollowups(){
+  const coord=S.user.coord, state=STATES[coord];
+  const url=WEBAPP_URL+"?action=get_followups&coord="+encodeURIComponent(coord)+"&state="+state;
+  try{
+    const data=await jsonpFetch(url);
+    if(!data.ok){ alert("Server error: "+(data.msg||"unknown")); return; }
+    const list=data.followups||[];
+    const byType={};
+    list.forEach(f=>{ byType[f.type]=(byType[f.type]||0)+1; });
+    const typeLines=Object.keys(byType).map(t=>t+": "+byType[t]).join("\n");
+    const idLines=list.map(f=>f.type+" | "+f.id+" | due "+f.followUpDate).join("\n");
+    alert(
+      "Coord: "+coord+"\n"+
+      "Total: "+data.count+"\n\n"+
+      "By type:\n"+typeLines+"\n\n"+
+      "All entries:\n"+idLines
+    );
+  }catch(e){
+    alert("Fetch failed: "+e.message);
+  }
 }
 
 function renderActivityModal(type,data){
