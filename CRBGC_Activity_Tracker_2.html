@@ -1655,15 +1655,19 @@ function renderToday(coord,state,day){
           <span class="tag" style="background:var(--redt);color:#fff;font-size:10px">${activityLabel(f.type)}</span>
           <span style="font-size:12px;font-weight:600;color:var(--tp)">${f.bizName||f.acapOrg||f.leadName||f.studentName||""}</span>
           ${f.contactName?`<span style="font-size:11px;color:var(--ts)">${f.contactName}</span>`:""}
-          <span style="font-size:10px;background:var(--redt);color:#fff;padding:1px 6px;border-radius:20px;font-weight:600;margin-left:auto">Due ${fmtDateShort(f.followUpDate)}</span>
+          ${(f.snoozeCount||0)>=3?`<span style="background:var(--red);color:var(--redt);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">🔴 Snoozed ${f.snoozeCount}x</span>`:
+            (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
+          <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+            <span style="font-size:10px;background:var(--redt);color:#fff;padding:1px 6px;border-radius:20px;font-weight:600">Due ${fmtDateShort(f.followUpDate)}</span>
+            <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+            ${(f.snoozeCount||0)>=3
+              ? `<button disabled title="Snooze limit reached — mark Done or action this follow-up" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
+              : `<button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
+          </div>
         </div>
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
         ${(f.mobile||f.phone||"")?`<div style="margin-top:4px"><a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a></div>`:""}
         ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
-        <div style="margin-top:6px;display:flex;gap:6px">
-          <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
-          <button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>
-        </div>
       </div>`).join(""):""}
     </div>`;
   }
@@ -1682,7 +1686,9 @@ function renderToday(coord,state,day){
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
           <div style="margin-left:auto;display:flex;gap:6px">
             <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
-            <button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>
+            ${(f.snoozeCount||0)>=3
+              ? `<button disabled title="Snooze limit reached — mark Done or action this follow-up" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
+              : `<button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
@@ -3378,6 +3384,26 @@ function closeFollowup(id, date, coord) {
 }
 
 function snoozeFollowup(id, date, coord) {
+  // Hard cap — refuse to proceed regardless of how this was triggered
+  // (the disabled button is the normal path, but this guards against a
+  // stale render or any other bypass).
+  try {
+    const dayGuard = loadDay(coord, date);
+    const actGuard = (dayGuard.activities||[]).find(a=>a.id===id);
+    let currentCount = actGuard ? (actGuard.snoozeCount||0) : 0;
+    if (!actGuard) {
+      const cfGuard = localStorage.getItem(PFX+"followups:"+coord);
+      if (cfGuard) {
+        const fGuard = JSON.parse(cfGuard).find(a=>a.id===id);
+        if (fGuard) currentCount = fGuard.snoozeCount||0;
+      }
+    }
+    if (currentCount >= 3) {
+      alert("Snooze limit reached (3x) — please mark this follow-up Done or take action instead of snoozing further.");
+      return;
+    }
+  } catch(e_) {}
+
   // Capture bizName FIRST before any mutations
   let bizName = "";
   try {
@@ -3405,10 +3431,12 @@ function snoozeFollowup(id, date, coord) {
   // Update in local day record
   const day = loadDay(coord, date);
   const act = (day.activities||[]).find(a=>a.id===id);
+  let newSnoozeCount = 0;
   if (act) {
     act.followUpDate = tomorrowStr;
     act.snoozeCount = (act.snoozeCount||0) + 1;
     act.lastSnoozed = S.date||TODAY;
+    newSnoozeCount = act.snoozeCount;
     saveDay(day);
   }
 
@@ -3424,8 +3452,9 @@ function snoozeFollowup(id, date, coord) {
       f.snoozeCount = (f.snoozeCount||0) + 1;
       f.lastSnoozed = S.date||TODAY;
       if (!bizName) bizName = f.bizName||"";
+      if (!act) newSnoozeCount = f.snoozeCount;
     } else if (act) {
-      followups.push({...act, followUpDate:tomorrowStr, snoozeCount:1, lastSnoozed:S.date||TODAY});
+      followups.push({...act, followUpDate:tomorrowStr, snoozeCount:newSnoozeCount, lastSnoozed:S.date||TODAY});
       if (!bizName) bizName = act.bizName||"";
     }
     localStorage.setItem(cacheKey, JSON.stringify(followups));
@@ -3467,7 +3496,7 @@ function snoozeFollowup(id, date, coord) {
   if (isAcapSnooze && acapOrg_) {
     fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
       body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrg_,id,
-        nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze"})
+        nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze",snoozeCount:newSnoozeCount})
     }).catch(function(){});
   } else if (isStudentSnooze && studentName_) {
     fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
@@ -3483,7 +3512,8 @@ function snoozeFollowup(id, date, coord) {
         coord, bizName, id,
         nextContactDate:tomorrowStr,
         lastContactDate:S.date||TODAY,
-        action:"snooze"
+        action:"snooze",
+        snoozeCount:newSnoozeCount
       })
     }).catch(function(){});
   }
