@@ -2766,6 +2766,7 @@ function renderSettingsModal(){
       <button onclick="S.user=null;lsDel('user');closeModal();render()" class="btn-ghost btn-sm">Switch user</button>
       <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
       <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
+      <button onclick="debugMergeFollowups()" class="btn-ghost btn-sm">Debug merge (fix + diagnose)</button>
     </div>
   </div></div>`;
 }
@@ -2775,6 +2776,58 @@ function renderSettingsModal(){
 // devices but the Due Today card still shows different counts — that
 // means the discrepancy is happening in local filtering/merging, not in
 // the data itself, and this shows exactly where.
+// ── Debug: replicate pullFollowups' merge step, per-entry, with error
+// catching — use this when debugFollowups (raw fetch) succeeds but
+// debugDueToday shows entries missing from local storage. pullFollowups
+// wraps its whole forEach in one try/catch, so if a SINGLE entry throws,
+// the rest silently never get processed and nobody would ever know. This
+// isolates exactly which entry (if any) is causing that.
+async function debugMergeFollowups(){
+  const coord=S.user.coord, state=STATES[coord];
+  const url=WEBAPP_URL+"?action=get_followups&coord="+encodeURIComponent(coord)+"&state="+state;
+  let data;
+  try{
+    data=await jsonpFetch(url);
+  }catch(e){ alert("Fetch failed: "+e.message); return; }
+  if(!data.ok){ alert("Server error: "+(data.msg||"unknown")); return; }
+
+  const list=data.followups||[];
+  let ok=0, failed=[], skippedNoDate=0;
+  list.forEach(a=>{
+    try{
+      if(!a.date){ skippedNoDate++; return; }
+      const day=loadDay(coord, a.date);
+      if(!day.activities) day.activities=[];
+      const idx=day.activities.findIndex(x=>x.id===a.id);
+      if(idx>=0) day.activities[idx]=a; else day.activities.push(a);
+      saveDay(day);
+      ok++;
+    }catch(e){
+      failed.push(a.type+" | "+a.id+" | ERROR: "+e.message);
+    }
+  });
+
+  let cacheError = "";
+  try{
+    localStorage.setItem(PFX+"followups:"+coord,JSON.stringify(list));
+  }catch(e){
+    cacheError = e.message;
+  }
+
+  const byType={};
+  list.forEach(a=>{ byType[a.type]=(byType[a.type]||0)+1; });
+
+  alert(
+    "Total fetched: "+list.length+" ("+Object.keys(byType).map(t=>t+":"+byType[t]).join(", ")+")\n"+
+    "Successfully merged: "+ok+"\n"+
+    "Skipped (no date field): "+skippedNoDate+"\n"+
+    "Failed with error: "+failed.length+"\n"+
+    (failed.length ? "\n"+failed.slice(0,10).join("\n")+"\n" : "")+
+    "\nFinal cache write: "+(cacheError ? "FAILED — "+cacheError : "OK")
+  );
+  render();
+}
+
 function debugDueToday(){
   const coord=S.user.coord;
   const _cd = S.date||TODAY;
