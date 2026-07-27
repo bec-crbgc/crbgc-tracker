@@ -1623,7 +1623,6 @@ function renderDailyPaceCard(coord, state, T) {
 function renderToday(coord,state,day){
   const T=weeklyTotals(coord,S.date);
   const status=dayStatus(day);
-  const today_acts=(day.activities||[]).filter(a=>!["employer_call","site_visit","pipeline"].includes(a.type)&&(!a.id||(!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))));
   const overdueFollowups=getAllOverdueFollowups(coord);
 
   let h=``;
@@ -1723,12 +1722,9 @@ function renderToday(coord,state,day){
   </div>
 `;
 
-  if(today_acts.length>0){
-    h+=`<div class="sect-hdr">Today's log</div>
-    <div style="padding:0 12px;">
-    ${today_acts.map(a=>renderActItem(a)).join("")}
-    </div>`;
-  }
+  // Note: "Today's log" section removed — this data is already shown
+  // under This Week's expandable "Today" row, so it was pure duplication.
+  // No data was removed here, only this redundant display block.
 
   return h;
 }
