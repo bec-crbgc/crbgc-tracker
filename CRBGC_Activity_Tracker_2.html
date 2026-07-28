@@ -376,6 +376,17 @@ function weekDaysMF(ds){ // Mon-Fri only
     return d.toISOString().substring(0,10);
   });
 }
+function weekDaysAll(ds){ // Mon-Sun — used by mergeCloudData, since the
+  // server's get_week query (getWeekData in Apps Script) scopes Monday to
+  // Sunday, including any weekend activity. Reconciliation must cover the
+  // same range the server actually queried, or a weekend deletion could be
+  // silently missed the same way the original cross-device delete bug was.
+  const mon=mondayOf(ds);
+  return Array.from({length:7},(_,i)=>{
+    const d=new Date(mon+"T12:00:00"); d.setDate(d.getDate()+i);
+    return d.toISOString().substring(0,10);
+  });
+}
 function fmtDate(ds){
   const d=new Date(ds+"T12:00:00");
   return d.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
@@ -3047,6 +3058,7 @@ async function debugMergeFollowups(){
       if(!a.date){ skippedNoDate++; return; }
       const day=loadDay(coord, a.date);
       if(!day.activities) day.activities=[];
+      a._synced=true; // came straight from the server
       const idx=day.activities.findIndex(x=>x.id===a.id);
       if(idx>=0) day.activities[idx]=a; else day.activities.push(a);
       saveDay(day);
@@ -3594,6 +3606,14 @@ function saveActivityFromModal(type){
     }
   }
 
+  // 2026-07-28: mark dirty on every create/edit — without this, editing an
+  // already-synced activity kept its old _synced:true (carried over from
+  // the {...existingAct} spread above), so a poll/pull landing before the
+  // edit's own push completed would treat the stale cloud copy as safe to
+  // overwrite it with, silently discarding the edit. Clearing it here
+  // means mergeCloudData() protects this record until a confirmed push
+  // re-marks it synced (see pushData()).
+  act._synced = false;
   if(!day.activities) day.activities=[];
   if(isEdit && editId){
     const idx=day.activities.findIndex(a=>a.id===editId);
@@ -4371,6 +4391,9 @@ async function pushData() {
 
   // Build activity rows
   const actRows=[], leadRows=[], empRows=[], dayMetaArr=[];
+  const pushedDayRefs=[]; // 2026-07-28: {day, acts} per day, so we can mark
+                           // them _synced after a confirmed successful push —
+                           // see note at the _synced marking block below.
   days.forEach(d=>{
     const day=loadDay(coord,d);
     dayMetaArr.push({
@@ -4383,6 +4406,7 @@ async function pushData() {
     const realActs=(day.activities||[]).filter(a=>
       !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))
     );
+    pushedDayRefs.push({day, acts:realActs});
     realActs.forEach(a=>{
       actRows.push(actToRow(a, day, coord, state));
       if(a.type==="lead"){
@@ -4407,7 +4431,20 @@ async function pushData() {
   const deletedIds = getPendingDeletes(coord);
   try {
     const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows,deletedIds});
-    if(r.ok) { pushed+=actRows.length; clearPendingDeletes(coord, deletedIds); }
+    if(r.ok) {
+      pushed+=actRows.length; clearPendingDeletes(coord, deletedIds);
+      // 2026-07-28 — PERMANENT FIX for the cross-device delete/merge bug:
+      // mark every activity we just successfully pushed as "_synced" so a
+      // later cloud pull on ANY device (including this one) can tell the
+      // difference between "genuinely new, not yet pushed — keep it if
+      // missing from the cloud response" and "was on the server, now
+      // missing from the cloud response — that means it was deleted
+      // somewhere and must be removed locally too". See mergeCloudData().
+      pushedDayRefs.forEach(({day,acts})=>{
+        acts.forEach(a=>{ a._synced=true; });
+        saveDay(day);
+      });
+    }
     else errors.push("Activities: "+r.msg);
   } catch(e){ errors.push("Activities: "+e.message); }
 
@@ -4510,33 +4547,64 @@ async function pullWeek(coord, dateInWeek) {
 }
 
 // ── Merge cloud data into localStorage ──────────────────────────────────
-function mergeCloudData(cloudData, coord) {
+// 2026-07-28 — PERMANENT FIX for the cross-device delete bug (an entry
+// deleted on one device did not disappear on another after a "successful"
+// sync, with no error shown). Root cause: this function only ever
+// reconciled dates that still had activities in the cloud response
+// (Object.keys(byDate)), and treated ANY local record missing from that
+// response as "local-only — preserve it" — with no way to tell "genuinely
+// new, not pushed yet" apart from "was on the server, got deleted (by this
+// device or another), now correctly absent from the cloud". Both cases
+// looked identical, so deletions were silently resurrected on the next
+// pull. Fixed by:
+//  1. Tagging every activity with _synced:true the moment it's confirmed
+//     known-to-server — either it arrived FROM the cloud (below) or this
+//     device just successfully pushed it (see pushData()). Only activities
+//     WITHOUT that tag are treated as "not yet pushed — keep even if
+//     missing from cloud".
+//  2. Reconciling the FULL Monday–Sunday range the server actually
+//     queried (weekDaysAll), not just dates present in the response — so a
+//     day whose last remaining activity was deleted elsewhere still gets
+//     reconciled to empty here, instead of being skipped entirely.
+// Known remaining boundary: this only runs for the week actually pulled
+// (current week, or whichever week loadFromCloud/pullWeek was called for).
+// Older weeks in History only reconcile when that week is explicitly
+// re-pulled — a delete made in a week nobody has open won't propagate
+// until someone opens/refreshes that week.
+function mergeCloudData(cloudData, coord, weekMonday) {
   const {activities, dayMeta} = cloudData;
-  // Group activities by date
+  const mon = weekMonday || mondayOf(S.date);
+  // Group cloud activities by date, marking each as confirmed-on-server.
   const byDate={};
   (activities||[]).forEach(a=>{
+    a._synced = true;
     if(!byDate[a.date]) byDate[a.date]=[];
     byDate[a.date].push(a);
   });
-  // Update each day's localStorage
-  Object.keys(byDate).forEach(d=>{
+  // Reconcile every day in the range the server actually queried.
+  weekDaysAll(mon).forEach(d=>{
     const day=loadDay(coord,d);
-    // Always preserve local activities not known to cloud
-    // Cloud may be stale if we pushed recently
-    const cloudIds=new Set(byDate[d].map(a=>a.id));
-    const localOnly=(day.activities||[]).filter(a=>!cloudIds.has(a.id));
+    const cloudActs = byDate[d]||[];
+    const cloudIds=new Set(cloudActs.map(a=>a.id));
+    // Only a record NEVER confirmed synced can be "local only, keep it" —
+    // anything previously synced but now missing from the cloud response
+    // was deleted (here or elsewhere) and must be dropped, not preserved.
+    const localOnly=(day.activities||[]).filter(a=>!cloudIds.has(a.id) && !a._synced);
     if(S.unsyncedChanges && localOnly.length>0){
-      // We have local-only activities — keep them, update cloud ones
+      // We have local drafts not yet pushed — keep them, update anything
+      // the cloud already knows about, and drop confirmed-deleted records.
       const cloudById={};
-      byDate[d].forEach(a=>{cloudById[a.id]=a;});
-      day.activities=(day.activities||[]).map(a=>cloudById[a.id]||a);
-      // Add any cloud activities we don't have locally
-      byDate[d].forEach(a=>{
+      cloudActs.forEach(a=>{cloudById[a.id]=a;});
+      day.activities=(day.activities||[])
+        .filter(a=>cloudIds.has(a.id) || !a._synced)
+        .map(a=>cloudById[a.id]||a);
+      cloudActs.forEach(a=>{
         if(!(day.activities||[]).find(x=>x.id===a.id)) day.activities.push(a);
       });
     } else {
-      // No unsynced local changes — cloud is authoritative
-      day.activities=[...byDate[d], ...localOnly];
+      // No unsynced local changes — cloud is fully authoritative for this
+      // day: local set becomes cloud records + genuinely-unpushed drafts.
+      day.activities=[...cloudActs, ...localOnly];
     }
     // Merge day meta if available
     if(dayMeta&&dayMeta[d]){
@@ -4574,7 +4642,7 @@ async function loadFromCloud() {
 
     // Pull current week data
     const data=await pullWeek(coord, S.date);
-    mergeCloudData(data, coord);
+    mergeCloudData(data, coord, mondayOf(S.date));
 
     // Pull all open follow-ups (across all weeks) in background
     pullFollowups(coord, state);
@@ -4599,13 +4667,17 @@ async function pullFollowups(coord, state) {
     const data=await jsonpFetch(url);
     if(!data.ok) return;
     // Merge follow-up activities into their respective days in localStorage
-    // Always update existing entries so phone/name changes come through
+    // Always update existing entries so phone/name changes come through —
+    // except a record with local unsynced edits in progress (_synced===
+    // false), which is protected the same way mergeCloudData() protects
+    // it, so this background pull can't clobber an in-flight edit either.
     (data.followups||[]).forEach(a=>{
       if(!a.date) return;
       const day=loadDay(coord, a.date);
       if(!day.activities) day.activities=[];
+      a._synced=true; // came straight from the server
       const idx=day.activities.findIndex(x=>x.id===a.id);
-      if(idx>=0) day.activities[idx]=a; // update existing
+      if(idx>=0){ if(day.activities[idx]._synced!==false) day.activities[idx]=a; } // update existing, unless locally dirty
       else day.activities.push(a);      // add new
       saveDay(day);
     });
@@ -4749,7 +4821,7 @@ async function loadAllForDashboard() {
     if(data.ok) {
       Object.keys(data.data).forEach(coord=>{
         const d=data.data[coord];
-        if(d.ok) mergeCloudData(d, coord);
+        if(d.ok) mergeCloudData(d, coord, data.monday);
       });
       S.status={ok:true,msg:"✓ Dashboard loaded from cloud"};
     }
@@ -4870,6 +4942,29 @@ if(S.user) loadFromCloud();
 setInterval(function(){
   if(S.unsyncedChanges && !S.syncing && S.user) pushData();
 }, 5*60*1000);
+
+// 2026-07-28: periodic auto-PULL — previously this app only ever pulled
+// from the cloud on initial load, a manual refresh tap, or a date change,
+// which is why changes made on one device (e.g. a PC) didn't appear on
+// another (e.g. mobile) until someone thought to refresh. Combined with
+// the mergeCloudData() fix above, this is what makes the three surfaces
+// (WIP sheet, PC tracker, mobile tracker) actually converge on their own
+// instead of requiring a manual "clear/reset" when they drift.
+// Skipped while a form is open (S.modal) so in-progress typing is never
+// disturbed, and while the tab/app is backgrounded, to avoid burning
+// Apps Script quota on a device nobody is currently looking at.
+setInterval(function(){
+  if(S.user && !S.modal && !S.syncing && !S.loading && document.visibilityState==="visible"){
+    loadFromCloud();
+  }
+}, 30000);
+// Also pull immediately when the app regains focus (e.g. switching back
+// from another app on mobile), rather than waiting for the next poll tick.
+document.addEventListener("visibilitychange", function(){
+  if(document.visibilityState==="visible" && S.user && !S.modal && !S.syncing){
+    loadFromCloud();
+  }
+});
 
 
 // Warn before closing if unsynced
