@@ -3013,7 +3013,7 @@ function renderActivityModal(type,data){
     intro_call:"Log Intro Call",acap_contact:"Log ACAP Contact",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
     event:"Log Event",employer_call:"Log Employer Call",site_visit:"Log Site Visit",
     new_employer_met:"Log New Employer Met",new_employer_db:"Add Employer",
-    pipeline:"Log Pipeline Contact",lead:"Log Student Lead",
+    pipeline:"Log Pipeline Contact",lead:"Log Student Lead",enrolment_pipeline:"Log Enrolment Pipeline",
   };
   const titles = {};
   Object.keys(baseTitles).forEach(k => {
@@ -3022,7 +3022,7 @@ function renderActivityModal(type,data){
 
   let fields=``;
   const needsOutcome=!["commencement","registration","enrolment"].includes(type);
-  const needsFollowup=!["commencement","registration","enrolment","intro_call"].includes(type);
+  const needsFollowup=!["commencement","enrolment","intro_call"].includes(type);
 
   // ── STUDENT/COMMENCEMENT TYPES ─────────────────────────────────────────
   if(["commencement","enrolment","lead"].includes(type)){
