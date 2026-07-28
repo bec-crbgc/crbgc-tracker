@@ -4218,7 +4218,13 @@ function isClosedStudentLeadStatus(status){
 function renderRegDropdown(filterText){
   const dd=document.getElementById("reg_name_dropdown");
   if(!dd) return;
-  const cache=getStudentLeadsCache(S.user.coord).filter(function(s){return !isClosedStudentLeadStatus(s.stage);});
+  // 2026-07-28: refined per feedback — "N/A" is now excluded outright (not
+  // treated as open), while a genuinely BLANK stage still counts as open
+  // (shown as "New lead" below) rather than being dropped silently.
+  const cache=getStudentLeadsCache(S.user.coord).filter(function(s){
+    const st=String(s.stage||"").trim().toLowerCase();
+    return !isClosedStudentLeadStatus(s.stage) && st!=="n/a";
+  });
   const filter=(filterText||"").trim().toLowerCase();
   const matches=filter?cache.filter(function(s){return s.name.toLowerCase().indexOf(filter)!==-1;}):cache;
   if(!matches.length){
@@ -4226,7 +4232,8 @@ function renderRegDropdown(filterText){
   } else {
     dd.innerHTML=matches.slice(0,50).map(function(s){
       const safe=s.name.replace(/'/g,"\\'").replace(/"/g,"&quot;");
-      return '<div class="ep-dropdown-item" onmousedown="selectRegName(\''+safe+'\')">'+s.name+(s.stage?' <span class="muted">— '+s.stage+'</span>':'')+'</div>';
+      const stageLabel=s.stage?s.stage:"New lead";
+      return '<div class="ep-dropdown-item" onmousedown="selectRegName(\''+safe+'\')">'+s.name+' <span class="muted">— '+stageLabel+'</span></div>';
     }).join("");
   }
   dd.classList.remove("hidden");
