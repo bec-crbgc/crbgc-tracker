@@ -158,6 +158,13 @@ const CALL_OUTCOMES = [
   "Do not contact — removed from list","Other"
 ];
 
+const ENROLMENT_CONTACT_OUTCOMES = [
+  "Enrolled","Connected – meaningful conversation","Connected – no current opportunity",
+  "No answer","Voicemail left","Follow-up message sent",
+  "Callback requested","Incorrect details","Not interested",
+  "Do not contact — removed from list","Other"
+];
+
 const ACTIVITY_OUTCOMES = [
   "No opportunity identified","Follow-up required","Apprentice vacancy identified",
   "Student lead identified","Employer meeting booked","Candidate referred to employer",
@@ -377,6 +384,21 @@ function isOverdue(dateStr){
   if (!dateStr || dateStr < TRACKER_START) return false;
   return dateStr < TODAY;
 }
+function isStudentLeadOpen(status){
+  // Mirrors the server-side version — any status containing these keywords
+  // means the student is closed out (enrolled, registered, cancelled,
+  // etc.) and should no longer generate/show follow-ups.
+  const s=String(status||"").trim().toLowerCase();
+  if(!s) return false;
+  if(s==="n/a") return false;
+  if(s.indexOf("cancel")!==-1) return false;
+  if(s.indexOf("complet")!==-1) return false;
+  if(s.indexOf("enrolled")!==-1) return false;
+  if(s.indexOf("registered")!==-1) return false;
+  if(s.indexOf("closed")!==-1) return false;
+  if(s.indexOf("withdrawn")!==-1) return false;
+  return true;
+}
 function dayOfWeek(ds){
   const d=new Date(ds+"T12:00:00");
   return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
@@ -386,7 +408,9 @@ function dayOfWeek(ds){
 // ACTIVITY ANALYSIS
 // ═══════════════════════════════════════════════════════════
 function isMeaningfulCall(act){
-  return act.type==="employer_call" && act.callOutcome && act.callOutcome.startsWith("Connected – meaningful");
+  if(act.type==="employer_call" && act.callOutcome && act.callOutcome.startsWith("Connected – meaningful")) return true;
+  if(act.type==="enrolment_pipeline" && act.contactOutcome==="Enrolled") return true;
+  return false;
 }
 function activityLabel(type){
   const labels={
@@ -453,6 +477,7 @@ function weeklyTotals(coord,ds){
       if(a.type==="commencement") T.commencement++;
       if(a.type==="registration") T.registration++;
       if(a.type==="enrolment") T.enrolment++;
+      if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled") T.enrolment++;
       if(a.type==="intro_call"){
         T.intro_call_due++;
         if(a.within24h==="Yes") T.intro_call_done++;
@@ -1778,6 +1803,7 @@ function renderToday(coord,state,day){
 function renderActItem(a, viewCoord){
   const col=activityColor(a.type);
   const overdue=a.followUpDate&&isOverdue(a.followUpDate);
+  const meaningful=isMeaningfulCall(a);
   // Manager can delete any record; coordinators can only delete their own
   const canDelete = S.user.isManager || !viewCoord || viewCoord === S.user.coord;
   const delCoord = viewCoord || S.user.coord;
@@ -1785,6 +1811,7 @@ function renderActItem(a, viewCoord){
   return `<div class="act-item">
     <div class="act-item-hdr" style="padding-right:44px">
       <span class="tag" style="background:${col.bg};color:${col.txt}">${activityLabel(a.type)}</span>
+      ${meaningful?'<i class="ti ti-star-filled" style="color:var(--greent);font-size:12px"></i>':""}
       <span style="font-size:12px;font-weight:600;color:var(--tp)">${name}</span>
       ${a.contactName?`<span style="font-size:11px;color:var(--ts)">${a.contactName}</span>`:""}
       ${overdue?`<span class="overdue-badge">⚠ Follow-up overdue</span>`:""}
@@ -1794,7 +1821,7 @@ function renderActItem(a, viewCoord){
       <button class="act-del" onclick="deleteActivity('${a.id}','${delCoord}')" title="Delete"><i class="ti ti-trash"></i></button>
     </div>`:""}
     ${a.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${a.relType}</div>`:""}
-    ${(a.callOutcome||a.activityOutcome)?`<div style="font-size:12px;color:var(--ts);margin-top:2px">${a.callOutcome||a.activityOutcome}</div>`:""}
+    ${(a.callOutcome||a.contactOutcome||a.activityOutcome)?`<div style="font-size:12px;margin-top:2px;${meaningful?"color:var(--greent);font-weight:600":"color:var(--ts)"}">${a.callOutcome||a.contactOutcome||a.activityOutcome}</div>`:""}
     ${a.nextAction?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate):""}</div>`:""}
   </div>`;
 }
@@ -3138,7 +3165,7 @@ function renderActivityModal(type,data){
       fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
       fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
     ]);
-    fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...CALL_OUTCOMES],"true");
+    fields+=fld("Contact outcome","ep_contact","select",data.contactOutcome||"",["",...ENROLMENT_CONTACT_OUTCOMES],"true");
     fields+=fld("Barrier to enrolment","ep_barrier","text",data.barrier||"");
     fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
   }
@@ -3340,6 +3367,35 @@ function saveActivityFromModal(type){
     day.activities.push(act);
   }
   saveDay(day);
+
+  // If this enrolment pipeline update closes the student out (Enrolled,
+  // Registered, etc.), remove any cached follow-up for them immediately —
+  // the server-side follow-up date gets cleared too, but without this the
+  // stale entry would keep showing in Due Today on this device until the
+  // next full cloud refresh happens to run.
+  if (type==="enrolment_pipeline" && act.newStage && !isStudentLeadOpen(act.newStage) && act.studentName) {
+    const closedCoord = editCoord||S.user.coord;
+    const closedName = act.studentName.trim().toLowerCase();
+    try {
+      allDays(closedCoord).forEach(function(d){
+        const dd = loadDay(closedCoord, d);
+        const before = (dd.activities||[]).length;
+        dd.activities = (dd.activities||[]).filter(function(a){
+          return !(a.id && a.id.indexOf("sl_")===0 && (a.studentName||a.leadName||"").trim().toLowerCase()===closedName);
+        });
+        if (dd.activities.length !== before) saveDay(dd);
+      });
+      const cacheKey = PFX+"followups:"+closedCoord;
+      const cf = localStorage.getItem(cacheKey);
+      if (cf) {
+        const followups = JSON.parse(cf).filter(function(a){
+          return !(a.id && a.id.indexOf("sl_")===0 && (a.studentName||a.leadName||"").trim().toLowerCase()===closedName);
+        });
+        localStorage.setItem(cacheKey, JSON.stringify(followups));
+      }
+    } catch(e_){}
+  }
+
   S.modal=null;
   S.unsyncedChanges=true;
   S.status={ok:true,msg:`${activityLabel(type)} ${isEdit?"updated":"logged"} — syncing…`};
