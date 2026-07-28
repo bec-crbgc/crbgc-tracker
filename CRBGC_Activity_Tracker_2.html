@@ -4210,31 +4210,28 @@ function onEpNameInput(val){
 // Newman, and Natalie Humphreys-Grey (all "N/A") were being wrongly
 // excluded alongside genuinely closed leads like "Cancelled" and
 // "completed".
-const CLOSED_STUDENT_LEAD_STATUSES = ["completed","complete","cancelled"];
-function isClosedStudentLeadStatus(status){
-  const s=String(status||"").trim().toLowerCase();
-  return CLOSED_STUDENT_LEAD_STATUSES.includes(s);
-}
-// 2026-07-28: sheet-sourced stage text sometimes carries invisible characters
-// (zero-width space/joiner, BOM, NBSP) that survive .trim() but LOOK like
-// plain "N/A" on screen — so a straight string-equality check against "n/a"
-// can silently fail to match. Strip those out (and all whitespace) before
-// comparing so any visually-"N/A" variant is caught.
+// 2026-07-28: exact rule confirmed with Bec — a lead counts as OPEN for the
+// Registration Pipeline dropdown unless its Student Leads DB column I
+// status is one of these four (case-insensitive). A genuinely blank status
+// still counts as open. Stage text sometimes carries invisible characters
+// (zero-width space/joiner, BOM, NBSP) that survive .trim() but look like
+// plain text on screen, so normalizeStageText_ strips those before
+// comparing.
+const CLOSED_STUDENT_LEAD_STATUSES = ["completed","complete","n/a","cancelled"];
 function normalizeStageText_(raw){
   return String(raw||"")
-    .replace(/[​-‍﻿ ]/g,"")
+    .replace(/[​‌‍﻿ ]/g,"")
     .replace(/\s+/g,"")
     .toLowerCase();
+}
+function isClosedStudentLeadStatus(status){
+  return CLOSED_STUDENT_LEAD_STATUSES.includes(normalizeStageText_(status));
 }
 function renderRegDropdown(filterText){
   const dd=document.getElementById("reg_name_dropdown");
   if(!dd) return;
-  // 2026-07-28: refined per feedback — "N/A" is now excluded outright (not
-  // treated as open), while a genuinely BLANK stage still counts as open
-  // (shown as "New lead" below) rather than being dropped silently.
   const cache=getStudentLeadsCache(S.user.coord).filter(function(s){
-    const st=normalizeStageText_(s.stage);
-    return !isClosedStudentLeadStatus(s.stage) && st!=="n/a";
+    return !isClosedStudentLeadStatus(s.stage);
   });
   const filter=(filterText||"").trim().toLowerCase();
   const matches=filter?cache.filter(function(s){return s.name.toLowerCase().indexOf(filter)!==-1;}):cache;
