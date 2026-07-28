@@ -1784,8 +1784,8 @@ function renderToday(coord,state,day){
       {type:"enrolment_pipeline",label:"Enrolment Pipeline",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)"},
       {type:"registration",     label:"Registration Pipeline",         icon:"ti-file-check",    bg:"var(--o1)",col:"var(--o1t)"},
       {type:"intro_call",       label:"Intro Call",                    icon:"ti-phone-call",    bg:"var(--o1)",col:"var(--o1t)"},
-    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.label.length>20?"flex-direction:row;justify-content:center;gap:6px;":"flex-direction:column;"}align-items:center;gap:4px;">
-      <i class="ti ${btn.icon}" style="font-size:${btn.label.length>20?16:20}px"></i>${btn.label}</button>`).join("")}
+    ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.label.length>21?"flex-direction:row;justify-content:center;gap:6px;":"flex-direction:column;"}align-items:center;gap:4px;">
+      <i class="ti ${btn.icon}" style="font-size:${btn.label.length>21?16:20}px"></i>${btn.label}</button>`).join("")}
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
     ${[
@@ -2118,7 +2118,6 @@ function renderThisWeek(coord,state){
     {label:"Opportunities generated",val:T.opp_generated,tgt:0},
     {label:"Pipeline progressed",val:T.pipeline_progressed,tgt:0},
     {label:"Sign-ups booked",val:T.signup_booked,tgt:0},
-    {label:"Registrations submitted",val:T.reg_submitted,tgt:0},
     {label:"Follow-ups open",val:T.followup_open,tgt:0},
     {label:"Follow-ups overdue",val:T.followup_overdue,tgt:0,red:true},
   ];
