@@ -484,7 +484,8 @@ function weeklyTotals(coord,ds){
     realActs.forEach(a=>{
       if(a.type==="commencement") T.commencement++;
       if(a.type==="registration") T.registration++;
-      if(a.type==="registration" && a.contactOutcome==="Registered"){ T.signup_booked++; T.reg_submitted++; }
+      if(a.type==="registration" && a.contactOutcome==="Registered"){ T.reg_submitted++; }
+      if(a.type==="registration" && a.newStage==="Sign-up booked") T.signup_booked++;
       if(a.type==="enrolment") T.enrolment++;
       if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled") T.enrolment++;
       if(a.type==="intro_call"){
