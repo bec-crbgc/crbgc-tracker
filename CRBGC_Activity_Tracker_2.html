@@ -387,6 +387,102 @@ function weekDaysAll(ds){ // Mon-Sun — used by mergeCloudData, since the
     return d.toISOString().substring(0,10);
   });
 }
+
+// ═══════════════════════════════════════════════════════════
+// STRICT LEAD FUNNEL — 2026-07-28
+// Replaces the old activity-volume funnel (which counted independent
+// weekly totals from different activity types — calls, sign-ups, regs —
+// with no guarantee they were the same people). This tracks the SAME
+// leads narrowing at each stage: "of everyone who ever entered the
+// pipeline, how many reached each later stage" — cohort = all currently-
+// known leads (Variant B from the mockup — not scoped to a single week).
+//
+// Identity: matched by UID (VETtrak code, backfilled server-side by
+// syncStudentLeadUIDs() once a lead registers) when available, else by
+// normalised name. A UID only exists after registration, so early-stage
+// matching is name-based by necessity — accepted trade-off per user.
+//
+// Data source: this device's full local activity history (allDays), not
+// a single week — types "lead", "enrolment_pipeline", "registration",
+// "pipeline", "commencement". Auto-generated/follow-up-synthetic rows
+// (auto_fu_/auto_acap_/sl_ prefixes) are excluded, same convention used
+// everywhere else in this app.
+const FUNNEL_STAGE_LABELS = ["New lead","Contacted","Sign-up booked","Registered","Enrolled","Commenced"];
+
+function classifyLeadStageIndex_(rec){
+  if (rec.type==="commencement") return 5; // ceiling — reaching commencement implies everything before it
+  const EXCLUDE_STAGES = ["On hold","Closed/lost"];
+  let idx = -1;
+  const stage = rec.newStage;
+  if (stage && !EXCLUDE_STAGES.includes(stage)) {
+    const pIdx = PIPELINE_STAGES.indexOf(stage);
+    if (pIdx === 0) idx = 0;                        // New lead
+    else if (pIdx >= 1 && pIdx <= 6) idx = 1;        // Initial contact .. Awaiting documents -> Contacted
+    else if (pIdx >= 7 && pIdx <= 10) idx = 2;       // Sign-up booked .. Registration submitted -> Sign-up booked
+    else if (pIdx === 11) idx = 3;                   // Registered
+    else if (pIdx === 12) idx = 4;                   // Enrolled
+  }
+  // Registration Pipeline / Enrolment Pipeline record completion via
+  // contactOutcome rather than newStage — same signal isMeaningfulCall()
+  // uses elsewhere in this file.
+  if (rec.contactOutcome==="Registered") idx = Math.max(idx, 3);
+  if (rec.contactOutcome==="Enrolled") idx = Math.max(idx, 4);
+  return idx;
+}
+
+function computeStrictLeadFunnel(coord){
+  const LEAD_TYPES = ["lead","enrolment_pipeline","registration","pipeline","commencement"];
+  // Build name -> UID lookup from the Student Leads WIP cache (uid is
+  // blank for anyone not yet registered — falls back to name for those).
+  const nameToUid = {};
+  (getStudentLeadsCache(coord)||[]).forEach(function(s){
+    if (s.name && s.uid) nameToUid[s.name.trim().toLowerCase()] = s.uid;
+  });
+  const maxIdxByPerson = {}; // identity key -> furthest stage index reached
+  allDays(coord).forEach(function(d){
+    const day = loadDay(coord, d);
+    (day.activities||[]).forEach(function(a){
+      if (a.id && (a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")||a.id.startsWith("sl_"))) return;
+      if (!LEAD_TYPES.includes(a.type)) return;
+      const personName = (a.studentName||a.leadName||"").trim();
+      if (!personName) return;
+      const key = nameToUid[personName.toLowerCase()] || personName.toLowerCase();
+      const idx = classifyLeadStageIndex_(a);
+      const effIdx = idx < 0 ? 0 : idx; // any qualifying record at minimum means "New lead" is known
+      if (!(key in maxIdxByPerson) || effIdx > maxIdxByPerson[key]) maxIdxByPerson[key] = effIdx;
+    });
+  });
+  const people = Object.values(maxIdxByPerson);
+  const counts = FUNNEL_STAGE_LABELS.map(function(_,i){
+    return people.filter(function(maxIdx){ return maxIdx >= i; }).length;
+  });
+  return {labels:FUNNEL_STAGE_LABELS, counts:counts, totalLeads:people.length};
+}
+
+// Renders the narrowing-bar funnel (Variant B style from the mockup) —
+// bars only, no per-lead drill-down, per user's decision (2026-07-28).
+function renderStrictLeadFunnel(coord){
+  const f = computeStrictLeadFunnel(coord);
+  if (f.totalLeads===0) {
+    return `<div class="small muted" style="padding:8px 0">No leads logged yet for ${coord} — this fills in as Student Lead, Pipeline, Registration and Commencement activity gets logged.</div>`;
+  }
+  const barColors = ["#8a94a3","#2C5F9E","#b8860b","#4A3A9E","#2f6b3f","#085041"];
+  return `<div style="display:flex;flex-direction:column;gap:3px;margin:4px 0">
+    ${f.labels.map(function(lbl,i){
+      const val=f.counts[i];
+      const pct = f.totalLeads>0 ? Math.max(val/f.totalLeads*100, val>0?4:0) : 0;
+      const pctLabel = f.totalLeads>0 ? Math.round(val/f.totalLeads*100) : 0;
+      return `<div style="display:flex;align-items:center;gap:8px">
+        <div style="width:98px;font-size:11px;color:var(--ts);text-align:right;flex-shrink:0">${lbl}</div>
+        <div style="flex:1;background:var(--s2);border-radius:4px;height:26px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColors[i]};display:flex;align-items:center;padding:0 8px;color:#fff;font-weight:700;font-size:12px;border-radius:4px;white-space:nowrap">${val}</div>
+        </div>
+        <div style="width:38px;font-size:10px;color:var(--tm);flex-shrink:0">${pctLabel}%</div>
+      </div>`;
+    }).join("")}
+  </div>
+  <div class="small muted" style="margin-top:6px">Of ${f.totalLeads} lead${f.totalLeads!==1?"s":""} ever logged for ${coord}, this shows how many reached each later stage — same people narrowing down, not independent weekly counts.</div>`;
+}
 function fmtDate(ds){
   const d=new Date(ds+"T12:00:00");
   return d.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
@@ -505,6 +601,13 @@ function weeklyTotals(coord,ds){
     realActs.forEach(a=>{
       if(a.type==="commencement") T.commencement++;
       if(a.type==="registration") T.registration++;
+      // NOTE: despite the variable name, reg_submitted actually counts
+      // COMPLETED registrations (contactOutcome==="Registered" is the only
+      // completion value on the Registration Pipeline's contact-outcome
+      // list) — this is the correct figure for "Regs" in the conversion
+      // funnel(s), not the raw T.registration activity-log count above,
+      // which includes every Registration Pipeline touch regardless of
+      // outcome (2026-07-28).
       if(a.type==="registration" && a.contactOutcome==="Registered"){ T.reg_submitted++; }
       if(a.type==="registration" && a.newStage==="Sign-up booked") T.signup_booked++;
       if(a.type==="enrolment") T.enrolment++;
@@ -854,10 +957,11 @@ function downloadWeeklyExcel() {
       dRow.alignment={horizontal:"left",vertical:"middle"};
       ws.getRow(r).height=16; r++;
 
-      // Conversion funnel
+      // Lead conversion funnel (strict — same leads narrowing down, all open leads)
+      const fnl = computeStrictLeadFunnel(coord);
       ws.mergeCells(r,1,r,5);
       const fRow=ws.getCell(r,1);
-      fRow.value="Conversion: "+T.call_attempted+" calls → "+T.call_meaningful+" meaningful → "+T.opp_generated+" opps → "+T.signup_booked+" sign-ups → "+T.registration+" registrations → "+T.commencement+" commencements";
+      fRow.value="Lead funnel (of "+fnl.totalLeads+" leads): "+fnl.labels.map(function(lbl,i){return fnl.counts[i]+" "+lbl.toLowerCase();}).join(" → ");
       fRow.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFAEEDA"}};
       fRow.font={color:{argb:"FF633806"}};
       fRow.alignment={horizontal:"left",vertical:"middle",wrapText:true};
@@ -1398,6 +1502,7 @@ function downloadDashboardPDF() {
     } else {
       // Weekly view
       const T = weeklyTotals(coord, date);
+      const fnl = computeStrictLeadFunnel(coord);
       const statusCounts = `${T.days_productive} productive · ${T.days_partial} partial · ${T.days_none} no activity · ${T.days_complete} complete`;
       const metrics = [
         ["Commencements",        T.commencement,         tgt.commencement[s]],
@@ -1424,8 +1529,8 @@ function downloadDashboardPDF() {
             <span class="status-badge">${statusCounts}</span>
           </div>
           <div class="funnel-row">
-            <strong>Conversion:</strong>
-            ${T.call_attempted} calls → ${T.call_meaningful} meaningful → ${T.opp_generated} opps → ${T.signup_booked} sign-ups → ${T.registration} registrations → ${T.commencement} commencements
+            <strong>Lead funnel (of ${fnl.totalLeads} leads):</strong>
+            ${fnl.labels.map(function(lbl,i){return fnl.counts[i]+" "+lbl.toLowerCase();}).join(" → ")}
           </div>
           <table class="metrics-table">
             <tr><th>Metric</th><th>Count</th><th>Target</th><th>Status</th></tr>
@@ -2067,21 +2172,9 @@ function renderThisWeek(coord,state){
       <div><div style="font-size:18px;font-weight:700;color:var(--redt)">${T.days_none}</div><div class="small muted">No activity</div></div>
       <div><div style="font-size:18px;font-weight:700;color:var(--hdr)">${T.days_complete}</div><div class="small muted">Days complete</div></div>
     </div>
-    <!-- Conversion funnel -->
-    <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Conversion funnel</div>
-    <div class="funnel">
-      <div class="funnel-step"><div class="num">${T.call_attempted}</div><div class="small muted">Calls</div></div>
-      <div class="funnel-arrow">→</div>
-      <div class="funnel-step"><div class="num">${T.call_meaningful}</div><div class="small muted">Meaningful</div></div>
-      <div class="funnel-arrow">→</div>
-      <div class="funnel-step"><div class="num">${T.opp_generated}</div><div class="small muted">Opps</div></div>
-      <div class="funnel-arrow">→</div>
-      <div class="funnel-step"><div class="num">${T.signup_booked}</div><div class="small muted">Sign-ups</div></div>
-      <div class="funnel-arrow">→</div>
-      <div class="funnel-step"><div class="num">${T.registration}</div><div class="small muted">Regs</div></div>
-      <div class="funnel-arrow">→</div>
-      <div class="funnel-step"><div class="num">${T.enrolled_done}</div><div class="small muted">Enrolled</div></div>
-    </div>
+    <!-- Strict lead funnel — 2026-07-28, replaces the old activity-volume funnel -->
+    <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lead conversion funnel</div>
+    ${renderStrictLeadFunnel(coord)}
   </div>`;
 
   // Day-by-day breakdown
@@ -2668,23 +2761,9 @@ function renderDashboard(){
         }).join("")}
       </div>
 
-      <!-- Conversion funnel -->
-      <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">CONVERSION FUNNEL</div>
-      <div class="funnel" style="margin-bottom:12px;">
-        <div class="funnel-step"><div class="num">${T.call_attempted}</div><div class="small muted">Calls</div></div>
-        <div class="funnel-arrow">→</div>
-        <div class="funnel-step"><div class="num">${T.call_meaningful}</div><div class="small muted">Meaningful</div></div>
-        <div class="funnel-arrow">→</div>
-        <div class="funnel-step"><div class="num">${T.opp_generated}</div><div class="small muted">Opps</div></div>
-        <div class="funnel-arrow">→</div>
-        <div class="funnel-step"><div class="num">${T.signup_booked}</div><div class="small muted">Sign-ups</div></div>
-        <div class="funnel-arrow">→</div>
-        <div class="funnel-step"><div class="num">${T.registration}</div><div class="small muted">Regs</div></div>
-        <div class="funnel-arrow">→</div>
-        <div class="funnel-step"><div class="num">${T.commencement}</div><div class="small muted">Commencements</div></div>
-        <div class="funnel-arrow">→</div>
-        <div class="funnel-step"><div class="num">${T.enrolled_done}</div><div class="small muted">Enrolled</div></div>
-      </div>
+      <!-- Strict lead funnel — 2026-07-28, replaces the old activity-volume funnel -->
+      <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL</div>
+      <div style="margin-bottom:12px;">${renderStrictLeadFunnel(coord)}</div>
 
       <!-- Follow-ups -->
       ${T.followup_overdue>0?`<div style="background:var(--red);color:var(--redt);padding:8px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
