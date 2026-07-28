@@ -522,7 +522,7 @@ function isMeaningfulCall(act){
 function activityLabel(type){
   const labels={
     commencement:"Commencement",registration:"Registration Pipeline",enrolment:"Enrolment",
-    intro_call:"Intro Call",acap_contact:"ACAP Call",acap_f2f:"ACAP F2F Visit",
+    intro_call:"Employer Introduction Call",acap_contact:"ACAP Call",acap_f2f:"ACAP F2F Visit",
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit",
     new_employer_met:"Employer Met",new_employer_db:"Add Employer",add_employer:"Add Employer",
     pipeline:"Pipeline",lead:"Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",add_acap:"Add ACAP",follow_up_closed:"Follow-up Closed",
@@ -1812,7 +1812,7 @@ function renderToday(coord,state,day){
             <span style="font-size:10px;background:var(--redt);color:#fff;padding:1px 6px;border-radius:20px;font-weight:600">Due ${fmtDateShort(f.followUpDate)}</span>
             <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
             ${(f.snoozeCount||0)>=3
-              ? `<button disabled title="Snooze limit reached — mark Done or action this follow-up" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
+              ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
               : `<button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
@@ -1842,7 +1842,7 @@ function renderToday(coord,state,day){
           <div style="margin-left:auto;display:flex;gap:6px">
             <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
             ${(f.snoozeCount||0)>=3
-              ? `<button disabled title="Snooze limit reached — mark Done or action this follow-up" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
+              ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
               : `<button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
@@ -1884,7 +1884,7 @@ function renderToday(coord,state,day){
     ${[
       {type:"enrolment_pipeline",label:"Enrolment Pipeline",icon:"ti-git-branch",bg:"var(--o1)",col:"var(--o1t)"},
       {type:"registration",     label:"Registration Pipeline",         icon:"ti-file-check",    bg:"var(--o1)",col:"var(--o1t)"},
-      {type:"intro_call",       label:"Intro Call",                    icon:"ti-phone-call",    bg:"var(--o1)",col:"var(--o1t)"},
+      {type:"intro_call",       label:"Employer Introduction Call",    icon:"ti-phone-call",    bg:"var(--o1)",col:"var(--o1t)"},
     ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;${btn.label.length>21?"flex-direction:row;justify-content:center;gap:6px;":"flex-direction:column;"}align-items:center;gap:4px;">
       <i class="ti ${btn.icon}" style="font-size:${btn.label.length>21?16:20}px"></i>${btn.label}</button>`).join("")}
   </div>
@@ -3208,7 +3208,7 @@ function renderActivityModal(type,data){
   const isEdit=!!data.id;
   const baseTitles={
     commencement:"Log Commencement",registration:"Log Registration Pipeline",enrolment:"Log Enrolment",
-    intro_call:"Log Intro Call",acap_contact:"Log ACAP Call",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
+    intro_call:"Log Employer Introduction Call",acap_contact:"Log ACAP Call",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
     event:"Log Event",employer_call:"Log Employer Call",site_visit:"Log Site Visit",
     new_employer_met:"Log New Employer Met",new_employer_db:"Add Employer",
     pipeline:"Log Pipeline Contact",lead:"Log Student Lead",enrolment_pipeline:"Log Enrolment Pipeline",
@@ -3800,7 +3800,7 @@ function snoozeFollowup(id, date, coord) {
       }
     }
     if (currentCount >= 3) {
-      alert("Snooze limit reached (3x) — please mark this follow-up Done or take action instead of snoozing further.");
+      alert("Snooze limit reached (3x) — take real action on this now and mark it Done with the genuine outcome, rather than deferring again.");
       return;
     }
   } catch(e_) {}
