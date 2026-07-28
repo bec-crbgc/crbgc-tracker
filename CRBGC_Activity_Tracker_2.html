@@ -3960,14 +3960,19 @@ function onEpNameInput(val){
   } else if(hint){ hint.innerHTML=""; }
 }
 
+const CLOSED_STUDENT_LEAD_STATUSES = ["completed","complete","n/a","cancelled"];
+function isClosedStudentLeadStatus(status){
+  const s=String(status||"").trim().toLowerCase();
+  return CLOSED_STUDENT_LEAD_STATUSES.includes(s);
+}
 function renderRegDropdown(filterText){
   const dd=document.getElementById("reg_name_dropdown");
   if(!dd) return;
-  const cache=getStudentLeadsCache(S.user.coord);
+  const cache=getStudentLeadsCache(S.user.coord).filter(function(s){return !isClosedStudentLeadStatus(s.stage);});
   const filter=(filterText||"").trim().toLowerCase();
   const matches=filter?cache.filter(function(s){return s.name.toLowerCase().indexOf(filter)!==-1;}):cache;
   if(!matches.length){
-    dd.innerHTML='<div class="ep-dropdown-empty">'+(filter?"No matches — will be logged as a new entry":"No students found")+'</div>';
+    dd.innerHTML='<div class="ep-dropdown-empty">'+(filter?"No matches — will be logged as a new entry":"No open students found")+'</div>';
   } else {
     dd.innerHTML=matches.slice(0,50).map(function(s){
       const safe=s.name.replace(/'/g,"\\'").replace(/"/g,"&quot;");
