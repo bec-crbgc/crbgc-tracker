@@ -4215,6 +4215,17 @@ function isClosedStudentLeadStatus(status){
   const s=String(status||"").trim().toLowerCase();
   return CLOSED_STUDENT_LEAD_STATUSES.includes(s);
 }
+// 2026-07-28: sheet-sourced stage text sometimes carries invisible characters
+// (zero-width space/joiner, BOM, NBSP) that survive .trim() but LOOK like
+// plain "N/A" on screen — so a straight string-equality check against "n/a"
+// can silently fail to match. Strip those out (and all whitespace) before
+// comparing so any visually-"N/A" variant is caught.
+function normalizeStageText_(raw){
+  return String(raw||"")
+    .replace(/[​-‍﻿ ]/g,"")
+    .replace(/\s+/g,"")
+    .toLowerCase();
+}
 function renderRegDropdown(filterText){
   const dd=document.getElementById("reg_name_dropdown");
   if(!dd) return;
@@ -4222,7 +4233,7 @@ function renderRegDropdown(filterText){
   // treated as open), while a genuinely BLANK stage still counts as open
   // (shown as "New lead" below) rather than being dropped silently.
   const cache=getStudentLeadsCache(S.user.coord).filter(function(s){
-    const st=String(s.stage||"").trim().toLowerCase();
+    const st=normalizeStageText_(s.stage);
     return !isClosedStudentLeadStatus(s.stage) && st!=="n/a";
   });
   const filter=(filterText||"").trim().toLowerCase();
