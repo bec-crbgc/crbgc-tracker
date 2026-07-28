@@ -3160,6 +3160,7 @@ function renderActivityModal(type,data){
     fields+=fld("Discussion / outcome","ec_disc","textarea",data.meaningfulDiscussion||"");
     fields+=fld("Activity outcome","ec_actout","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES));
     fields+=`</div>`;
+    fields+=fld("Profile Builder","ec_profile","textarea",data.profileNotes||"");
   }
 
   // ── SITE VISIT ─────────────────────────────────────────────────────────
@@ -3184,6 +3185,7 @@ function renderActivityModal(type,data){
     ]);
     fields+=fld("Employer relationship","sv_rel","select",data.relType||"",[""].concat(REL_TYPES),"true");
     fields+=fld("Activity outcome","sv_outcome","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES),"true");
+    fields+=fld("Profile Builder","sv_profile","textarea",data.profileNotes||"");
   }
 
   // ── NEW EMPLOYER MET / DB ──────────────────────────────────────────────
@@ -3204,6 +3206,7 @@ function renderActivityModal(type,data){
     if(type!=="new_employer_met"){
       fields+=fld("Activity outcome","ne_outcome","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES),"true");
     }
+    fields+=fld("Profile Builder","ne_profile","textarea",data.profileNotes||"");
   }
 
   // ── PIPELINE ───────────────────────────────────────────────────────────
@@ -3373,7 +3376,7 @@ function saveActivityFromModal(type){
   if(type==="add_acap"){ act.acapOrg=g("add_acap_org");act.contactName=g("add_acap_contact");act.position=g("add_acap_position");act.studentState=g("add_acap_state");act.suburb=g("add_acap_region");act.email=g("add_acap_email");act.mobile=g("add_acap_mobile");act.profileNotes=g("add_acap_profile"); }
   if(["acap_contact","acap_f2f"].includes(type)){ act.acapOrg=g("acap_org");act.contactName=g("acap_contact");act.activityOutcome=g("acap_outcome"); }
   if(type==="event"){ act.eventName=g("ev_name");act.location=g("ev_loc");act.attendees=g("ev_att");act.activityOutcome=g("ev_outcome"); }
-  if(type==="employer_call"){ act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");
+  if(type==="employer_call"){ act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");act.profileNotes=g("ec_profile");
     // If "Do not contact" — mark employer inactive in WIP immediately
     if(act.callOutcome==="Do not contact — removed from list" && act.bizName){
       fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
@@ -3382,12 +3385,12 @@ function saveActivityFromModal(type){
       }).catch(function(){});
     }
   }
-  if(type==="site_visit"){ act.bizName=g("sv_biz");act.suburb=g("sv_suburb");act.contactName=g("sv_contact");act.mobile=g("sv_mobile");act.email=g("sv_email");act.trade=g("sv_trade");act.relType=g("sv_rel");act.activityOutcome=g("sv_outcome"); }
+  if(type==="site_visit"){ act.bizName=g("sv_biz");act.suburb=g("sv_suburb");act.contactName=g("sv_contact");act.mobile=g("sv_mobile");act.email=g("sv_email");act.trade=g("sv_trade");act.relType=g("sv_rel");act.activityOutcome=g("sv_outcome");act.profileNotes=g("sv_profile"); }
   if(["new_employer_met","new_employer_db","add_employer"].includes(type)){
     act.bizName=g("ne_biz");act.contactName=g("ne_contact");act.position=g("ne_position");
     act.relType=g("ne_rel");act.email=g("ne_email");act.phone=g("ne_phone");
     act.suburb=g("ne_region");act.postcode=g("ne_postcode");act.studentState=g("ne_state");
-    act.activityOutcome=g("ne_outcome");
+    act.activityOutcome=g("ne_outcome");act.profileNotes=g("ne_profile");
   }
   if(type==="enrolment_pipeline"){ act.studentName=g("ep_name");act.studentState=g("ep_state");act.trade=g("ep_trade");act.prevStage=g("ep_prev");act.newStage=g("ep_new");act.contactOutcome=g("ep_contact");act.barrier=g("ep_barrier");act.actionToday=g("ep_action");act.expectedReg=g("ep_expreg"); }
   if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.pipelineType=g("pl_pipeline_type");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg"); }
@@ -4077,11 +4080,11 @@ function actToRow(a, day, coord, state) {
     day.focus||"", day.focusOther||"",
     a.type, a.timestamp||"",
     a.bizName||"", a.contactName||"", a.relType||"",
-    a.callOutcome||"", (a.type==="add_acap"?(a.profileNotes||""):(a.meaningfulDiscussion||"")),
+    a.callOutcome||"", (["add_acap","site_visit","new_employer_met","new_employer_db","add_employer"].includes(a.type)?(a.profileNotes||""):(a.meaningfulDiscussion||"")),
     a.suburb||"", a.mobile||"", a.email||"",
     a.studentName||"", a.studentState||"", a.trade||"",
     a.prevStage||"", a.newStage||"", a.contactOutcome||"",
-    a.barrier||"", a.actionToday||"", a.expectedReg||"",
+    (a.type==="employer_call"?(a.profileNotes||""):(a.barrier||"")), a.actionToday||"", a.expectedReg||"",
     a.activityOutcome||"", a.nextAction||"", a.followUpDate||"",
     a.responsible||coord, a.status||"Open", a.notes||"",
     a.within24h||"", day.eodStatus||"", day.eodResult||"",
