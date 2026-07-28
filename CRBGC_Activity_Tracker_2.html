@@ -1764,9 +1764,8 @@ function renderToday(coord,state,day){
 
   // Quick log activities (non-call, non-visit, non-pipeline)
   h+=`<div class="sect-hdr">Log activity</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px;">
+  <div style="display:grid;grid-template-columns:1fr;gap:8px;padding:0 12px;">
     ${[
-      {type:"enrolment",        label:"Enrolment",                    icon:"ti-school",        bg:"var(--o1)",col:"var(--o1t)"},
       {type:"commencement",     label:"Commencement",                  icon:"ti-award",          bg:"var(--o1)",col:"var(--o1t)"},
     ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
       <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
