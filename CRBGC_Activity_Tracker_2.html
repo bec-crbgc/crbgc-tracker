@@ -151,6 +151,8 @@ const PRIMARY_FOCUS = [
   "Administration and follow-up","Other"
 ];
 
+const TRADE_OPTIONS = ["Carpentry","Concreting","Civil","Other"];
+
 const CALL_OUTCOMES = [
   "Connected – meaningful conversation","Connected – no current opportunity",
   "No answer","Voicemail left","Follow-up message sent",
@@ -3057,7 +3059,7 @@ function renderActivityModal(type,data){
   if(["commencement","enrolment","lead"].includes(type)){
     fields+=fld("Student name","sname","text",data.studentName||"",null,"true");
     fields+=fld("State","sstate","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
-    fields+=fld("Trade / qualification","strade","text",data.trade||"");
+    fields+=fld("Trade / qualification","strade","select",data.trade||"",["",...TRADE_OPTIONS]);
     if(type==="lead"){
       fields+=fldRow([
         fld("Previous stage","slead_prev","select",data.prevStage||"",[""].concat(EARLY_PIPELINE_STAGES)),
@@ -3074,6 +3076,7 @@ function renderActivityModal(type,data){
       'placeholder="Tap to select or type student name..." autocomplete="off" required>'+
       '<div id="reg_name_dropdown" class="ep-dropdown hidden"></div>'+
       '<div id="reg_name_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
+    fields+=fld("Trade / qualification","reg_trade","select",data.trade||"",["",...TRADE_OPTIONS]);
     fields+=fldRow([
       fld("Previous stage","reg_prev","select",data.prevStage||"",["",...EARLY_PIPELINE_STAGES]),
       fld("New stage","reg_new","select",data.newStage||"",["",...EARLY_PIPELINE_STAGES],"true"),
@@ -3091,7 +3094,7 @@ function renderActivityModal(type,data){
     fields+=fldRow([fld("Call time","scalltime","time",data.callTime||""),fld("Completed within 24 hours?","swithin24","select",data.within24h||"",["","Yes","No"])]);
     fields+=fld("Contact outcome","scallout","select",data.callOutcome||"",["","Connected – meaningful conversation","Connected – brief conversation","Voicemail left","No answer","Wrong number"]);
     fields+=fld("Apprentice / student name (reference)","ic_student","text",data.studentName||"");
-    fields+=fld("Trade","strade","text",data.trade||"");
+    fields+=fld("Trade","strade","select",data.trade||"",["",...TRADE_OPTIONS]);
     fields+=fld("Follow-up required","sfollowup","text",data.followUp||"");
   }
 
@@ -3181,7 +3184,7 @@ function renderActivityModal(type,data){
     ]);
     fields+=fldRow([
       fld("Email","sv_email","email",data.email||""),
-      fld("Trade","sv_trade","text",data.trade||""),
+      fld("Trade","sv_trade","select",data.trade||"",["",...TRADE_OPTIONS]),
     ]);
     fields+=fld("Employer relationship","sv_rel","select",data.relType||"",[""].concat(REL_TYPES),"true");
     fields+=fld("Activity outcome","sv_outcome","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES),"true");
@@ -3218,6 +3221,7 @@ function renderActivityModal(type,data){
       'placeholder="Tap to select or type student name..." autocomplete="off" required>'+
       '<div id="ep_name_dropdown" class="ep-dropdown hidden"></div>'+
       '<div id="ep_name_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
+    fields+=fld("Trade / qualification","ep_trade","select",data.trade||"",["",...TRADE_OPTIONS]);
     fields+=fldRow([
       fld("Previous stage","ep_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
       fld("New stage","ep_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
@@ -3231,7 +3235,7 @@ function renderActivityModal(type,data){
     fields+=fld("Lead / student name","pl_name","text",data.leadName||"",null,"true");
     fields+=fldRow([
       fld("State","pl_state","select",data.state||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]),
-      fld("Trade / qualification","pl_trade","text",data.trade||""),
+      fld("Trade / qualification","pl_trade","select",data.trade||"",["",...TRADE_OPTIONS]),
     ]);
     fields+=fldRow([
       fld("Previous stage","pl_prev","select",data.prevStage||"",[""].concat(PIPELINE_STAGES)),
@@ -3363,7 +3367,7 @@ function saveActivityFromModal(type){
     }
   }
   if(type==="registration"){
-    act.studentName=g("reg_name"); act.prevStage=g("reg_prev"); act.newStage=g("reg_new");
+    act.studentName=g("reg_name"); act.trade=g("reg_trade"); act.prevStage=g("reg_prev"); act.newStage=g("reg_new");
     act.contactOutcome=g("reg_contact"); act.barrier=g("reg_barrier"); act.actionToday=g("reg_action");
   }
   if(type==="intro_call"){
