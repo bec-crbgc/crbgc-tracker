@@ -264,7 +264,7 @@ let S = {
   status: {ok:true, msg:"Ready"},
   editAct: null,
   wkExpanded: {},
-  dashFilter: {coord:"all",dateFrom:"",dateTo:""},
+  dashFilter: {coord:"all",dateFrom:"",dateTo:"",activityType:"",outcome:"",relType:"",pipelineStage:"",overdueOnly:false},
   dashView: "weekly",
   trendFrom: "",  // trend date range start
   trendTo:   "",  // trend date range end
@@ -476,7 +476,7 @@ function weeklyTotals(coord,ds){
     site_locations:new Set(),site_employers:0,site_contacts:0,site_opps:0,
     new_employer_met:0,new_employer_acq:0,new_employer_db:0,
     lead:0,opp_generated:0,
-    pipeline_contacted:0,pipeline_progressed:0,
+    pipeline_contacted:0,pipeline_progressed:0,pipeline_no_movement:0,pipeline_overdue:0,
     signup_booked:0,signup_done:0,reg_submitted:0,reg_done:0,enrolled_done:0,
     followup_open:0,followup_overdue:0,
     days_complete:0,days_productive:0,days_partial:0,days_none:0,
@@ -529,6 +529,12 @@ function weeklyTotals(coord,ds){
       if(["pipeline","enrolment_pipeline"].includes(a.type)){
         T.pipeline_contacted++;
         if(a.newStage&&a.prevStage&&a.newStage!==a.prevStage) T.pipeline_progressed++;
+        // 2026-07-28: "records with no movement" — contacted this week but
+        // the stage didn't change (distinct from records never contacted).
+        if(a.newStage&&a.prevStage&&a.newStage===a.prevStage) T.pipeline_no_movement++;
+        // 2026-07-28: pipeline-specific overdue, distinct from the general
+        // T.followup_overdue (which also includes non-pipeline activities).
+        if(a.followUpDate && a.status!=="Completed" && a.status!=="Closed" && isOverdue(a.followUpDate)) T.pipeline_overdue++;
         if(a.newStage==="Sign-up booked") T.signup_booked++;
         if(a.newStage==="Sign-up completed") T.signup_done++;
         if(a.newStage==="Registration submitted") T.reg_submitted++;
@@ -972,6 +978,8 @@ function downloadTrendExcel() {
     {label:"ACAP contacts",           fn:function(T){return T.acap_contact_attempted;},key:"acap_contact"},
     {label:"Opportunities",           fn:function(T){return T.opp_generated;}},
     {label:"Pipeline progressed",     fn:function(T){return T.pipeline_progressed;}},
+    {label:"Pipeline no movement",    fn:function(T){return T.pipeline_no_movement;}, warn:true},
+    {label:"Pipeline overdue",        fn:function(T){return T.pipeline_overdue;},     warn:true},
     {label:"New employers met",       fn:function(T){return T.new_employer_met;},     key:"new_employer_met"},
     {label:"Student leads",           fn:function(T){return T.lead;},                key:"lead"},
     {label:"Overdue follow-ups",      fn:function(T){return T.followup_overdue;},    warn:true},
@@ -2007,6 +2015,7 @@ function renderDailyNotes(coord,state,day){
     <div class="card-title"><i class="ti ti-checklist"></i> End-of-day review
       ${eodComplete?'<span class="tag" style="background:var(--green);color:var(--greent);font-size:11px">✓ Day complete</span>':'<span class="tag" style="background:var(--amber);color:var(--ambert);font-size:11px">Draft</span>'}
     </div>
+    <div id="eod_errors"></div>
     <div class="field">
       <label>What result did today's activity create?</label>
       <textarea id="eod_result" placeholder="What was actually achieved?" onchange="saveEOD('result',this.value)" style="min-height:72px">${day.eodResult||""}</textarea>
@@ -2604,15 +2613,12 @@ function renderDashboard(){
         <input type="date" value="${targetDate}" onchange="S.date=this.value;render()" style="font-size:12px">
       </div>`}
     </div>
+    ${S.dashView!=="trend" ? renderDashboardFilterControls() : ""}
   </div>`;
 
-  if (S.dashView==="daily") return h + renderDailyDashboard();
-  if (S.dashView==="trend") return h + renderTrendDashboard();
-
-  if (S.dashView==="daily") return h + renderDailyDashboard();
-  if (S.dashView==="trend") return h + renderTrendDashboard();
-
   const coordsToShow=ds.coord==="all"?COORDS:[ds.coord];
+  if (S.dashView==="daily") return h + renderDailyDashboard() + renderFilteredActivityLog(coordsToShow,[targetDate]);
+  if (S.dashView==="trend") return h + renderTrendDashboard();
 
   coordsToShow.forEach(coord=>{
     const state=STATES[coord];
@@ -2637,6 +2643,8 @@ function renderDashboard(){
           {lbl:"Student leads",val:T.lead,tgt:tgt.lead_generated[s]},
           {lbl:"ACAP contacts",val:T.acap_contact_attempted,tgt:tgt.acap_contact[s]},
           {lbl:"Pipeline progressed",val:T.pipeline_progressed,tgt:0},
+          {lbl:"Pipeline no movement",val:T.pipeline_no_movement,tgt:0},
+          {lbl:"Pipeline overdue",val:T.pipeline_overdue,tgt:0},
           {lbl:"Commencements",val:T.commencement,tgt:tgt.commencement[s]},
         ].map(k=>{
           const pct=k.tgt>0?Math.min(100,k.val/k.tgt*100):50;
@@ -2710,7 +2718,99 @@ function renderDashboard(){
     </div>`;
   });
 
+  h += renderFilteredActivityLog(coordsToShow, weekDaysMF(targetDate));
   return h;
+}
+
+// 2026-07-28: management dashboard filters, added to address the audit gap
+// that filtering was previously limited to coordinator + date only.
+// Options are shown but pipeline-stage / relationship filters only really
+// narrow results once an activity type that uses them is also selected —
+// that's expected, not a bug, since e.g. relType doesn't exist on every
+// activity type.
+function renderDashboardFilterControls(){
+  const ds = S.dashFilter;
+  const activityTypeOptions = ["employer_call","site_visit","new_employer_met","new_employer_db","acap_contact","acap_f2f","event","intro_call","registration","enrolment_pipeline","pipeline","commencement","lead"];
+  return `<div class="field-row" style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--bd)">
+    <div class="field">
+      <label>Activity type</label>
+      <select onchange="S.dashFilter.activityType=this.value;render()" style="font-size:12px">
+        <option value=""${ds.activityType===""?" selected":""}>All types</option>
+        ${activityTypeOptions.map(t=>`<option value="${t}"${ds.activityType===t?" selected":""}>${activityLabel(t)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <label>Outcome</label>
+      <select onchange="S.dashFilter.outcome=this.value;render()" style="font-size:12px">
+        <option value=""${ds.outcome===""?" selected":""}>All outcomes</option>
+        ${ACTIVITY_OUTCOMES.map(o=>`<option value="${o}"${ds.outcome===o?" selected":""}>${o}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <label>Employer relationship</label>
+      <select onchange="S.dashFilter.relType=this.value;render()" style="font-size:12px">
+        <option value=""${ds.relType===""?" selected":""}>All relationships</option>
+        ${REL_TYPES.map(r=>`<option value="${r}"${ds.relType===r?" selected":""}>${r}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field">
+      <label>Pipeline stage</label>
+      <select onchange="S.dashFilter.pipelineStage=this.value;render()" style="font-size:12px">
+        <option value=""${ds.pipelineStage===""?" selected":""}>All stages</option>
+        ${PIPELINE_STAGES.map(st=>`<option value="${st}"${ds.pipelineStage===st?" selected":""}>${st}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field" style="display:flex;align-items:flex-end">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
+        <input type="checkbox" ${ds.overdueOnly?"checked":""} onchange="S.dashFilter.overdueOnly=this.checked;render()">
+        Open/overdue follow-up only
+      </label>
+    </div>
+    ${(ds.activityType||ds.outcome||ds.relType||ds.pipelineStage||ds.overdueOnly)?`
+    <div class="field" style="display:flex;align-items:flex-end">
+      <button onclick="S.dashFilter.activityType='';S.dashFilter.outcome='';S.dashFilter.relType='';S.dashFilter.pipelineStage='';S.dashFilter.overdueOnly=false;render()" class="btn-ghost btn-sm">Clear filters</button>
+    </div>`:""}
+  </div>`;
+}
+
+// Gathers activities for the given coordinators/dates and applies the
+// active dashboard filters. Excludes the same auto-generated rows the
+// rest of the app already excludes from counts/logs (auto_fu_, auto_acap_,
+// sl_ prefixes).
+function getFilteredDashboardActivities(coordsToShow, dates){
+  const ds = S.dashFilter;
+  const out = [];
+  coordsToShow.forEach(function(coord){
+    dates.forEach(function(d){
+      const day = loadDay(coord, d);
+      (day.activities||[]).forEach(function(a){
+        if (a.id && (a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")||a.id.startsWith("sl_"))) return;
+        if (ds.activityType && a.type!==ds.activityType) return;
+        if (ds.outcome && a.activityOutcome!==ds.outcome) return;
+        if (ds.relType && a.relType!==ds.relType) return;
+        if (ds.pipelineStage && a.newStage!==ds.pipelineStage && a.prevStage!==ds.pipelineStage) return;
+        if (ds.overdueOnly && !(a.followUpDate && isOverdue(a.followUpDate) && a.status!=="Completed" && a.status!=="Closed")) return;
+        out.push({coord:coord, act:a});
+      });
+    });
+  });
+  return out;
+}
+
+// Only renders (and only costs anything) when at least one filter beyond
+// coordinator/date is active — keeps the dashboard's default view exactly
+// as it was before this was added.
+function renderFilteredActivityLog(coordsToShow, dates){
+  const ds = S.dashFilter;
+  if (!(ds.activityType||ds.outcome||ds.relType||ds.pipelineStage||ds.overdueOnly)) return "";
+  const results = getFilteredDashboardActivities(coordsToShow, dates);
+  return `<div class="card">
+    <div class="card-title"><i class="ti ti-filter"></i> Filtered activity log (${results.length})</div>
+    ${results.length===0 ? `<div class="muted small">No activities match the current filters for this period.</div>` :
+      results.map(function(r){
+        return `<div style="font-size:11px;color:var(--tm);font-weight:600;margin:8px 0 2px">${r.coord}</div>` + renderActItem(r.act, r.coord);
+      }).join("")}
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2769,6 +2869,7 @@ function renderCloseFollowupModal(m) {
   return `<div class="modal-bg">
   <div class="modal">
     <div class="modal-title" style="color:#085041"><i class="ti ti-checkbox"></i> Close follow-up</div>
+    <div id="modal_errors"></div>
     <div style="background:var(--o1);padding:10px 12px;border-radius:var(--r);margin-bottom:16px;font-size:13px">
       <strong>${m.name||"Follow-up"}</strong>
     </div>
@@ -2856,13 +2957,14 @@ function renderSettingsModal(){
         As manager you can view and edit any coordinator's records. Use the dropdown above to switch.
       </div>
     </div><hr class="divider">`:""}
+    ${S.user.isManager?`
     <div class="field">
-      <label>Web App URL</label>
-      <input id="set_url" value="${WEBAPP_URL}" style="font-size:12px">
-    </div>
+      <label>Web App URL <span style="font-weight:400;color:var(--ts);font-size:11px">(manager view only)</span></label>
+      <input id="set_url" value="${WEBAPP_URL}" style="font-size:12px" readonly>
+    </div>`:""}
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       <button onclick="closeModal()" class="btn-primary btn-sm">Done</button>
-      <button onclick="if(confirm('Clear ALL local data? This cannot be undone.'))clearAllData()" class="btn-danger btn-sm">Clear local data</button>
+      <button onclick="confirmClearLocalData()" class="btn-danger btn-sm">Clear local data</button>
       <button onclick="S.user=null;lsDel('user');closeModal();render()" class="btn-ghost btn-sm">Switch user</button>
       <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
       <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
@@ -3275,6 +3377,7 @@ function renderActivityModal(type,data){
   return `<div class="modal-bg">
   <div class="modal">
     <div class="modal-title"><i class="ti ti-plus"></i> ${titles[type]||type}</div>
+    <div id="modal_errors"></div>
     ${fields}
     <div style="display:flex;gap:8px;margin-top:16px">
       <button onclick="saveActivityFromModal('${type}')" class="btn-primary" style="flex:1">Save</button>
@@ -3282,6 +3385,24 @@ function renderActivityModal(type,data){
     </div>
   </div></div>`;
 }
+
+// Inline validation errors — 2026-07-28: previously a blocking alert()
+// popup. Injects into the already-open modal DOM in place (no re-render),
+// so the user's already-typed field values are never lost.
+function showModalErrors(errors){
+  const el = document.getElementById("modal_errors");
+  if(!el){ alert(errors.join("\n")); return; } // fallback if modal structure ever changes
+  el.innerHTML = errors.length ? (
+    '<div style="background:var(--red);color:var(--redt);padding:10px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:12px">'+
+    '⚠ Please fix the following before saving:<ul style="margin:6px 0 0 18px;padding:0;font-weight:400">'+
+    errors.map(e=>'<li>'+e+'</li>').join('')+'</ul></div>'
+  ) : '';
+  if(errors.length) el.scrollIntoView({behavior:"smooth",block:"start"});
+}
+// Basic format checks — 2026-07-28: previously no email/phone format
+// validation existed anywhere in the form.
+function isValidEmail_(v){ return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+function isValidPhone_(v){ return !v || /^[0-9+()\s-]{6,20}$/.test(v); }
 
 // Field builder helpers
 function fld(label,id,type,val,options,required){
@@ -3334,7 +3455,24 @@ function saveEOD(field,val){
   if(field==="result") day.eodResult=val;
   else if(field==="tomorrow") day.eodTomorrow=val;
   else if(field==="entered") day.eodAllEntered=val;
-  else if(field==="status") day.eodStatus=val;
+  else if(field==="status"){
+    // 2026-07-28: "Day complete" previously could be set with the
+    // "all entered?" declaration left unanswered and no result recorded —
+    // the spec asked for this as a genuine required Y/N declaration, not
+    // just a stored-but-unenforced field.
+    if(val==="complete"){
+      const eodErrs=[];
+      if(!day.eodResult||!day.eodResult.trim()) eodErrs.push("Please record what result today's activity created before marking the day complete.");
+      if(!day.eodAllEntered) eodErrs.push('Please answer "All activities and follow-ups entered and current?" before marking the day complete.');
+      if(eodErrs.length){
+        const el=document.getElementById("eod_errors");
+        if(el) el.innerHTML='<div style="background:var(--red);color:var(--redt);padding:10px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:12px">⚠ '+eodErrs.join('<br>⚠ ')+'</div>';
+        else alert(eodErrs.join("\n"));
+        return;
+      }
+    }
+    day.eodStatus=val;
+  }
   saveDay(day); render();
 }
 function saveWeeklyReflection(){
@@ -3397,10 +3535,8 @@ function saveActivityFromModal(type){
   if(type==="employer_call"){ act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");act.profileNotes=g("ec_profile");
     // If "Do not contact" — mark employer inactive in WIP immediately
     if(act.callOutcome==="Do not contact — removed from list" && act.bizName){
-      fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-        body:JSON.stringify({type:"update_employer_followup",coord:S.user.coord,
-          bizName:act.bizName,action:"do_not_contact",lastContactDate:S.date||TODAY})
-      }).catch(function(){});
+      postBestEffort({type:"update_employer_followup",coord:S.user.coord,
+        bizName:act.bizName,action:"do_not_contact",lastContactDate:S.date||TODAY});
     }
   }
   if(type==="site_visit"){ act.bizName=g("sv_biz");act.suburb=g("sv_suburb");act.contactName=g("sv_contact");act.mobile=g("sv_mobile");act.email=g("sv_email");act.trade=g("sv_trade");act.relType=g("sv_rel");act.activityOutcome=g("sv_outcome");act.profileNotes=g("sv_profile"); }
@@ -3434,8 +3570,29 @@ function saveActivityFromModal(type){
   if(["pipeline"].includes(type) && (!act.leadName||!act.newStage)) errors.push("Lead name and new pipeline stage are required");
   if(ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.nextAction) errors.push("Next action is required for this outcome");
   if(ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
+  // 2026-07-28: basic format checks — none of these existed before.
+  if(!isValidEmail_(act.email)) errors.push("Email address doesn't look valid");
+  if(!isValidPhone_(act.mobile)) errors.push("Mobile number doesn't look valid");
+  if(!isValidPhone_(act.phone)) errors.push("Phone number doesn't look valid");
 
-  if(errors.length>0){ alert(errors.join("\n")); return; }
+  if(errors.length>0){ showModalErrors(errors); return; }
+  showModalErrors([]); // clear any previous error banner on a successful pass
+
+  // 2026-07-28: confirm before letting a pipeline-style stage move
+  // backward — previously any stage could be silently overwritten either
+  // way with no distinction from normal forward progress.
+  const STAGE_TYPES = ["registration","lead","enrolment_pipeline","pipeline"];
+  if(STAGE_TYPES.includes(type) && act.prevStage && act.newStage && act.prevStage!==act.newStage){
+    const EXIT_STAGES = ["On hold","Closed/lost"];
+    if(!EXIT_STAGES.includes(act.prevStage) && !EXIT_STAGES.includes(act.newStage)){
+      const pIdx = PIPELINE_STAGES.indexOf(act.prevStage), nIdx = PIPELINE_STAGES.indexOf(act.newStage);
+      if(pIdx>-1 && nIdx>-1 && nIdx<pIdx){
+        const reason = prompt('This moves the stage BACKWARD, from "'+act.prevStage+'" to "'+act.newStage+'". If that\'s intentional, briefly say why (this is added to Notes) — Cancel to go back and re-check the stage:');
+        if(reason===null || !reason.trim()){ showModalErrors(["Backward stage change wasn't confirmed — add a reason to proceed, or re-check the selected stage."]); return; }
+        act.notes = (act.notes?act.notes+" | ":"")+"Stage reverted "+act.prevStage+" → "+act.newStage+": "+reason.trim();
+      }
+    }
+  }
 
   if(!day.activities) day.activities=[];
   if(isEdit && editId){
@@ -3662,28 +3819,20 @@ function snoozeFollowup(id, date, coord) {
     } catch(e){}
   }
   if (isAcapSnooze && acapOrg_) {
-    fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrg_,id,
-        nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze",snoozeCount:newSnoozeCount})
-    }).catch(function(){});
+    postBestEffort({type:"update_acap_followup",coord,org:acapOrg_,id,
+      nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze",snoozeCount:newSnoozeCount});
   } else if (isStudentSnooze && studentName_) {
-    fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({type:"update_student_followup",coord,name:studentName_,type:snoozeActType,
-        nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze"})
-    }).catch(function(){});
+    postBestEffort({type:"update_student_followup",coord,name:studentName_,type:snoozeActType,
+      nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze"});
   } else if (!isAcapSnooze && !isStudentSnooze && bizName) {
-    fetch(WEBAPP_URL, {
-      method:"POST", mode:"no-cors",
-      headers:{"Content-Type":"text/plain"},
-      body:JSON.stringify({
-        type:"update_employer_followup",
-        coord, bizName, id,
-        nextContactDate:tomorrowStr,
-        lastContactDate:S.date||TODAY,
-        action:"snooze",
-        snoozeCount:newSnoozeCount
-      })
-    }).catch(function(){});
+    postBestEffort({
+      type:"update_employer_followup",
+      coord, bizName, id,
+      nextContactDate:tomorrowStr,
+      lastContactDate:S.date||TODAY,
+      action:"snooze",
+      snoozeCount:newSnoozeCount
+    });
   }
 
   S.unsyncedChanges = true;
@@ -3741,14 +3890,16 @@ function confirmCloseFollowup(id, date, coord) {
   const newDate       = document.getElementById("fu_new_date")?.value||"";
   const newAction     = document.getElementById("fu_new_action")?.value?.trim()||"";
 
-  // Validation
-  if (!outcome) { alert("Please select an outcome"); return; }
-  if (!notes)   { alert("Please describe what happened"); return; }
+  // Validation — 2026-07-28: inline instead of blocking alert() popups.
+  const closeErrors = [];
+  if (!outcome) closeErrors.push("Please select an outcome");
+  if (!notes)   closeErrors.push("Please describe what happened");
   const isMeaningful = MEANINGFUL_OUTCOMES.indexOf(outcome) !== -1;
-  if (!isMeaningful && !justification) {
-    alert("Please provide justification for closing without meaningful contact");
-    return;
+  if (!isMeaningful && outcome && !justification) {
+    closeErrors.push("Please provide justification for closing without meaningful contact");
   }
+  if (closeErrors.length) { showModalErrors(closeErrors); return; }
+  showModalErrors([]);
 
   const closeDate = S.date||TODAY;
 
@@ -3846,27 +3997,19 @@ function confirmCloseFollowup(id, date, coord) {
     const studentName2 = isStudentClose ? (origAct2.studentName||origAct2.leadName||"") : "";
 
     if (isAcapClose && acapOrgClose) {
-      fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-        body:JSON.stringify({type:"update_acap_followup",coord,org:acapOrgClose,id,
-          nextContactDate:nextDate,lastContactDate:today_,action:fuAction})
-      }).catch(function(){});
+      postBestEffort({type:"update_acap_followup",coord,org:acapOrgClose,id,
+        nextContactDate:nextDate,lastContactDate:today_,action:fuAction});
     } else if (isStudentClose && studentName2) {
-      fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},
-        body:JSON.stringify({type:"update_student_followup",coord,name:studentName2,type:origAct2.type,
-          nextContactDate:nextDate,lastContactDate:today_,action:fuAction})
-      }).catch(function(){});
+      postBestEffort({type:"update_student_followup",coord,name:studentName2,type:origAct2.type,
+        nextContactDate:nextDate,lastContactDate:today_,action:fuAction});
     } else if (bizName2) {
-      fetch(WEBAPP_URL, {
-        method:"POST", mode:"no-cors",
-        headers:{"Content-Type":"text/plain"},
-        body:JSON.stringify({
-          type:"update_employer_followup",
-          coord, bizName:bizName2, id,
-          nextContactDate:nextDate,
-          lastContactDate:today_,
-          action: fuAction
-        })
-      }).catch(function(){});
+      postBestEffort({
+        type:"update_employer_followup",
+        coord, bizName:bizName2, id,
+        nextContactDate:nextDate,
+        lastContactDate:today_,
+        action: fuAction
+      });
     }
   } catch(e_){}
 
@@ -4121,6 +4264,18 @@ function attachHandlers(){
   }
 }
 
+// 2026-07-28: previously a single generic confirm() regardless of sync
+// state. Now warns specifically and more strongly when there is unsynced
+// data, since clearing then would genuinely lose today's/this week's
+// un-pushed activity — not just re-confirm an already-safe action.
+function confirmClearLocalData(){
+  if (S.unsyncedChanges) {
+    if (!confirm("⚠ You have UNSYNCED changes that have not been pushed to Google Sheets yet.\n\nClearing local data now will PERMANENTLY LOSE that unsynced activity — it cannot be recovered.\n\nPush to sync first unless you're sure. Clear anyway?")) return;
+  } else {
+    if (!confirm("Clear ALL local data? This cannot be undone.\n\n(No unsynced changes were detected — everything appears to already be pushed to Google Sheets.)")) return;
+  }
+  clearAllData();
+}
 function clearAllData(){
   const keys=[];
   for(let i=0;i<localStorage.length;i++){
@@ -4153,6 +4308,34 @@ function actToRow(a, day, coord, state) {
     a.acapOrg||"", a.eventName||"", a.attendees||"",
     a.postcode||"", a.leadName||"",
   ];
+}
+
+// Best-effort background sync for side-effect WIP updates (follow-up snooze,
+// close, "do not contact" marking) that fire immediately from the UI but are
+// NOT the source of truth for sync completion — the authoritative sync still
+// happens through the normal pushData()/post() flow (S.unsyncedChanges stays
+// true until that runs). 2026-07-28: previously these fired a raw no-cors
+// fetch with .catch(()=>{}), which can never detect a genuine failure —
+// mirrors the same "try a real response first" pattern as post() below, and
+// logs a failure to the existing error log instead of swallowing it silently.
+function postBestEffort(payload) {
+  const body = JSON.stringify(payload);
+  fetch(WEBAPP_URL,{method:"POST",headers:{"Content-Type":"text/plain"},body})
+    .then(function(res){
+      if(!res || !res.ok){
+        window._errorLog.push(new Date().toLocaleTimeString()+" | background sync failed (status "+(res?res.status:"?")+"): "+payload.type);
+        try{ lsSet("errorLog", window._errorLog); }catch(e){}
+      }
+    })
+    .catch(function(){
+      // Real fetch itself failed (e.g. CORS on a local/file:// context) —
+      // fall back to no-cors so the write still has a chance to land, even
+      // though we can't confirm it from here.
+      fetch(WEBAPP_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain"},body}).catch(function(){
+        window._errorLog.push(new Date().toLocaleTimeString()+" | background sync failed (network): "+payload.type);
+        try{ lsSet("errorLog", window._errorLog); }catch(e){}
+      });
+    });
 }
 
 async function post(type, payload) {
