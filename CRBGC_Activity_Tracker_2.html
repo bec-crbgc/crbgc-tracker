@@ -433,7 +433,7 @@ function isMeaningfulCall(act){
 function activityLabel(type){
   const labels={
     commencement:"Commencement",registration:"Registration Pipeline",enrolment:"Enrolment",
-    intro_call:"Intro Call",acap_contact:"ACAP Contact",acap_f2f:"ACAP F2F Visit",
+    intro_call:"Intro Call",acap_contact:"ACAP Call",acap_f2f:"ACAP F2F Visit",
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit",
     new_employer_met:"Employer Met",new_employer_db:"Add Employer",add_employer:"Add Employer",
     pipeline:"Pipeline",lead:"Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",add_acap:"Add ACAP",follow_up_closed:"Follow-up Closed",
@@ -1791,7 +1791,7 @@ function renderToday(coord,state,day){
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:4px 12px 0;">
     ${[
-      {type:"acap_contact",label:"ACAP Contact",   icon:"ti-users",          bg:"var(--o2)",col:"var(--o2t)"},
+      {type:"acap_contact",label:"ACAP Call",   icon:"ti-users",          bg:"var(--o2)",col:"var(--o2t)"},
       {type:"acap_f2f",   label:"ACAP F2F",        icon:"ti-map-pin",        bg:"var(--o2)",col:"var(--o2t)"},
       {type:"event",      label:"Event",            icon:"ti-calendar-event", bg:"var(--o2)",col:"var(--o2t)"},
     ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -3041,7 +3041,7 @@ function renderActivityModal(type,data){
   const isEdit=!!data.id;
   const baseTitles={
     commencement:"Log Commencement",registration:"Log Registration Pipeline",enrolment:"Log Enrolment",
-    intro_call:"Log Intro Call",acap_contact:"Log ACAP Contact",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
+    intro_call:"Log Intro Call",acap_contact:"Log ACAP Call",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
     event:"Log Event",employer_call:"Log Employer Call",site_visit:"Log Site Visit",
     new_employer_met:"Log New Employer Met",new_employer_db:"Add Employer",
     pipeline:"Log Pipeline Contact",lead:"Log Student Lead",enrolment_pipeline:"Log Enrolment Pipeline",
@@ -3056,7 +3056,18 @@ function renderActivityModal(type,data){
   const needsFollowup=!["commencement","enrolment","intro_call"].includes(type);
 
   // ── STUDENT/COMMENCEMENT TYPES ─────────────────────────────────────────
-  if(["commencement","enrolment","lead"].includes(type)){
+  if(type==="commencement"){
+    fields+='<div class="field" style="position:relative">'+
+      '<label>Student name<span class="req">*</span></label>'+
+      '<input id="comm_name" value="'+(data.studentName||"").replace(/"/g,"&quot;")+'" '+
+      'oninput="onCommNameInput(this.value)" onfocus="onCommNameFocus()" onblur="hideCommDropdownDelayed()" '+
+      'placeholder="Tap to select or type student name..." autocomplete="off" required>'+
+      '<div id="comm_name_dropdown" class="ep-dropdown hidden"></div>'+
+      '<div id="comm_name_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
+    fields+=fld("State","sstate","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
+    fields+=fld("Trade / qualification","strade","select",data.trade||"",["",...TRADE_OPTIONS]);
+  }
+  if(["enrolment","lead"].includes(type)){
     fields+=fld("Student name","sname","text",data.studentName||"",null,"true");
     fields+=fld("State","sstate","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
     fields+=fld("Trade / qualification","strade","select",data.trade||"",["",...TRADE_OPTIONS]);
@@ -3091,7 +3102,7 @@ function renderActivityModal(type,data){
     fields+=fld("Contact person","ic_contact","text",data.contactName||"",null,"true");
     fields+=fldRow([fld("Mobile","ic_mobile","tel",data.mobile||""),fld("Email","ic_email","email",data.email||"")]);
     fields+=fldRow([fld("Registration / assignment date","sreg","date",data.regDate||"",null,"true"),fld("Intro call date","scalldate","date",data.callDate||TODAY,null,"true")]);
-    fields+=fldRow([fld("Call time","scalltime","time",data.callTime||""),fld("Completed within 24 hours?","swithin24","select",data.within24h||"",["","Yes","No"])]);
+    fields+=fld("Completed within 24 hours?","swithin24","select",data.within24h||"",["","Yes","No"]);
     fields+=fld("Contact outcome","scallout","select",data.callOutcome||"",["","Connected – meaningful conversation","Connected – brief conversation","Voicemail left","No answer","Wrong number"]);
     fields+=fld("Apprentice / student name (reference)","ic_student","text",data.studentName||"");
     fields+=fld("Trade","strade","select",data.trade||"",["",...TRADE_OPTIONS]);
@@ -3359,7 +3370,10 @@ function saveActivityFromModal(type){
   const g=(id)=>document.getElementById(id)?.value||"";
 
   // Collect fields by type
-  if(["commencement","enrolment","lead"].includes(type)){
+  if(type==="commencement"){
+    act.studentName=g("comm_name"); act.studentState=g("sstate"); act.trade=g("strade");
+  }
+  if(["enrolment","lead"].includes(type)){
     act.studentName=g("sname"); act.studentState=g("sstate"); act.trade=g("strade");
     if(type==="lead"){
       act.prevStage=g("slead_prev"); act.newStage=g("slead_new");
@@ -3373,7 +3387,7 @@ function saveActivityFromModal(type){
   if(type==="intro_call"){
     act.bizName=g("ic_biz"); act.contactName=g("ic_contact");
     act.mobile=g("ic_mobile"); act.email=g("ic_email");
-    act.regDate=g("sreg"); act.callDate=g("scalldate"); act.callTime=g("scalltime");
+    act.regDate=g("sreg"); act.callDate=g("scalldate");
     act.within24h=g("swithin24"); act.callOutcome=g("scallout");
     act.studentName=g("ic_student"); act.trade=g("strade"); act.followUp=g("sfollowup");
   }
@@ -4015,6 +4029,49 @@ function onRegNameInput(val){
   } else if(hint){ hint.innerHTML=""; }
 }
 
+function renderCommDropdown(filterText){
+  const dd=document.getElementById("comm_name_dropdown");
+  if(!dd) return;
+  const cache=getCommencementsCache(S.user.coord); // server already excludes Active/Active-Reported
+  const filter=(filterText||"").trim().toLowerCase();
+  const matches=filter?cache.filter(function(s){return s.name.toLowerCase().indexOf(filter)!==-1;}):cache;
+  if(!matches.length){
+    dd.innerHTML='<div class="ep-dropdown-empty">'+(filter?"No matches — will be logged as a new entry":"No students awaiting commencement found")+'</div>';
+  } else {
+    dd.innerHTML=matches.slice(0,50).map(function(s){
+      const safe=s.name.replace(/'/g,"\\'").replace(/"/g,"&quot;");
+      return '<div class="ep-dropdown-item" onmousedown="selectCommName(\''+safe+'\')">'+s.name+(s.stage?' <span class="muted">— '+s.stage+'</span>':'')+'</div>';
+    }).join("");
+  }
+  dd.classList.remove("hidden");
+}
+function onCommNameFocus(){
+  const input=document.getElementById("comm_name");
+  renderCommDropdown(input?input.value:"");
+}
+function hideCommDropdownDelayed(){
+  setTimeout(function(){
+    const dd=document.getElementById("comm_name_dropdown");
+    if(dd) dd.classList.add("hidden");
+  }, 150);
+}
+function selectCommName(name){
+  const input=document.getElementById("comm_name");
+  if(input) input.value=name;
+  onCommNameInput(name);
+  const dd=document.getElementById("comm_name_dropdown");
+  if(dd) dd.classList.add("hidden");
+}
+function onCommNameInput(val){
+  renderCommDropdown(val);
+  const student=findCommencementStudent(S.user.coord,val);
+  const hint=document.getElementById("comm_name_hint");
+  if(student){
+    hint.innerHTML='<i class="ti ti-info-circle"></i> Induction status: '+(student.stage||"—")+
+      (student.qualification?' · Qualification on file: '+student.qualification:'');
+  } else if(hint){ hint.innerHTML=""; }
+}
+
 function onAcapOrgInput(val){
   const acap=findAcap(S.user.coord,val);
   const hint=document.getElementById("acap_org_hint");
@@ -4343,6 +4400,7 @@ async function loadFromCloud() {
     pullAcaps(coord);
     pullEnrolmentPipeline(coord);
     pullStudentLeads(coord);
+    pullCommencements(coord);
 
     S.status={ok:true,msg:"✓ Loaded from cloud — "+new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})};
   } catch(e){
@@ -4439,6 +4497,33 @@ async function pullStudentLeads(coord) {
     const data = await jsonpFetch(url);
     if (!data.ok) return;
     setStudentLeadsCache(coord, data.students||[]);
+    if(!S.modal) render();
+  } catch(e) {}
+}
+
+function commencementsCacheKey(coord){ return PFX+"commencements:"+coord; }
+function getCommencementsCache(coord){
+  try{ const c=localStorage.getItem(commencementsCacheKey(coord)); return c?JSON.parse(c):[]; }
+  catch(e){ return []; }
+}
+function setCommencementsCache(coord, students){
+  try{ localStorage.setItem(commencementsCacheKey(coord), JSON.stringify(students)); }
+  catch(e){}
+}
+function findCommencementStudent(coord, name) {
+  if (!name) return null;
+  const n = name.trim().toLowerCase();
+  return getCommencementsCache(coord).find(function(s) {
+    const sn = (s.name||"").trim().toLowerCase();
+    return sn===n || sn.indexOf(n)!==-1 || n.indexOf(sn)!==-1;
+  })||null;
+}
+async function pullCommencements(coord) {
+  try {
+    const url = WEBAPP_URL+"?action=get_commencements&coord="+encodeURIComponent(coord);
+    const data = await jsonpFetch(url);
+    if (!data.ok) return;
+    setCommencementsCache(coord, data.students||[]);
     if(!S.modal) render();
   } catch(e) {}
 }
