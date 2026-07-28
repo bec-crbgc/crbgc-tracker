@@ -191,6 +191,14 @@ const PIPELINE_STAGES = [
   "Enrolment processing","Registration submitted","Registered","Enrolled","On hold","Closed/lost"
 ];
 
+// Used by Registration Pipeline and Student Lead — these represent an
+// earlier stage of the funnel than Enrolment Pipeline, so later-funnel
+// stages (Sign-up completed, Enrolment processing, Registration submitted,
+// Enrolled) are excluded as not relevant at this point.
+const EARLY_PIPELINE_STAGES = PIPELINE_STAGES.filter(s =>
+  !["Sign-up completed","Enrolment processing","Registration submitted","Enrolled"].includes(s)
+);
+
 const ACT_OUTCOME_NEEDS_FOLLOWUP = [
   "Follow-up required","Apprentice vacancy identified","Student lead identified",
   "Employer meeting booked","Candidate referred to employer","Sign-up booked","Future opportunity"
@@ -2859,6 +2867,7 @@ function renderSettingsModal(){
       <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
       <button onclick="debugMergeFollowups()" class="btn-ghost btn-sm">Debug merge (fix + diagnose)</button>
       <button onclick="debugEnrolmentPipeline()" class="btn-ghost btn-sm">Debug enrolment pipeline cache</button>
+      <button onclick="debugStudentLeads()" class="btn-ghost btn-sm">Debug student leads cache</button>
       <button onclick="showErrorLog()" class="btn-ghost btn-sm">Show error log</button>
       <button onclick="clearErrorLog()" class="btn-ghost btn-sm">Clear error log</button>
     </div>
@@ -2887,6 +2896,27 @@ async function debugEnrolmentPipeline(){
   }catch(e){}
   // What's currently stored locally (what the autocomplete actually reads from)
   const localList=getEnrolmentPipelineCache(coord);
+  alert(
+    "Coord: "+coord+"\n\n"+
+    "RAW server fetch: "+rawList.length+" students\n"+
+    rawList.slice(0,5).map(s=>s.name+" — "+(s.stage||"(no stage)")).join("\n")+
+    (rawList.length>5?"\n...":"")+"\n\n"+
+    "LOCAL cache (what autocomplete uses): "+localList.length+" students\n"+
+    localList.slice(0,5).map(s=>s.name+" — "+(s.stage||"(no stage)")).join("\n")+
+    (localList.length>5?"\n...":"")
+  );
+}
+
+async function debugStudentLeads(){
+  const coord=S.user.coord;
+  let rawList=[];
+  try{
+    const url=WEBAPP_URL+"?action=get_student_leads&coord="+encodeURIComponent(coord);
+    const data=await jsonpFetch(url);
+    if(data.ok) rawList=data.students||[];
+    else { alert("Server error: "+(data.msg||"unknown")); return; }
+  }catch(e){ alert("Fetch failed: "+e.message); return; }
+  const localList=getStudentLeadsCache(coord);
   alert(
     "Coord: "+coord+"\n\n"+
     "RAW server fetch: "+rawList.length+" students\n"+
@@ -3031,8 +3061,8 @@ function renderActivityModal(type,data){
     fields+=fld("Trade / qualification","strade","text",data.trade||"");
     if(type==="lead"){
       fields+=fldRow([
-        fld("Previous stage","slead_prev","select",data.prevStage||"",[""].concat(PIPELINE_STAGES)),
-        fld("New stage","slead_new","select",data.newStage||"",[""].concat(PIPELINE_STAGES),"true"),
+        fld("Previous stage","slead_prev","select",data.prevStage||"",[""].concat(EARLY_PIPELINE_STAGES)),
+        fld("New stage","slead_new","select",data.newStage||"",[""].concat(EARLY_PIPELINE_STAGES),"true"),
       ]);
       fields+=fld("Contact outcome","slead_outcome","select",data.contactOutcome||"",[""].concat(CALL_OUTCOMES));
     }
@@ -3046,8 +3076,8 @@ function renderActivityModal(type,data){
       '<div id="reg_name_dropdown" class="ep-dropdown hidden"></div>'+
       '<div id="reg_name_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
     fields+=fldRow([
-      fld("Previous stage","reg_prev","select",data.prevStage||"",["",...PIPELINE_STAGES]),
-      fld("New stage","reg_new","select",data.newStage||"",["",...PIPELINE_STAGES],"true"),
+      fld("Previous stage","reg_prev","select",data.prevStage||"",["",...EARLY_PIPELINE_STAGES]),
+      fld("New stage","reg_new","select",data.newStage||"",["",...EARLY_PIPELINE_STAGES],"true"),
     ]);
     fields+=fld("Contact outcome","reg_contact","select",data.contactOutcome||"",["",...REGISTRATION_CONTACT_OUTCOMES],"true");
     fields+=fld("Barrier to registration","reg_barrier","text",data.barrier||"");
