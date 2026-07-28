@@ -3265,7 +3265,18 @@ function renderActivityModal(type,data){
   }
   if(type==="intro_call"){
     // Intro call = employer call within 24hrs of new registration/assignment
-    fields+=fld("Employer / business name","ic_biz","text",data.bizName||"",null,"true");
+    // Business name autocomplete — same pattern as Employer Call / Site
+    // Visit (2026-07-28), sourced from the same employer cache now that
+    // the underlying column bug (Business Name vs State) is fixed.
+    const icCache=getEmployerCache(S.user.coord);
+    const icOpts=icCache.map(function(e){
+      return '<option value="'+e.bizName.replace(/"/g,"&quot;")+'">'+e.bizName+(e.contactName?" — "+e.contactName:"")+'</option>';
+    }).join("");
+    fields+='<div class="field"><label>Employer / business name<span class="req">*</span></label>'+
+      '<input id="ic_biz" list="ic_biz_list" value="'+(data.bizName||"").replace(/"/g,"&quot;")+'"'+
+      ' oninput="onIcBizInput(this.value)" placeholder="Type or select business..." required>'+
+      '<datalist id="ic_biz_list">'+icOpts+'</datalist>'+
+      '<div id="ic_emp_hint" style="font-size:11px;color:var(--o2t);margin-top:4px"></div></div>';
     fields+=fld("Contact person","ic_contact","text",data.contactName||"",null,"true");
     fields+=fldRow([fld("Mobile","ic_mobile","tel",data.mobile||""),fld("Email","ic_email","email",data.email||"")]);
     fields+=fldRow([fld("Registration / assignment date","sreg","date",data.regDate||"",null,"true"),fld("Intro call date","scalldate","date",data.callDate||TODAY,null,"true")]);
@@ -4188,7 +4199,18 @@ function onEpNameInput(val){
   } else if(hint){ hint.innerHTML=""; }
 }
 
-const CLOSED_STUDENT_LEAD_STATUSES = ["completed","complete","n/a","cancelled"];
+// FIXED 2026-07-28: "n/a" was wrongly included here. In the source data,
+// "N/A" on a Student Lead means "no stage recorded yet" — the lead is
+// still open, just unclassified — NOT "closed". With "n/a" in this list,
+// the Registration Pipeline autocomplete (renderRegDropdown below)
+// filtered out almost every lead, since most rows come through with a
+// literal "N/A" stage. Confirmed live via Settings → "Debug student
+// leads cache": 173 of 174 synced students showing "No open students
+// found" despite a healthy, near-real-time sync — Murat Abdula, Luke
+// Newman, and Natalie Humphreys-Grey (all "N/A") were being wrongly
+// excluded alongside genuinely closed leads like "Cancelled" and
+// "completed".
+const CLOSED_STUDENT_LEAD_STATUSES = ["completed","complete","cancelled"];
 function isClosedStudentLeadStatus(status){
   const s=String(status||"").trim().toLowerCase();
   return CLOSED_STUDENT_LEAD_STATUSES.includes(s);
@@ -4297,6 +4319,19 @@ function onSvBizInput(val){
     const c=document.getElementById("sv_contact"); if(c&&!c.value) c.value=emp.contactName||"";
     const m=document.getElementById("sv_mobile");  if(m&&!m.value) m.value=emp.phone||"";
     const e=document.getElementById("sv_email");   if(e&&!e.value) e.value=emp.email||"";
+  } else if(hint){ hint.innerHTML=""; }
+}
+
+// 2026-07-28: same auto-detect pattern as onEcBizInput/onSvBizInput,
+// applied to Intro Call's Employer / business name field.
+function onIcBizInput(val){
+  const emp=findEmployer(S.user.coord,val);
+  const hint=document.getElementById("ic_emp_hint");
+  if(emp){
+    if(hint) hint.innerHTML='<i class="ti ti-info-circle"></i> Last contact: '+(emp.lastContact||"—")+" · Next due: "+(emp.nextContact||"—");
+    const c=document.getElementById("ic_contact"); if(c&&!c.value) c.value=emp.contactName||"";
+    const m=document.getElementById("ic_mobile");  if(m&&!m.value) m.value=emp.phone||"";
+    const e=document.getElementById("ic_email");   if(e&&!e.value) e.value=emp.email||"";
   } else if(hint){ hint.innerHTML=""; }
 }
 
