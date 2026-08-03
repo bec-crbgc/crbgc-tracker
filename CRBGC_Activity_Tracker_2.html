@@ -3108,18 +3108,26 @@ function renderDailyDashboard(){
     // Total Contacts Attempted — every "actually tried to reach someone"
     // type in one count: Existing + New Employer Calls, ACAP Contacts
     // (calls+F2F), Intro Calls, Registration/Enrolment Pipeline/Pipeline
-    // touches — now also crediting closed follow-ups whose ORIGINAL type
-    // is one of these. Deliberately excludes Employer site visits (per
-    // Bec's explicit note) and Events (Bec asked for Events as its own
-    // separate tile instead), and excludes "add to database" actions (new
-    // employer/student lead/commencement/enrolment) — those are records of
-    // an outcome or addition, not a contact attempt in themselves, so a
-    // closed follow-up originally logged as one of those types still
-    // doesn't count here (only against its own matching tile, e.g. Site
-    // Visits or New Employers Added).
+    // touches. Deliberately excludes Employer site visits (per Bec's
+    // explicit note) and Events (Bec asked for Events as its own separate
+    // tile instead), and excludes "add to database" actions (new employer/
+    // student lead/commencement/enrolment) — those are records of an
+    // outcome or addition, not a contact attempt in themselves.
+    //
+    // UPDATED 2026-08-03 (2nd pass): a CLOSED follow-up now counts here
+    // regardless of its original type — per Bec: "contacts attempted
+    // should also include followups - all type and should = the total
+    // contacts not just the meaningful convos." Closing off a follow-up is
+    // itself a contact-attempt touchpoint on that record, whatever it was
+    // originally logged as (including Site Visits/New Employers Added/
+    // Student Leads/Events) — this is intentionally broader than the
+    // fresh-activity type list above, and intentionally NOT gated on
+    // isMeaningfulCall()/activityOutcome, so Total Contacts Attempted
+    // reflects every attempt made, not just the ones that landed.
     const totalContactsAttempted = acts.filter(a=>
-      ["employer_call","acap_contact","acap_f2f","intro_call","registration","enrolment_pipeline","pipeline"].includes(effContactType(a))
-      && (!a.id||!a.id.startsWith("auto_fu_"))
+      a.type==="follow_up_closed"
+      || (["employer_call","acap_contact","acap_f2f","intro_call","registration","enrolment_pipeline","pipeline"].includes(a.type)
+          && (!a.id||!a.id.startsWith("auto_fu_")))
     ).length;
     const callsMeaningful     = acts.filter(isMeaningfulCall).length;
     const leads                = acts.filter(a=>effContactType(a)==="lead").length; // new Student Leads added to the database — now including closed Student Lead follow-ups
