@@ -899,6 +899,81 @@ function renderStrictLeadFunnel(coord){
   <div class="small muted" style="margin-top:6px">Of ${f.totalLeads} lead${f.totalLeads!==1?"s":""} ever logged for ${coord}, this shows how many reached each later stage — same people narrowing down, not independent weekly counts.</div>`;
 }
 
+// ── Weekly (in-week) lead conversion funnel — 2026-08-03 ────────────────
+// Bec asked for the funnel shown in weekly-summary views to be scoped to
+// "activity against a new lead captured in that week" rather than every
+// lead ever logged. Per her explicit choice: (1) a lead only counts here
+// if their intake (a type==="lead" record) was logged within the selected
+// Mon-Fri week, and (2) their funnel stage is based SOLELY on activity
+// also logged within that same week — a lead who progresses further in a
+// later week will NOT move this week's bars (that's deliberate: this is a
+// snapshot of what happened during the week itself, not a live-updating
+// cohort tracker). The all-leads-ever funnel (computeStrictLeadFunnel)
+// still exists unchanged and now lives on the History tab.
+function computeWeeklyLeadFunnel(coord, ds){
+  const LEAD_TYPES = ["lead","enrolment_pipeline","registration","pipeline","commencement"];
+  const weekDates = weekDaysMF(ds);
+  const nameToUid = {};
+  (getStudentLeadsCache(coord)||[]).forEach(function(s){
+    if (s.name && s.uid) nameToUid[s.name.trim().toLowerCase()] = s.uid;
+  });
+
+  const weekRecordsByPerson = {}; // identity key -> in-week records for that person
+  const capturedThisWeek = {};    // identity key -> true if their intake ("lead" record) is in this week
+
+  weekDates.forEach(function(d){
+    const day = loadDay(coord, d);
+    (day.activities||[]).forEach(function(a){
+      if (a.id && (a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")||a.id.startsWith("sl_"))) return;
+      if (!LEAD_TYPES.includes(a.type)) return;
+      const personName = (a.studentName||a.leadName||"").trim();
+      if (!personName) return;
+      const key = nameToUid[personName.toLowerCase()] || personName.toLowerCase();
+      (weekRecordsByPerson[key] = weekRecordsByPerson[key]||[]).push(a);
+      if (a.type==="lead") capturedThisWeek[key] = true;
+    });
+  });
+
+  const maxIdxByPerson = {};
+  Object.keys(weekRecordsByPerson).forEach(function(key){
+    if (!capturedThisWeek[key]) return; // only leads actually captured (intake logged) this week
+    weekRecordsByPerson[key].forEach(function(a){
+      const idx = classifyLeadStageIndex_(a);
+      const effIdx = idx < 0 ? 0 : idx;
+      if (!(key in maxIdxByPerson) || effIdx > maxIdxByPerson[key]) maxIdxByPerson[key] = effIdx;
+    });
+  });
+
+  const people = Object.values(maxIdxByPerson);
+  const counts = FUNNEL_STAGE_LABELS.map(function(_,i){
+    return people.filter(function(maxIdx){ return maxIdx >= i; }).length;
+  });
+  return {labels:FUNNEL_STAGE_LABELS, counts:counts, totalLeads:people.length};
+}
+
+function renderWeeklyLeadFunnel(coord, ds){
+  const f = computeWeeklyLeadFunnel(coord, ds);
+  if (f.totalLeads===0) {
+    return `<div class="small muted" style="padding:8px 0">No new leads captured for ${coord} this week (${fmtWkRange(ds)}) — this fills in as Student Lead activity gets logged for leads captured during the week.</div>`;
+  }
+  const barColors = ["#8a94a3","#2C5F9E","#b8860b","#4A3A9E","#2f6b3f","#085041"];
+  return `<div style="display:flex;flex-direction:column;gap:3px;margin:4px 0">
+    ${f.labels.map(function(lbl,i){
+      const val=f.counts[i];
+      const pct = f.totalLeads>0 ? Math.max(val/f.totalLeads*100, val>0?4:0) : 0;
+      const pctLabel = f.totalLeads>0 ? Math.round(val/f.totalLeads*100) : 0;
+      return `<div style="display:flex;align-items:center;gap:8px">
+        <div style="width:98px;font-size:11px;color:var(--ts);text-align:right;flex-shrink:0">${lbl}</div>
+        <div style="flex:1;background:var(--s2);border-radius:4px;height:26px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColors[i]};display:flex;align-items:center;padding:0 8px;color:#fff;font-weight:700;font-size:12px;border-radius:4px;white-space:nowrap">${val}</div>
+        </div>
+        <div style="width:38px;font-size:10px;color:var(--tm);flex-shrink:0">${pctLabel}%</div>
+      </div>`;
+    }).join("")}
+  </div>
+  <div class="small muted" style="margin-top:6px">Of ${f.totalLeads} lead${f.totalLeads!==1?"s":""} captured for ${coord} in the week of ${fmtWkRange(ds)}, this shows how far each got based on activity logged that same week — a lead progressed further in a later week won't move these bars until you view that week instead.</div>`;
+}
+
 function fmtDate(ds){
   const d=new Date(ds+"T12:00:00");
   return d.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
@@ -1391,11 +1466,13 @@ function downloadWeeklyExcel() {
       dRow.alignment={horizontal:"left",vertical:"middle"};
       ws.getRow(r).height=16; r++;
 
-      // Conversion funnel
+      // Conversion funnel — 2026-08-03: switched to the week-scoped funnel
+      // (leads captured AND progressed within this same week) to match the
+      // in-app weekly views; the all-time funnel moved to the History tab.
       ws.mergeCells(r,1,r,5);
       const fRow=ws.getCell(r,1);
-      var fnl = computeStrictLeadFunnel(coord);
-      fRow.value="Lead funnel (of "+fnl.totalLeads+" leads): "+fnl.labels.map(function(lbl,i){return fnl.counts[i]+" "+lbl.toLowerCase();}).join(" → ");
+      var fnl = computeWeeklyLeadFunnel(coord, S.date);
+      fRow.value="New leads this week (of "+fnl.totalLeads+"): "+fnl.labels.map(function(lbl,i){return fnl.counts[i]+" "+lbl.toLowerCase();}).join(" → ");
       fRow.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFAEEDA"}};
       fRow.font={color:{argb:"FF633806"}};
       fRow.alignment={horizontal:"left",vertical:"middle",wrapText:true};
@@ -1989,7 +2066,10 @@ function downloadDashboardPDF() {
     } else {
       // Weekly view
       const T = weeklyTotals(coord, date);
-      const fnl = computeStrictLeadFunnel(coord);
+      // 2026-08-03: switched to the week-scoped funnel (leads captured AND
+      // progressed within this same week) to match the in-app weekly
+      // views; the all-time funnel moved to the History tab.
+      const fnl = computeWeeklyLeadFunnel(coord, date);
       // 2026-08-03: itemized weekly activity log — see matching note in
       // downloadWeeklyExcel(); this view was previously KPI totals only.
       const weekDates = weekDaysMF(date);
@@ -2028,7 +2108,7 @@ function downloadDashboardPDF() {
             <span class="status-badge">${statusCounts}</span>
           </div>
           <div class="funnel-row">
-            <strong>Lead funnel (of ${fnl.totalLeads} leads):</strong>
+            <strong>New leads this week (of ${fnl.totalLeads}):</strong>
             ${fnl.labels.map(function(lbl,i){return fnl.counts[i]+" "+lbl.toLowerCase();}).join(" → ")}
           </div>
           <table class="metrics-table">
@@ -2708,9 +2788,10 @@ function renderThisWeek(coord,state){
       <div><div style="font-size:18px;font-weight:700;color:var(--redt)">${T.days_none}</div><div class="small muted">No activity</div></div>
       <div><div style="font-size:18px;font-weight:700;color:var(--hdr)">${T.days_complete}</div><div class="small muted">Days complete</div></div>
     </div>
-    <!-- Strict lead funnel — 2026-07-28, replaces the old activity-volume funnel -->
-    <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lead conversion funnel</div>
-    ${renderStrictLeadFunnel(coord)}
+    <!-- Weekly (in-week) lead funnel — 2026-08-03, replaces the all-leads-ever
+         funnel here; that one now lives on the History tab instead. -->
+    <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lead conversion funnel — new leads this week</div>
+    ${renderWeeklyLeadFunnel(coord, S.date)}
   </div>`;
 
   // Day-by-day breakdown
@@ -2873,9 +2954,20 @@ function renderHistory(coord,state){
   const allDates=allDays(coord).reverse().slice(0,60);
   if(allDates.length===0) return `<div class="card"><div class="muted small">No history recorded yet.</div></div>`;
 
+  let h="";
+
+  // All-time lead conversion funnel — 2026-08-03: moved here from the
+  // weekly-summary views (This Week tab / Manager Dashboard), which now
+  // show a week-scoped version instead (computeWeeklyLeadFunnel). This is
+  // the original all-leads-ever funnel (computeStrictLeadFunnel),
+  // unchanged, kept as the single place to see cumulative funnel health.
+  h+=`<div class="card">
+    <div class="card-title"><i class="ti ti-filter"></i> Lead conversion funnel — all-time</div>
+    ${renderStrictLeadFunnel(coord)}
+  </div>`;
+
   // Overdue followups first
   const overdue=getAllOverdueFollowups(coord);
-  let h="";
   if(overdue.length>0){
     h+=`<div class="card" style="border-color:var(--redt)">
       <div class="card-title" style="color:var(--redt)"><i class="ti ti-alert-triangle"></i> Overdue follow-ups (${overdue.length})</div>
@@ -3297,9 +3389,10 @@ function renderDashboard(){
         }).join("")}
       </div>
 
-      <!-- Strict lead funnel — 2026-07-28, replaces the old activity-volume funnel -->
-      <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL</div>
-      <div style="margin-bottom:12px;">${renderStrictLeadFunnel(coord)}</div>
+      <!-- Weekly (in-week) lead funnel — 2026-08-03, replaces the all-leads-ever
+           funnel here; that one now lives on each coordinator's History tab. -->
+      <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL — NEW LEADS THIS WEEK</div>
+      <div style="margin-bottom:12px;">${renderWeeklyLeadFunnel(coord, targetDate)}</div>
 
       <!-- Follow-ups -->
       ${T.followup_overdue>0?`<div style="background:var(--red);color:var(--redt);padding:8px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
