@@ -139,60 +139,50 @@ const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwhsxmi0drQCntbqjjve
 const SRC_ID = "13D91QS2g-DZCbNxqlXcQhAZHTamALw3eAOfEj1LdL0k";
 const WIP_ID = "1tFinzQotgIErtpCq2LKNybvInw5b3LtTQ2hkC0QKHxY";
 const PFX = "baa2_";
-
 const COORDS = ["Wayne Mallia","James Fox","Johnson Morgan"];
 const STATES = {"Wayne Mallia":"VIC","James Fox":"NSW","Johnson Morgan":"QLD"};
 const MANAGER_CODE = "manager2026";
-
 const PRIMARY_FOCUS = [
   "Employer call campaign","Employer site visits","Pipeline conversion",
   "New employer acquisition","Existing employer engagement","ACAP engagement",
   "Employer meetings","Events","Sign-ups and registrations",
   "Administration and follow-up","Other"
 ];
-
 const TRADE_OPTIONS = ["Carpentry","Concreting","Civil","Other"];
-
 const CALL_OUTCOMES = [
   "Connected – meaningful conversation","Connected – no current opportunity",
   "No answer","Voicemail left","Follow-up message sent",
   "Callback requested","Incorrect details","Not interested",
   "Do not contact — removed from list","Other"
 ];
-
 const ENROLMENT_CONTACT_OUTCOMES = [
   "Enrolled","Connected – meaningful conversation","Connected – no current opportunity",
   "No answer","Voicemail left","Follow-up message sent",
   "Callback requested","Incorrect details","Not interested",
   "Do not contact — removed from list","Other"
 ];
-
 const REGISTRATION_CONTACT_OUTCOMES = [
   "Registered","Connected – meaningful conversation","Connected – no current opportunity",
   "No answer","Voicemail left","Follow-up message sent",
   "Callback requested","Incorrect details","Not interested",
   "Do not contact — removed from list","Other"
 ];
-
 const ACTIVITY_OUTCOMES = [
   "No opportunity identified","Follow-up required","Apprentice vacancy identified",
   "Student lead identified","Employer meeting booked","Candidate referred to employer",
   "Sign-up booked","Sign-up completed","Registration submitted",
   "Registration completed","Future opportunity","Not suitable/closed","Other"
 ];
-
 const REL_TYPES = [
   "Existing active employer","Existing inactive employer","Previous employer",
   "New prospect","New employer acquired"
 ];
-
 const PIPELINE_STAGES = [
   "New lead","Initial contact attempted","Contact established",
   "Eligibility being confirmed","Employer required","Employer identified",
   "Awaiting documents","Sign-up booked","Sign-up completed",
   "Enrolment processing","Registration submitted","Registered","Enrolled","On hold","Closed/lost"
 ];
-
 // Used by Registration Pipeline and Student Lead — these represent an
 // earlier stage of the funnel than Enrolment Pipeline, so later-funnel
 // stages (Sign-up completed, Enrolment processing, Registration submitted,
@@ -200,12 +190,10 @@ const PIPELINE_STAGES = [
 const EARLY_PIPELINE_STAGES = PIPELINE_STAGES.filter(s =>
   !["Sign-up completed","Enrolment processing","Registration submitted","Enrolled"].includes(s)
 );
-
 const ACT_OUTCOME_NEEDS_FOLLOWUP = [
   "Follow-up required","Apprentice vacancy identified","Student lead identified",
   "Employer meeting booked","Candidate referred to employer","Sign-up booked","Future opportunity"
 ];
-
 // Productive day thresholds per primary focus
 const PRODUCTIVITY_THRESHOLDS = {
   "Employer call campaign":         {minActivities:5, types:["employer_call"]},
@@ -220,7 +208,6 @@ const PRODUCTIVITY_THRESHOLDS = {
   "Administration and follow-up":   {minActivities:1, types:[]},
   "Other":                          {minActivities:1, types:[]},
 };
-
 const WEEKLY_TARGETS = {
   commencement:{VIC:6,NSW:6,QLD:2},
   registration:{VIC:6,NSW:6,QLD:6},
@@ -235,7 +222,6 @@ const WEEKLY_TARGETS = {
   new_employer_db:{VIC:8,NSW:8,QLD:8},
   lead_generated:{VIC:8,NSW:8,QLD:8},
 };
-
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
@@ -269,7 +255,6 @@ let S = {
   trendFrom: "",  // trend date range start
   trendTo:   "",  // trend date range end
 };
-
 // ═══════════════════════════════════════════════════════════
 // STORAGE HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -277,7 +262,6 @@ function lsKey(k){ return PFX+k; }
 function lsGet(k){ try{const v=localStorage.getItem(lsKey(k));return v?JSON.parse(v):null;}catch(e){return null;} }
 function lsSet(k,v){ try{localStorage.setItem(lsKey(k),JSON.stringify(v));}catch(e){} }
 function lsDel(k){ try{localStorage.removeItem(lsKey(k));}catch(e){} }
-
 function dayKey(coord,date){ return `day:${coord}:${date}`; }
 function loadDay(coord,date){
   return lsGet(dayKey(coord,date)) || {
@@ -288,7 +272,6 @@ function loadDay(coord,date){
 }
 function saveDay(day){ lsSet(dayKey(day.coord,day.date),day); }
 function getDay(){ return loadDay(S.user.coord, S.date); }
-
 // ── Pending deletions tracker ──────────────────────────────────────────────
 // Deletions must be sent to the server explicitly (as an id list), rather
 // than relying on the deleted item's absence from the push payload — the
@@ -306,20 +289,16 @@ function clearPendingDeletes(coord, ids){
   const remaining = getPendingDeletes(coord).filter(id=>!ids.includes(id));
   lsSet(pendingDeletesKey(coord), remaining);
 }
-
 // ── Employer database cache ───────────────────────────────────────────────
 function empCacheKey(coord){ return PFX+"employers:"+coord; }
-
 function getEmployerCache(coord){
   try{ const c=localStorage.getItem(empCacheKey(coord)); return c?JSON.parse(c):[]; }
   catch(e){ return []; }
 }
-
 function setEmployerCache(coord, employers){
   try{ localStorage.setItem(empCacheKey(coord), JSON.stringify(employers)); }
   catch(e){}
 }
-
 // Find employer in cache by business name (partial match)
 function findEmployer(coord, bizName) {
   if (!bizName) return null;
@@ -329,9 +308,7 @@ function findEmployer(coord, bizName) {
     return n===biz || n.indexOf(biz)!==-1 || biz.indexOf(n)!==-1;
   })||null;
 }
-
 function uuid(){ return Date.now().toString(36)+Math.random().toString(36).substring(2,7); }
-
 // All days for coord (returns sorted array of dates)
 function allDays(coord){
   const keys=[], prefix=PFX+"day:"+coord+":";
@@ -349,7 +326,6 @@ function allDays(coord){
   }
   return dates.sort();
 }
-
 // ═══════════════════════════════════════════════════════════
 // DATE HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -368,7 +344,6 @@ function paceTarget(weeklyTarget, dateInWeek) {
   }
   return weeklyTarget * daysElapsed / 5;
 }
-
 function weekDaysMF(ds){ // Mon-Fri only
   const mon=mondayOf(ds);
   return Array.from({length:5},(_,i)=>{
@@ -389,7 +364,6 @@ function weekDaysMF(ds){ // Mon-Fri only
 // known (post-registration), name otherwise. Variant B (all open leads,
 // not just this week's), per user's 2026-07-28 decision.
 const FUNNEL_STAGE_LABELS = ["New lead","Contacted","Sign-up booked","Registered","Enrolled","Commenced"];
-
 function classifyLeadStageIndex_(rec){
   if (rec.type==="commencement") return 5; // ceiling — reaching commencement implies everything before it
   const EXCLUDE_STAGES = ["On hold","Closed/lost"];
@@ -410,7 +384,6 @@ function classifyLeadStageIndex_(rec){
   if (rec.contactOutcome==="Enrolled") idx = Math.max(idx, 4);
   return idx;
 }
-
 function computeStrictLeadFunnel(coord){
   const LEAD_TYPES = ["lead","enrolment_pipeline","registration","pipeline","commencement"];
   // Build name -> UID lookup from the Student Leads WIP cache (uid is
@@ -439,7 +412,6 @@ function computeStrictLeadFunnel(coord){
   });
   return {labels:FUNNEL_STAGE_LABELS, counts:counts, totalLeads:people.length};
 }
-
 // Renders the narrowing-bar funnel (Variant B style from the mockup) —
 // bars only, no per-lead drill-down, per user's decision (2026-07-28).
 function renderStrictLeadFunnel(coord){
@@ -464,7 +436,6 @@ function renderStrictLeadFunnel(coord){
   </div>
   <div class="small muted" style="margin-top:6px">Of ${f.totalLeads} lead${f.totalLeads!==1?"s":""} ever logged for ${coord}, this shows how many reached each later stage — same people narrowing down, not independent weekly counts.</div>`;
 }
-
 function fmtDate(ds){
   const d=new Date(ds+"T12:00:00");
   return d.toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
@@ -478,13 +449,11 @@ function addWeeks(ds, n) {
   d.setDate(d.getDate() + n*7);
   return d.toISOString().substring(0,10);
 }
-
 function fmtWkRange(ds){
   const days=weekDaysMF(ds);
   return fmtDateShort(days[0])+" – "+fmtDateShort(days[4]);
 }
 const TRACKER_START = "2026-07-27"; // Team starts using tracker from this date
-
 function isOverdue(dateStr){
   // Not overdue if before tracker start date — clears all pre-existing tasks
   if (!dateStr || dateStr < TRACKER_START) return false;
@@ -509,7 +478,6 @@ function dayOfWeek(ds){
   const d=new Date(ds+"T12:00:00");
   return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()];
 }
-
 // ═══════════════════════════════════════════════════════════
 // ACTIVITY ANALYSIS
 // ═══════════════════════════════════════════════════════════
@@ -534,10 +502,19 @@ function activityColor(type){
   if(["acap_contact","acap_f2f","event","add_acap"].includes(type)) return {bg:"#E6F1FB",txt:"#0C447C"};
   return {bg:"#FAEEDA",txt:"#633806"};
 }
-
+// Excludes system-generated placeholder follow-up rows (the auto-scheduled
+// 6-week check-ins the backend writes on its own) from "real" activity
+// counts, so Daily Completion / reports match what the coordinator actually
+// logged. Shared by dayStatus(), weeklyTotals(), and the dashboard/report
+// builders below — see FIXED 2026-08-03 notes at each call site.
+function realDayActivities(day){
+  return (day.activities||[]).filter(a=>
+    !a.id||(!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))
+  );
+}
 function dayStatus(day){
   if(!day.focus) return "none";
-  const acts=day.activities||[];
+  const acts=realDayActivities(day);
   const thresh=PRODUCTIVITY_THRESHOLDS[day.focus]||{minActivities:1,types:[]};
   const relevant=thresh.types.length===0?acts:acts.filter(a=>thresh.types.includes(a.type));
   const count=relevant.length;
@@ -545,13 +522,11 @@ function dayStatus(day){
   if(count>0||day.eodStatus==="complete") return "partial";
   return "none";
 }
-
 function getDayStatusLabel(status){
   if(status==="productive") return '<span class="day-status ds-productive">✓ Productive day</span>';
   if(status==="partial")    return '<span class="day-status ds-partial">◐ Partial activity</span>';
   return '<span class="day-status ds-none">○ No meaningful activity</span>';
 }
-
 // Weekly KR totals for a coord over Mon-Fri
 function weeklyTotals(coord,ds){
   const days=weekDaysMF(ds);
@@ -577,9 +552,7 @@ function weeklyTotals(coord,ds){
     else if(st==="partial") T.days_partial++;
     else T.days_none++;
     if(day.eodStatus==="complete") T.days_complete++;
-    const realActs=(day.activities||[]).filter(a=>
-      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))
-    );
+    const realActs=realDayActivities(day); // shared with dayStatus() — see note above dayStatus()
     realActs.forEach(a=>{
       if(a.type==="commencement") T.commencement++;
       if(a.type==="registration") T.registration++;
@@ -631,7 +604,6 @@ function weeklyTotals(coord,ds){
         if(a.newStage==="Enrolled") T.enrolled_done++;
       }
     });
-
     // Follow-up open/overdue counts must include ALL activities with a
     // follow-up date — including auto-generated employer/ACAP/student
     // reminders (auto_fu_/auto_acap_/sl_), which realActs deliberately
@@ -651,7 +623,6 @@ function weeklyTotals(coord,ds){
   T.site_locations=T.site_locations.size;
   return T;
 }
-
 // ═══════════════════════════════════════════════════════════
 // VALIDATION
 // ═══════════════════════════════════════════════════════════
@@ -674,18 +645,15 @@ function validate(fields){
   });
   return errors;
 }
-
 // ── Trend Excel download ──────────────────────────────────────────────────
 function downloadDashboardExcel() {
   if (S.dashView==="daily")   return downloadDailyExcel();
   if (S.dashView==="weekly")  return downloadWeeklyExcel();
   if (S.dashView==="trend")   return downloadTrendExcel();
 }
-
 function downloadDailyExcel() {
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
   const date = S.date;
-
   const loadExcelJS = function(cb) {
     if (window.ExcelJS) { cb(); return; }
     const s = document.createElement("script");
@@ -694,12 +662,10 @@ function downloadDailyExcel() {
     s.onerror = function(){ alert("Could not load ExcelJS library"); };
     document.head.appendChild(s);
   };
-
   loadExcelJS(function() {
     const wb = new ExcelJS.Workbook();
     wb.creator = "CRBGC Activity Tracker";
     wb.created = new Date();
-
     const HDR  = {type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};
     const HDR2 = {type:"pattern",pattern:"solid",fgColor:{argb:"FF2C5F9E"}};
     const GRN  = {type:"pattern",pattern:"solid",fgColor:{argb:"FFC6EFCE"}};
@@ -710,7 +676,6 @@ function downloadDailyExcel() {
     const O3   = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFAEEDA"}};
     const WHT  = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
     const ALT  = {type:"pattern",pattern:"solid",fgColor:{argb:"FFF8F9FA"}};
-
     function hdrCell(ws, r, c, v, bg) {
       const cell = ws.getCell(r, c);
       cell.value = v; cell.fill = bg||HDR;
@@ -726,7 +691,6 @@ function downloadDailyExcel() {
       cell.border = {bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
       return cell;
     }
-
     function paceRAG(val, tgt) {
       if (tgt===0) return {fill:null, font:"FF1a1a1a"};
       const pct = val/tgt;
@@ -735,24 +699,20 @@ function downloadDailyExcel() {
       if (val>0)     return {fill:RED, font:"FF9C0006"};
       return {fill:null, font:"FFaaaaaa"};
     }
-
     coordsToShow.forEach(function(coord) {
       const state = STATES[coord];
       const day = loadDay(coord, date);
-      const acts = day.activities||[];
+      const acts = realDayActivities(day); // FIXED 2026-08-03 — was raw day.activities, double-counting auto_fu_/auto_acap_ placeholder rows into this report's metrics
       const status = dayStatus(day);
       const tgt = WEEKLY_TARGETS;
       const s = state;
       const statusLabel = status==="productive"?"✅ Productive day":status==="partial"?"◐ Partial activity":"○ No meaningful activity";
-
       const ws = wb.addWorksheet(coord.split(" ")[0]+" "+state);
       ws.getColumn(1).width = 28;
       ws.getColumn(2).width = 12;
       ws.getColumn(3).width = 16;
       ws.getColumn(4).width = 16;
-
       let r = 1;
-
       // Title
       ws.mergeCells(r,1,r,4);
       const tRow = ws.getCell(r,1);
@@ -760,7 +720,6 @@ function downloadDailyExcel() {
       tRow.fill = HDR; tRow.font = {bold:true,size:13,color:{argb:"FFFFFFFF"}};
       tRow.alignment = {horizontal:"left",vertical:"middle"};
       ws.getRow(r).height = 22; r++;
-
       // Status + focus
       ws.mergeCells(r,1,r,4);
       const sRow = ws.getCell(r,1);
@@ -770,11 +729,9 @@ function downloadDailyExcel() {
       sRow.alignment = {horizontal:"left",vertical:"middle"};
       ws.getRow(r).height = 18; r++;
       r++; // blank
-
       // Activity metrics header
       hdrCell(ws,r,1,"Metric"); hdrCell(ws,r,2,"Count"); hdrCell(ws,r,3,"Pace Target"); hdrCell(ws,r,4,"Status");
       ws.getRow(r).height = 16; r++;
-
       const metrics = [
         {label:"Commencements",         val:acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(tgt.commencement[s])),  obj:"o1"},
         {label:"Registrations",          val:acts.filter(function(a){return a.type==="registration";}).length,       tgt:Math.round(paceTarget(tgt.registration[s])),  obj:"o1"},
@@ -791,7 +748,6 @@ function downloadDailyExcel() {
         {label:"Follow-ups closed",      val:acts.filter(function(a){return a.type==="follow_up_closed";}).length,   tgt:0,                                             obj:"o3"},
         {label:"Opportunities generated",val:acts.filter(function(a){return ["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome);}).length,tgt:0,obj:"o3"},
       ];
-
       metrics.forEach(function(m, mi) {
         const rag = paceRAG(m.val, m.tgt);
         const objFill = m.obj==="o1"?O1:m.obj==="o2"?O2:O3;
@@ -804,9 +760,7 @@ function downloadDailyExcel() {
         dataCell(ws,r,4,statusTxt,true,m.tgt>0?rag.fill:rowFill,statusFont,"center");
         ws.getRow(r).height = 15; r++;
       });
-
       r++; // blank
-
       // EOD section
       ws.mergeCells(r,1,r,4);
       const eodHdr = ws.getCell(r,1);
@@ -814,7 +768,6 @@ function downloadDailyExcel() {
       eodHdr.fill = HDR2; eodHdr.font = {bold:true,color:{argb:"FFFFFFFF"}};
       eodHdr.alignment = {horizontal:"left",vertical:"middle"};
       ws.getRow(r).height = 16; r++;
-
       const eodRows = [
         ["EOD Result",     day.eodResult||"Not completed"],
         ["Tomorrow",       day.eodTomorrow||"—"],
@@ -827,22 +780,18 @@ function downloadDailyExcel() {
         dataCell(ws,r,2,er[1],false,WHT,"FF1a1a1a","left");
         ws.getRow(r).height = 15; r++;
       });
-
       r++; // blank
-
       // Activity log
       ws.mergeCells(r,1,r,4);
       const actHdr = ws.getCell(r,1);
       actHdr.value = "Activity Log ("+acts.length+" entries)";
       actHdr.fill = HDR2; actHdr.font = {bold:true,color:{argb:"FFFFFFFF"}};
       ws.getRow(r).height = 16; r++;
-
       // Activity log headers
       ["Type","Name / Contact","Outcome","Next Action / Follow-up"].forEach(function(h,c){
         hdrCell(ws,r,c+1,h,HDR);
       });
       ws.getRow(r).height = 15; r++;
-
       acts.forEach(function(a, ai) {
         const fill = ai%2===0?ALT:WHT;
         dataCell(ws,r,1,activityLabel(a.type),false,fill,"FF1a1a1a","center");
@@ -852,7 +801,6 @@ function downloadDailyExcel() {
         ws.getRow(r).height = 15; r++;
       });
     });
-
     wb.xlsx.writeBuffer().then(function(buffer) {
       const blob = new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
       const url = URL.createObjectURL(blob);
@@ -863,11 +811,8 @@ function downloadDailyExcel() {
     });
   });
 }
-
-
 function downloadWeeklyExcel() {
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
-
   const loadExcelJS = function(cb) {
     if (window.ExcelJS) { cb(); return; }
     const s = document.createElement("script");
@@ -876,11 +821,9 @@ function downloadWeeklyExcel() {
     s.onerror = function(){ alert("Could not load ExcelJS library"); };
     document.head.appendChild(s);
   };
-
   loadExcelJS(function() {
     const wb = new ExcelJS.Workbook();
     wb.creator = "CRBGC Activity Tracker";
-
     const HDR  = {type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};
     const HDR2 = {type:"pattern",pattern:"solid",fgColor:{argb:"FF2C5F9E"}};
     const GRN  = {type:"pattern",pattern:"solid",fgColor:{argb:"FFC6EFCE"}};
@@ -891,7 +834,6 @@ function downloadWeeklyExcel() {
     const O3   = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFAEEDA"}};
     const WHT  = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
     const ALT  = {type:"pattern",pattern:"solid",fgColor:{argb:"FFF8F9FA"}};
-
     function ragFill(val, tgt) {
       if (!tgt) return null;
       const p = val/tgt;
@@ -900,22 +842,18 @@ function downloadWeeklyExcel() {
       if (val>0)   return {fill:RED, font:"FF9C0006", label:"🔴 Behind"};
       return         {fill:RED, font:"FF9C0006", label:"🔴 Behind"};
     }
-
     coordsToShow.forEach(function(coord) {
       const state = STATES[coord];
       const T = weeklyTotals(coord, S.date);
       const tgt = WEEKLY_TARGETS;
       const s = state;
       const ws = wb.addWorksheet(coord.split(" ")[0]+" "+state);
-
       ws.getColumn(1).width = 30;
       ws.getColumn(2).width = 10;
       ws.getColumn(3).width = 12;
       ws.getColumn(4).width = 12;
       ws.getColumn(5).width = 14;
-
       let r = 1;
-
       // Title
       ws.mergeCells(r,1,r,5);
       const tRow = ws.getCell(r,1);
@@ -923,7 +861,6 @@ function downloadWeeklyExcel() {
       tRow.fill=HDR; tRow.font={bold:true,size:13,color:{argb:"FFFFFFFF"}};
       tRow.alignment={horizontal:"left",vertical:"middle"};
       ws.getRow(r).height=22; r++;
-
       // Day summary
       ws.mergeCells(r,1,r,5);
       const dRow=ws.getCell(r,1);
@@ -931,7 +868,6 @@ function downloadWeeklyExcel() {
       dRow.fill=HDR2; dRow.font={color:{argb:"FFFFFFFF"}};
       dRow.alignment={horizontal:"left",vertical:"middle"};
       ws.getRow(r).height=16; r++;
-
       // Conversion funnel
       ws.mergeCells(r,1,r,5);
       const fRow=ws.getCell(r,1);
@@ -942,7 +878,6 @@ function downloadWeeklyExcel() {
       fRow.alignment={horizontal:"left",vertical:"middle",wrapText:true};
       ws.getRow(r).height=18; r++;
       r++; // blank
-
       // Objectives
       const sections = [
         {title:"OBJECTIVE 1 — Commencement Pipeline", fill:O1, font:"FF085041", metrics:[
@@ -972,7 +907,6 @@ function downloadWeeklyExcel() {
           {label:"Follow-ups overdue", val:T.followup_overdue,      tgt:0, warn:true},
         ]},
       ];
-
       sections.forEach(function(sec) {
         // Section header
         ws.mergeCells(r,1,r,5);
@@ -981,7 +915,6 @@ function downloadWeeklyExcel() {
         sHdr.font={bold:true,color:{argb:sec.font}};
         sHdr.alignment={horizontal:"left",vertical:"middle"};
         ws.getRow(r).height=16; r++;
-
         // Column headers
         ["Metric","Count","Target","% of Target","RAG"].forEach(function(h,c){
           const cell=ws.getCell(r,c+1);
@@ -990,50 +923,42 @@ function downloadWeeklyExcel() {
           cell.alignment={horizontal:c===0?"left":"center",vertical:"middle"};
         });
         ws.getRow(r).height=15; r++;
-
         sec.metrics.forEach(function(m,mi) {
           const rag = m.warn
             ? (m.val===0?{fill:GRN,font:"FF375623",label:"✅ None"}:m.val<=2?{fill:AMB,font:"FF7D6608",label:"⚠ "+m.val}:{fill:RED,font:"FF9C0006",label:"🔴 "+m.val})
             : ragFill(m.val, m.tgt);
           const rowFill = mi%2===0?ALT:WHT;
           const pct = m.tgt>0?Math.round(m.val/m.tgt*100)+"%":"—";
-
           ws.getCell(r,1).value=m.label;
           ws.getCell(r,1).fill=rowFill;
           ws.getCell(r,1).font={bold:true,color:{argb:m.warn?"FF9C0006":"FF1a1a1a"}};
           ws.getCell(r,1).alignment={horizontal:"left",vertical:"middle"};
           ws.getCell(r,1).border={bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
-
           ws.getCell(r,2).value=m.val;
           ws.getCell(r,2).fill=m.tgt>0&&rag?rag.fill:rowFill;
           ws.getCell(r,2).font={bold:true,color:{argb:m.tgt>0&&rag?rag.font:"FF1a1a1a"}};
           ws.getCell(r,2).alignment={horizontal:"center",vertical:"middle"};
           ws.getCell(r,2).border={bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
-
           ws.getCell(r,3).value=m.tgt>0?m.tgt:"—";
           ws.getCell(r,3).fill=rowFill;
           ws.getCell(r,3).font={color:{argb:"FFaaaaaa"}};
           ws.getCell(r,3).alignment={horizontal:"center",vertical:"middle"};
           ws.getCell(r,3).border={bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
-
           ws.getCell(r,4).value=pct;
           ws.getCell(r,4).fill=m.tgt>0&&rag?rag.fill:rowFill;
           ws.getCell(r,4).font={color:{argb:m.tgt>0&&rag?rag.font:"FFaaaaaa"}};
           ws.getCell(r,4).alignment={horizontal:"center",vertical:"middle"};
           ws.getCell(r,4).border={bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
-
           ws.getCell(r,5).value=m.tgt>0&&rag?rag.label:m.warn&&rag?rag.label:"—";
           ws.getCell(r,5).fill=m.tgt>0&&rag?rag.fill:m.warn&&rag?rag.fill:rowFill;
           ws.getCell(r,5).font={bold:true,color:{argb:m.tgt>0&&rag?rag.font:m.warn&&rag?rag.font:"FFaaaaaa"}};
           ws.getCell(r,5).alignment={horizontal:"center",vertical:"middle"};
           ws.getCell(r,5).border={bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
-
           ws.getRow(r).height=15; r++;
         });
         r++; // blank between sections
       });
     });
-
     wb.xlsx.writeBuffer().then(function(buffer) {
       const blob=new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
       const url=URL.createObjectURL(blob);
@@ -1044,8 +969,6 @@ function downloadWeeklyExcel() {
     });
   });
 }
-
-
 function downloadTrendExcel() {
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
   const tF = mondayOf(S.trendFrom || addWeeks(S.date,-7));
@@ -1058,7 +981,6 @@ function downloadTrendExcel() {
     cW.setDate(cW.getDate()-7);
   }
   const weekLabels = weeks.map(function(mon){ return fmtDateShort(mon); });
-
   const TREND_METRICS = [
     {label:"Commencements",           fn:function(T){return T.commencement;},         key:"commencement"},
     {label:"Registrations",           fn:function(T){return T.registration;},         key:"registration"},
@@ -1075,13 +997,11 @@ function downloadTrendExcel() {
     {label:"Overdue follow-ups",      fn:function(T){return T.followup_overdue;},    warn:true},
     {label:"Productive days",         fn:function(T){return T.days_productive;}},
   ];
-
   const data = {};
   coordsToShow.forEach(function(coord) {
     data[coord] = {};
     weeks.forEach(function(mon){ data[coord][mon] = weeklyTotals(coord, mon); });
   });
-
   function getWeeklyTgt(metricKey, warn, state) {
     if (warn || !metricKey) return 0;
     const t = WEEKLY_TARGETS;
@@ -1093,7 +1013,6 @@ function downloadTrendExcel() {
            metricKey==="new_employer_met"?t.new_employer_met[state]:
            metricKey==="lead"?t.lead_generated[state]:0;
   }
-
   function ragFill(v, tgt, warn) {
     if (warn) {
       if (v===0) return {argb:"FFC6EFCE"};
@@ -1108,7 +1027,6 @@ function downloadTrendExcel() {
     }
     return null;
   }
-
   function ragFont(v, tgt, warn) {
     if (warn) {
       if (v===0) return "375623";
@@ -1123,7 +1041,6 @@ function downloadTrendExcel() {
     }
     return "1a1a1a";
   }
-
   // Load ExcelJS
   const loadExcelJS = function(cb) {
     if (window.ExcelJS) { cb(); return; }
@@ -1133,21 +1050,17 @@ function downloadTrendExcel() {
     s.onerror = function(){ alert("Could not load ExcelJS library — check your internet connection"); };
     document.head.appendChild(s);
   };
-
   loadExcelJS(function() {
     const wb = new ExcelJS.Workbook();
     wb.creator = "CRBGC Activity Tracker";
     wb.created = new Date();
-
     function buildSheet(sheetName, coordList) {
       const ws = wb.addWorksheet(sheetName);
       const totalCols = 2 + weeks.length;
-
       // Column widths
       ws.getColumn(1).width = 28;
       ws.getColumn(2).width = 14;
       for (let i=0; i<weeks.length; i++) ws.getColumn(3+i).width = 11;
-
       // Title row
       const titleRow = ws.addRow([sheetName]);
       ws.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
@@ -1155,10 +1068,8 @@ function downloadTrendExcel() {
       titleRow.getCell(1).font  = {bold:true,size:13,color:{argb:"FFFFFFFF"}};
       titleRow.getCell(1).alignment = {horizontal:"left",vertical:"middle"};
       titleRow.height = 22;
-
       // Blank row
       ws.addRow([]);
-
       // Header row
       const hdrs = ["Metric","Trend"].concat(weekLabels);
       const hdrRow = ws.addRow(hdrs);
@@ -1171,49 +1082,40 @@ function downloadTrendExcel() {
         cell.border = {bottom:{style:"thin",color:{argb:"FFFFFFFF"}}};
       });
       hdrRow.getCell(1).alignment = {horizontal:"left"};
-
       // Data rows
       TREND_METRICS.forEach(function(metric, mi) {
         const rowBgHex = mi%2===0?"FFF8F9FA":"FFFFFFFF";
-
         // Calculate combined vals across coordList
         const vals = weeks.map(function(mon) {
           return coordList.reduce(function(sum,coord){ return sum+metric.fn(data[coord][mon]); },0);
         });
-
         // Combined weekly target
         const combinedTgt = coordList.reduce(function(sum,coord){
           return sum + getWeeklyTgt(metric.key, metric.warn, STATES[coord]);
         },0);
-
         const latest = vals[0]||0, prev = vals[1]||0;
         const diff = latest - prev;
         const trendTxt = diff>0?"↑ +"+diff : diff<0?"↓ "+diff : "→";
         const trendCol = metric.warn
           ? (diff>0?"FF9C0006":diff<0?"FF375623":"FF888888")
           : (diff>0?"FF375623":diff<0?"FF9C0006":"FF888888");
-
         const rowData = [metric.label, trendTxt].concat(vals);
         const row = ws.addRow(rowData);
         row.height = 16;
-
         // Metric label cell
         row.getCell(1).font = {bold:true, color:{argb: metric.warn?"FF9C0006":"FF1a1a1a"}};
         row.getCell(1).fill = {type:"pattern",pattern:"solid",fgColor:{argb:rowBgHex}};
         row.getCell(1).alignment = {horizontal:"left",vertical:"middle"};
-
         // Trend cell
         row.getCell(2).font = {bold:true, color:{argb:trendCol}};
         row.getCell(2).fill = {type:"pattern",pattern:"solid",fgColor:{argb:rowBgHex}};
         row.getCell(2).alignment = {horizontal:"center",vertical:"middle"};
-
         // Value cells
         vals.forEach(function(v, vi) {
           const cell = row.getCell(3+vi);
           const isLatest = vi===0;
           cell.value = v;
           cell.alignment = {horizontal:"center",vertical:"middle"};
-
           if (isLatest) {
             const fill = ragFill(v, combinedTgt, metric.warn);
             cell.fill = fill
@@ -1228,17 +1130,14 @@ function downloadTrendExcel() {
         });
       });
     }
-
     // Per-coordinator sheets
     coordsToShow.forEach(function(coord) {
       buildSheet(coord.split(" ")[0]+" "+STATES[coord], [coord]);
     });
-
     // Team combined sheet
     if (S.dashFilter.coord === "all") {
       buildSheet("Team Combined", coordsToShow);
     }
-
     // Write and download
     wb.xlsx.writeBuffer().then(function(buffer) {
       const blob = new Blob([buffer], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
@@ -1253,7 +1152,6 @@ function downloadTrendExcel() {
     });
   });
 }
-
 // ── Trend PDF download ────────────────────────────────────────────────────
 function downloadTrendPDF() {
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
@@ -1280,17 +1178,13 @@ function downloadTrendPDF() {
     {label:"Overdue follow-ups",     fn:function(T){return T.followup_overdue;},   warn:true},
     {label:"Productive days",        fn:function(T){return T.days_productive;}},
   ];
-
   const data = {};
   coordsToShow.forEach(function(coord) {
     data[coord] = {};
     weeks.forEach(function(mon) { data[coord][mon] = weeklyTotals(coord, mon); });
   });
-
   const weekHdrs = weeks.map(function(w){return fmtDateShort(w);}).join("</th><th>");
-
   let body = "";
-
   // Team combined table if all coords shown
   if (S.dashFilter.coord === "all") {
     body += `<div class="section-title">Team Combined</div>
@@ -1315,7 +1209,6 @@ function downloadTrendPDF() {
       }).join("")}
     </table>`;
   }
-
   // Per-coordinator tables
   coordsToShow.forEach(function(coord) {
     const state = STATES[coord];
@@ -1350,7 +1243,6 @@ function downloadTrendPDF() {
       }).join("")}
     </table>`;
   });
-
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>Trend Report — ${fmtWkRange(S.date)}</title>
   <style>
@@ -1373,14 +1265,12 @@ function downloadTrendPDF() {
   ${body}
   <div class="footer">CRBGC Activity Tracker · Builders Academy Australia & CWBTS</div>
   </body></html>`;
-
   const win = window.open("","_blank","width=1100,height=750");
   win.document.write(html);
   win.document.close();
   win.focus();
   setTimeout(function(){ win.print(); }, 500);
 }
-
 // ── Dashboard PDF download ────────────────────────────────────────────────
 function downloadDashboardPDF() {
   if (S.dashView === "trend") return downloadTrendPDF();
@@ -1390,20 +1280,16 @@ function downloadDashboardPDF() {
   const title = isDaily
     ? "Daily Management Report — " + fmtDate(date)
     : "Weekly Management Report — " + fmtWkRange(date);
-
   let body = "";
-
   coordsToShow.forEach(function(coord) {
     const state = STATES[coord];
     const tgt = WEEKLY_TARGETS;
     const s = state;
-
     if (isDaily) {
       const day = loadDay(coord, date);
-      const acts = day.activities||[];
+      const acts = realDayActivities(day); // FIXED 2026-08-03 — was raw day.activities, double-counting auto_fu_/auto_acap_ placeholder rows into Employer calls/ACAP contacts on this report
       const status = dayStatus(day);
       const statusLabel = status==="productive"?"✅ Productive day":status==="partial"?"◐ Partial activity":"○ No meaningful activity";
-
       const commencements    = acts.filter(a=>a.type==="commencement").length;
       const registrations    = acts.filter(a=>a.type==="registration").length;
       const acapContacts     = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
@@ -1416,7 +1302,6 @@ function downloadDashboardPDF() {
       const pipelineProgressed=acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
       const followupsClosed  = acts.filter(a=>a.type==="follow_up_closed").length;
       const opps             = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
-
       const metrics = [
         ["Commencements",      commencements,    Math.round(paceTarget(tgt.commencement[s]))],
         ["Registrations",      registrations,    Math.round(paceTarget(tgt.registration[s]))],
@@ -1431,7 +1316,6 @@ function downloadDashboardPDF() {
         ["Follow-ups closed",  followupsClosed,  0],
         ["Opportunities",      opps,             0],
       ];
-
       body += `
         <div class="coord-block">
           <div class="coord-hdr">
@@ -1496,7 +1380,6 @@ function downloadDashboardPDF() {
         ["Follow-ups open",      T.followup_open,        0],
         ["Follow-ups overdue",   T.followup_overdue,     0],
       ];
-
       body += `
         <div class="coord-block">
           <div class="coord-hdr">
@@ -1525,7 +1408,6 @@ function downloadDashboardPDF() {
         </div>`;
     }
   });
-
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>${title}</title>
   <style>
@@ -1567,14 +1449,12 @@ function downloadDashboardPDF() {
   ${body}
   <div class="footer">CRBGC Activity Tracker · Builders Academy Australia & CWBTS · ${isDaily?fmtDate(date):fmtWkRange(date)}</div>
   </body></html>`;
-
   const win = window.open("","_blank","width=1000,height=750");
   win.document.write(html);
   win.document.close();
   win.focus();
   setTimeout(function(){ win.print(); }, 500);
 }
-
 // ═══════════════════════════════════════════════════════════
 // RENDER ENGINE
 // ═══════════════════════════════════════════════════════════
@@ -1586,7 +1466,6 @@ function render(){
   // Re-attach dynamic handlers
   attachHandlers();
 }
-
 function renderApp(){
   const coord=S.user.coord, isManager=S.user.isManager;
   const day=getDay();
@@ -1594,7 +1473,6 @@ function renderApp(){
   const tabs=["today","calls","visits","pipeline","notes","thisweek","wknotes","history"];
   if(isManager) tabs.push("dashboard");
   const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard"};
-
   let h=`<div class="hdr">
     <div class="hdr-top">
       <div>
@@ -1607,7 +1485,6 @@ function renderApp(){
       </div>
     </div>
   </div>`;
-
   // Status bar
   const sdot=S.loading?"#f5a623":S.status.ok?"#1baf7a":"#e24b4a";
   const syncIcon=S.loading?'<i class="ti ti-loader-2" style="animation:spin 1s linear infinite;display:inline-block"></i> ':S.unsyncedChanges?'🔄 ':"";
@@ -1616,12 +1493,10 @@ function renderApp(){
   <button onclick="loadFromCloud()" style="padding:3px 8px;font-size:11px;margin-right:4px;border:1px solid var(--bd);border-radius:4px;background:none;cursor:pointer;color:var(--tm)" title="Refresh from cloud"><i class="ti ti-refresh"></i></button>
   <input type="date" value="${S.date}" onchange="S.date=this.value;render();loadFromCloud();" style="width:auto;padding:4px 8px;font-size:12px;border:1px solid var(--bd);border-radius:6px">
   </div>`;
-
   // Tab bar
   h+=`<div class="tabs" id="tabBar">${tabs.map(t=>`<button class="tb${S.tab===t?" on":""}" onclick="S.tab='${t}';render();scrollTabIntoView('${t}')">${tabLabels[t]}</button>`).join("")}</div>
     <button onclick="scrollTabs(-1)" style="position:absolute;left:0;top:0;height:32px;width:24px;background:linear-gradient(to right,#fff,transparent);border:none;cursor:pointer;font-size:16px;color:var(--hdr);z-index:5;display:flex;align-items:center;justify-content:center;padding:0">‹</button>
     <button onclick="scrollTabs(1)" style="position:absolute;right:0;top:0;height:32px;width:24px;background:linear-gradient(to left,#fff,transparent);border:none;cursor:pointer;font-size:16px;color:var(--hdr);z-index:5;display:flex;align-items:center;justify-content:center;padding:0">›</button>`;
-
   // Tab content
   if(S.tab==="today")      h+=renderToday(coord,state,day);
   if(S.tab==="calls")      h+=renderCalls(coord,state,day);
@@ -1632,15 +1507,12 @@ function renderApp(){
   if(S.tab==="wknotes")    h+=renderWkNotes(coord,state);
   if(S.tab==="history")    h+=renderHistory(coord,state);
   if(S.tab==="dashboard"){ if(!S.loading) loadAllForDashboard(); h+=renderDashboard(); }
-
   // Push FAB
   h+=`<button class="push-fab" onclick="pushData()" ${S.syncing?"disabled":""}>
     <i class="ti ti-cloud-upload"></i>${S.syncing?"Syncing…":"Push to Sheets"}
   </button>`;
-
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // USER SETUP SCREEN
 // ═══════════════════════════════════════════════════════════
@@ -1672,13 +1544,11 @@ function renderUserSetup(){
   </div>
   </div>`;
 }
-
 function checkManagerCode(){
   const v=document.getElementById("su_coord")?.value;
   const wrap=document.getElementById("su_mgr_code_wrap");
   if(wrap) wrap.classList.toggle("hidden", v!=="manager");
 }
-
 function confirmUser(){
   const coordEl=document.getElementById("su_coord");
   const codeEl=document.getElementById("su_mgr_code");
@@ -1692,16 +1562,13 @@ function confirmUser(){
   lsSet("user",S.user);
   render();
 }
-
 function openSettings(){
   S.modal={type:"settings"};
   render();
 }
-
 // ═══════════════════════════════════════════════════════════
 // TODAY TAB
 // ═══════════════════════════════════════════════════════════
-
 // ── Daily pace card ───────────────────────────────────────────────────────
 function renderDailyPaceCard(coord, state, T) {
   // Which day of the week is it? (1=Mon, 5=Fri)
@@ -1710,7 +1577,6 @@ function renderDailyPaceCard(coord, state, T) {
   const dayNum = dow === 0 ? 5 : dow === 6 ? 5 : dow; // clamp weekends to 5
   const tgt = WEEKLY_TARGETS;
   const s = state;
-
   // Metrics to pace-check (those with targets > 0)
   const paceMetrics = [
     {label:"Commencements",    actual:T.commencement,          weekly:tgt.commencement[s]},
@@ -1721,7 +1587,6 @@ function renderDailyPaceCard(coord, state, T) {
     {label:"New employers met",actual:T.new_employer_met,      weekly:tgt.new_employer_met[s]},
     {label:"Student leads",    actual:T.lead,                  weekly:tgt.lead_generated[s]},
   ].filter(m=>m.weekly>0);
-
   // Daily pace target = weekly × dayNum/5
   let onTrack=0, behind=0, ahead=0;
   const details=[];
@@ -1732,12 +1597,10 @@ function renderDailyPaceCard(coord, state, T) {
     else if (pct >= 0.7){ onTrack++; details.push({...m, pace, status:"amber"}); }
     else               { behind++;  details.push({...m, pace, status:"behind"}); }
   });
-
   const total = paceMetrics.length;
   const overallPct = total > 0 ? ahead / total : 0;
   const dayLabels = ["","Mon","Tue","Wed","Thu","Fri"];
   const dayLabel = dayLabels[dayNum]||"Today";
-
   // Overall status
   let statusBg, statusTxt, statusIcon, statusMsg;
   if (behind === 0 && onTrack === 0) {
@@ -1750,10 +1613,8 @@ function renderDailyPaceCard(coord, state, T) {
     statusBg="#FFC7CE"; statusTxt="#9C0006"; statusIcon="🔴";
     statusMsg=behind+" metrics behind "+dayLabel+"'s pace";
   }
-
   // Build metric rows — only show those behind or at risk
   const showDetails = details.filter(d=>d.status!=="on");
-
   let h=`<div class="card" style="border-left:4px solid ${behind>1?"var(--redt)":behind===1?"var(--ambert)":"var(--greent)"}">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:${showDetails.length>0?10:0}px">
       <div style="flex:1">
@@ -1765,7 +1626,6 @@ function renderDailyPaceCard(coord, state, T) {
         <div style="font-size:10px;color:${statusTxt}">on pace</div>
       </div>
     </div>`;
-
   if (showDetails.length > 0) {
     h+=`<div style="border-top:.5px solid var(--bd);padding-top:8px">
       <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Needs attention</div>`;
@@ -1785,14 +1645,11 @@ function renderDailyPaceCard(coord, state, T) {
   h+=`</div>`;
   return h;
 }
-
 function renderToday(coord,state,day){
   const T=weeklyTotals(coord,S.date);
   const status=dayStatus(day);
   const overdueFollowups=getAllOverdueFollowups(coord);
-
   let h=``;
-
   // Overdue alerts — moved above Due Today, collapsible (minimised by default)
   if(overdueFollowups.length>0){
     const overdueOpen=!!S.overdueExpanded;
@@ -1822,7 +1679,6 @@ function renderToday(coord,state,day){
       </div>`).join(""):""}
     </div>`;
   }
-
   // Due today
   const dueToday=getAllDueToday(coord);
   if(dueToday.length>0){
@@ -1853,10 +1709,8 @@ function renderToday(coord,state,day){
       ${dueTodayOpen?`<div style="font-size:11px;color:#1a73e8;margin-top:8px">✓ Done marks it complete · Snooze moves follow-up date to tomorrow</div>`:""}
     </div>`;
   }
-
   // Daily pace status card
   h+=renderDailyPaceCard(coord, state, T);
-
   // Primary focus
   h+=`<div class="card">
     <div class="card-title"><i class="ti ti-target"></i> Primary focus today</div>
@@ -1871,7 +1725,6 @@ function renderToday(coord,state,day){
       <input id="focus_other" value="${day.focusOther||""}" placeholder="Describe..." onchange="saveFocusOther()"></div>`:""}
     ${day.focus?`<div style="margin-top:4px">${getDayStatusLabel(status)}</div>`:""}
   </div>`;
-
   // Quick log activities (non-call, non-visit, non-pipeline)
   h+=`<div class="sect-hdr">Log activity</div>
   <div style="display:grid;grid-template-columns:1fr;gap:8px;padding:0 12px;">
@@ -1910,14 +1763,11 @@ function renderToday(coord,state,day){
       <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
   </div>
 `;
-
   // Note: "Today's log" section removed — this data is already shown
   // under This Week's expandable "Today" row, so it was pure duplication.
   // No data was removed here, only this redundant display block.
-
   return h;
 }
-
 function renderActItem(a, viewCoord){
   const col=activityColor(a.type);
   const overdue=a.followUpDate&&isOverdue(a.followUpDate);
@@ -1943,7 +1793,6 @@ function renderActItem(a, viewCoord){
     ${a.nextAction?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate):""}</div>`:""}
   </div>`;
 }
-
 // ═══════════════════════════════════════════════════════════
 // EMPLOYER CALLS TAB
 // ═══════════════════════════════════════════════════════════
@@ -1953,7 +1802,6 @@ function renderCalls(coord,state,day){
   const connected=calls.filter(a=>a.callOutcome&&a.callOutcome.startsWith("Connected")).length;
   const meaningful=calls.filter(isMeaningfulCall).length;
   const followups=calls.filter(a=>a.followUpDate).length;
-
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-phone"></i> Employer Calls — ${fmtDate(S.date)}</div>
     <div class="field-row" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-bottom:12px;">
@@ -1964,7 +1812,6 @@ function renderCalls(coord,state,day){
     </div>
     <button class="btn-primary w100" onclick="openActivityModal('employer_call')"><i class="ti ti-plus"></i> Log Employer Call</button>
   </div>`;
-
   if(calls.length>0){
     h+=`<div class="sect-hdr">Call log for today</div><div style="padding:0 12px;">
     ${calls.map(a=>{
@@ -1992,7 +1839,6 @@ function renderCalls(coord,state,day){
   }
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // SITE VISITS TAB
 // ═══════════════════════════════════════════════════════════
@@ -2000,7 +1846,6 @@ function renderVisits(coord,state,day){
   const visits=(day.activities||[]).filter(a=>a.type==="site_visit");
   const locations=new Set(visits.map(a=>a.suburb).filter(Boolean)).size;
   const opps=visits.filter(a=>["Apprentice vacancy identified","Student lead identified","Sign-up booked"].includes(a.activityOutcome)).length;
-
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-building"></i> Site Visits — ${fmtDate(S.date)}</div>
     <div class="field-row" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:12px;">
@@ -2011,7 +1856,6 @@ function renderVisits(coord,state,day){
     <div class="hint" style="margin-bottom:10px">Log each employer separately even if at the same location.</div>
     <button class="btn-primary w100" onclick="openActivityModal('site_visit')"><i class="ti ti-plus"></i> Log Site Visit</button>
   </div>`;
-
   if(visits.length>0){
     // Group by suburb
     const bySuburb={};
@@ -2039,14 +1883,12 @@ function renderVisits(coord,state,day){
   }
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // PIPELINE TAB
 // ═══════════════════════════════════════════════════════════
 function renderPipeline(coord,state,day){
   const pipes=(day.activities||[]).filter(a=>a.type==="pipeline");
   const progressed=pipes.filter(a=>a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
-
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-git-branch"></i> Pipeline Conversion — ${fmtDate(S.date)}</div>
     <div class="field-row" style="grid-template-columns:1fr 1fr;margin-bottom:12px;">
@@ -2055,7 +1897,6 @@ function renderPipeline(coord,state,day){
     </div>
     <button class="btn-primary w100" onclick="openActivityModal('pipeline')"><i class="ti ti-plus"></i> Log Pipeline Contact</button>
   </div>`;
-
   if(pipes.length>0){
     h+=`<div class="sect-hdr">Pipeline contacts today</div><div style="padding:0 12px;">
     ${pipes.map(a=>{
@@ -2079,7 +1920,6 @@ function renderPipeline(coord,state,day){
   }
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // DAILY NOTES TAB
 // ═══════════════════════════════════════════════════════════
@@ -2090,7 +1930,6 @@ function renderDailyNotes(coord,state,day){
     {id:"npipeline",label:"Pipeline notes",ph:"New leads, opportunities moving forward…",icon:"ti-git-branch",col:"#633806"},
     {id:"ncampaign",label:"Campaign progress notes",ph:"Updates on active campaigns, employer call runs, estate visits…",icon:"ti-speakerphone",col:"#0C447C"},
   ];
-
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-notes"></i> Daily Notes — ${fmtDate(S.date)}</div>
     ${noteFields.map(f=>`
@@ -2099,7 +1938,6 @@ function renderDailyNotes(coord,state,day){
       <textarea id="${f.id}" placeholder="${f.ph}" onchange="saveNote('${f.id}',this.value)" style="min-height:80px">${day[f.id]||""}</textarea>
     </div>`).join("")}
   </div>`;
-
   // End of day review
   const eodComplete=day.eodStatus==="complete";
   h+=`<div class="card" style="${eodComplete?"border-color:var(--greent);background:#f0fff8":""}">
@@ -2128,17 +1966,14 @@ function renderDailyNotes(coord,state,day){
       <button onclick="saveEOD('status','complete')" class="${eodComplete?"btn-success":"btn-primary"} btn-sm">✓ Mark day complete</button>
     </div>
   </div>`;
-
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // THIS WEEK TAB
 // ═══════════════════════════════════════════════════════════
 function renderThisWeek(coord,state){
   const T=weeklyTotals(coord,S.date);
   const days=weekDaysMF(S.date);
-
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-calendar-week"></i> Week summary — ${fmtWkRange(S.date)}</div>
     <div class="field-row" style="grid-template-columns:1fr 1fr 1fr 1fr;margin-bottom:12px;text-align:center;">
@@ -2151,7 +1986,6 @@ function renderThisWeek(coord,state){
     <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Lead conversion funnel</div>
     ${renderStrictLeadFunnel(coord)}
   </div>`;
-
   // Day-by-day breakdown
   h+=`<div class="sect-hdr">Day by day</div>`;
   days.forEach(d=>{
@@ -2161,7 +1995,6 @@ function renderThisWeek(coord,state){
     const isToday=d===TODAY;
     const expanded=S.wkExpanded[d];
     const overdueCnt=acts.filter(a=>a.followUpDate&&isOverdue(a.followUpDate)).length;
-
     h+=`<div class="wk-day" style="${isToday?"border-color:var(--hdr)":""}">
       <div class="wk-day-hdr" onclick="S.wkExpanded['${d}']=!S.wkExpanded['${d}'];render()">
         <div>
@@ -2186,7 +2019,6 @@ function renderThisWeek(coord,state){
       </div>`:""}
     </div>`;
   });
-
   // Full weekly KR table
   const tgt=WEEKLY_TARGETS, s=state;
   const krRows=[
@@ -2211,7 +2043,6 @@ function renderThisWeek(coord,state){
     {label:"Follow-ups open",val:T.followup_open,tgt:0},
     {label:"Follow-ups overdue",val:T.followup_overdue,tgt:0,red:true},
   ];
-
   h+=`<div class="card"><div class="card-title"><i class="ti ti-table"></i> Weekly KR detail</div>
     ${krRows.map(k=>{
       const pct=k.tgt>0?Math.min(100,Math.round(k.val/k.tgt*100)):0;
@@ -2223,10 +2054,8 @@ function renderThisWeek(coord,state){
       </div>`;
     }).join("")}
   </div>`;
-
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // WEEKLY NOTES TAB
 // ═══════════════════════════════════════════════════════════
@@ -2235,7 +2064,6 @@ function renderWkNotes(coord,state){
   const allWks=getAllWeeks(coord);
   let ref={wr1:"",wr2:"",wr3:""};
   try{const r=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(r)ref=JSON.parse(r);}catch(e){}
-
   const days=weekDaysMF(S.date);
   // Aggregate daily notes for the week
   const cats={wins:[],blockers:[],pipeline:[],campaign:[]};
@@ -2246,7 +2074,6 @@ function renderWkNotes(coord,state){
     if(dy.npipeline&&dy.npipeline.trim()) cats.pipeline.push({d,text:dy.npipeline.trim()});
     if(dy.ncampaign&&dy.ncampaign.trim()) cats.campaign.push({d,text:dy.ncampaign.trim()});
   });
-
   let h=`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0;">
     <div>
       <div style="font-size:14px;font-weight:600">Weekly Notes</div>
@@ -2259,7 +2086,6 @@ function renderWkNotes(coord,state){
       <button onclick="downloadWeeklyNotes()" style="font-size:12px;padding:5px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer;white-space:nowrap"><i class="ti ti-download"></i> PDF</button>
     </div>
   </div>`;
-
   // Daily notes summary
   const noteCategories=[
     {key:"wins",label:"Wins & Key Outcomes",icon:"ti-star",border:"#1baf7a",bg:"#e1f5ee",col:"#085041"},
@@ -2267,7 +2093,6 @@ function renderWkNotes(coord,state){
     {key:"pipeline",label:"Pipeline Notes",icon:"ti-git-branch",border:"#eda100",bg:"#faeeda",col:"#633806"},
     {key:"campaign",label:"Campaign Progress",icon:"ti-speakerphone",border:"#2a78d6",bg:"#e6f1fb",col:"#0C447C"},
   ];
-
   noteCategories.forEach(cat=>{
     if(cats[cat.key].length===0) return;
     h+=`<div class="card" style="border-left:3px solid ${cat.border};">
@@ -2278,7 +2103,6 @@ function renderWkNotes(coord,state){
       </div>`).join("")}
     </div>`;
   });
-
   // Weekly reflection
   h+=`<div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -2301,17 +2125,14 @@ function renderWkNotes(coord,state){
       <textarea id="wr3" style="min-height:90px">${ref.wr3||""}</textarea>
     </div>
   </div>`;
-
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // HISTORY TAB
 // ═══════════════════════════════════════════════════════════
 function renderHistory(coord,state){
   const allDates=allDays(coord).reverse().slice(0,60);
   if(allDates.length===0) return `<div class="card"><div class="muted small">No history recorded yet.</div></div>`;
-
   // Overdue followups first
   const overdue=getAllOverdueFollowups(coord);
   let h="";
@@ -2328,7 +2149,6 @@ function renderHistory(coord,state){
       </div>`).join("")}
     </div>`;
   }
-
   h+=`<div class="sect-hdr">Recent days</div>`;
   allDates.forEach(d=>{
     const day=loadDay(coord,d);
@@ -2363,7 +2183,6 @@ function renderHistory(coord,state){
   });
   return h;
 }
-
 // ═══════════════════════════════════════════════════════════
 // MANAGER DASHBOARD
 // ═══════════════════════════════════════════════════════════
@@ -2371,13 +2190,11 @@ function renderDailyDashboard(){
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
   const date = S.date;
   let h = "";
-
   coordsToShow.forEach(function(coord) {
     const state = STATES[coord];
     const day = loadDay(coord, date);
-    const acts = day.activities||[];
+    const acts = realDayActivities(day); // FIXED 2026-08-03 — was raw day.activities, inflating this Daily-view card's counts and activity log with auto-generated placeholder rows
     const status = dayStatus(day);
-
     // Daily counts
     const commencements   = acts.filter(a=>a.type==="commencement").length;
     const registrations   = acts.filter(a=>a.type==="registration").length;
@@ -2391,21 +2208,17 @@ function renderDailyDashboard(){
     const pipelineProgressed = acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
     const followupsClosed = acts.filter(a=>a.type==="follow_up_closed").length;
     const oppsGenerated   = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
-
     // Daily pace targets
     const tgt = WEEKLY_TARGETS;
     const s = state;
-
     h += `<div class="card">
       <div class="card-title">
         <i class="ti ti-user-circle"></i> ${coord} — ${state}
         <span style="margin-left:8px">${getDayStatusLabel(status)}</span>
         <button onclick="switchToCoord('${coord}')" style="margin-left:auto;font-size:11px;padding:3px 10px;background:var(--hdr);color:#fff;border:none;border-radius:var(--r);cursor:pointer">View & Edit →</button>
       </div>
-
       <!-- Focus -->
       ${day.focus?`<div style="margin-bottom:10px"><span class="focus-badge"><i class="ti ti-target"></i> ${day.focus}${day.focusOther?" — "+day.focusOther:""}</span></div>`:`<div style="color:var(--tm);font-size:12px;margin-bottom:10px"><i class="ti ti-alert-circle"></i> No primary focus set</div>`}
-
       <!-- Daily activity grid -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
         ${[
@@ -2428,7 +2241,6 @@ function renderDailyDashboard(){
           </div>`;
         }).join("")}
       </div>
-
       <!-- Opportunities & pipeline -->
       ${oppsGenerated>0||pipelineProgressed>0||followupsClosed>0?`
       <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
@@ -2436,14 +2248,12 @@ function renderDailyDashboard(){
         ${pipelineProgressed>0?`<span style="background:var(--o2);color:var(--o2t);padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600">↑ ${pipelineProgressed} pipeline moved</span>`:""}
         ${followupsClosed>0?`<span style="background:var(--o1);color:var(--o1t);padding:4px 10px;border-radius:20px;font-size:12px;font-weight:600">✓ ${followupsClosed} follow-up${followupsClosed>1?"s":""} closed</span>`:""}
       </div>`:""}
-
       <!-- EOD summary -->
       ${day.eodResult?`<div style="background:var(--s1);border-radius:var(--r);padding:10px 12px;border-left:3px solid var(--hdr);font-size:12px">
         <div style="font-weight:600;color:var(--hdr);margin-bottom:4px"><i class="ti ti-checklist"></i> EOD Result</div>
         <div style="color:var(--ts)">${day.eodResult}</div>
         ${day.eodTomorrow?`<div style="margin-top:6px;color:var(--tm)"><i class="ti ti-arrow-right"></i> Tomorrow: ${day.eodTomorrow}</div>`:""}
       </div>`:`<div style="color:var(--tm);font-size:12px;padding:8px 0"><i class="ti ti-clock"></i> EOD review not yet completed</div>`}
-
       <!-- Activities log (expandable) -->
       ${acts.length>0?`
       <div style="margin-top:10px">
@@ -2453,14 +2263,11 @@ function renderDailyDashboard(){
       </div>`:`<div style="color:var(--tm);font-size:12px;padding:8px 0"><i class="ti ti-circle-dashed"></i> No activities logged today</div>`}
     </div>`;
   });
-
   return h||`<div class="card"><div class="muted small">No data for this date.</div></div>`;
 }
-
 // ── Rolling week-on-week trend dashboard ──────────────────────────────────
 function renderTrendDashboard() {
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
-
   // Build weeks from trendFrom to trendTo — latest first
   const trendFrom = mondayOf(S.trendFrom || addWeeks(S.date,-7));
   const trendTo   = mondayOf(S.trendTo   || S.date);
@@ -2471,7 +2278,6 @@ function renderTrendDashboard() {
     weeks.push(cur.toISOString().substring(0,10));
     cur.setDate(cur.getDate()-7);
   }
-
   // Key metrics to trend
   const TREND_METRICS = [
     {key:"commencement",    label:"Commencements",         fn:function(T){return T.commencement;}},
@@ -2487,7 +2293,6 @@ function renderTrendDashboard() {
     {key:"followup_overdue",label:"Overdue follow-ups",    fn:function(T){return T.followup_overdue;}, warn:true},
     {key:"days_productive", label:"Productive days",       fn:function(T){return T.days_productive;}},
   ];
-
   // Pre-calculate totals for each coord and week
   const data = {};
   coordsToShow.forEach(function(coord) {
@@ -2496,9 +2301,7 @@ function renderTrendDashboard() {
       data[coord][mon] = weeklyTotals(coord, mon);
     });
   });
-
   let h = "";
-
   // If all coords shown — render combined team trend table
   if (S.dashFilter.coord === "all") {
     h += `<div class="card">
@@ -2524,7 +2327,6 @@ function renderTrendDashboard() {
             ? (latest>prev?"var(--redt)":latest<prev?"var(--greent)":"var(--tm)")
             : (latest>prev?"var(--greent)":latest<prev?"var(--redt)":"var(--tm)");
           const max = Math.max(...vals, 1);
-
           return `<tr>
             <td style="padding:6px 8px;font-weight:600;background:${rowBg};color:${metric.warn?"var(--redt)":"var(--tp)"}">${metric.label}</td>
             <td style="text-align:center;padding:6px 4px;background:${rowBg};font-size:16px;font-weight:700;color:${trendCol}">${trend}</td>
@@ -2571,7 +2373,6 @@ function renderTrendDashboard() {
       </div>
     </div>`;
   }
-
   // Per-coordinator trend cards
   coordsToShow.forEach(function(coord) {
     const state = STATES[coord];
@@ -2604,7 +2405,6 @@ function renderTrendDashboard() {
                             metric.key==="acap_contact"?tgt.acap_contact[state]:
                             metric.key==="new_employer_met"?tgt.new_employer_met[state]:
                             metric.key==="lead"?tgt.lead_generated[state]:0;
-
           return `<tr>
             <td style="padding:6px 8px;font-weight:600;background:${rowBg};color:${metric.warn?"var(--redt)":"var(--tp)"}">${metric.label}${weeklyTgt?`<div style="font-size:10px;color:var(--tm);font-weight:400">target: ${weeklyTgt}</div>`:""}
             </td>
@@ -2642,14 +2442,11 @@ function renderTrendDashboard() {
       </div>
     </div>`;
   });
-
   return h;
 }
-
 function renderDashboard(){
   const ds=S.dashFilter;
   const targetDate=S.date;
-
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-layout-dashboard"></i> Management Dashboard</div>
     <!-- View toggle -->
@@ -2694,23 +2491,19 @@ function renderDashboard(){
     </div>
     ${S.dashView!=="trend" ? renderDashboardFilterControls() : ""}
   </div>`;
-
   const coordsToShow=ds.coord==="all"?COORDS:[ds.coord];
   if (S.dashView==="daily") return h + renderDailyDashboard() + renderFilteredActivityLog(coordsToShow,[targetDate]);
   if (S.dashView==="trend") return h + renderTrendDashboard();
-
   coordsToShow.forEach(coord=>{
     const state=STATES[coord];
     const T=weeklyTotals(coord,targetDate);
     const tgt=WEEKLY_TARGETS;
     const s=state;
-
     h+=`<div class="card">
       <div class="card-title"><i class="ti ti-user-circle"></i> ${coord} — ${state}
         <span class="day-status ${T.days_productive>3?"ds-productive":T.days_productive>1?"ds-partial":"ds-none"}" style="margin-left:8px">${T.days_productive}/5 productive</span>
         <button onclick="switchToCoord('${coord}')" style="margin-left:auto;font-size:11px;padding:3px 10px;background:var(--hdr);color:#fff;border:none;border-radius:var(--r);cursor:pointer">View & Edit →</button>
       </div>
-
       <!-- Activity summary grid -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
         ${[
@@ -2735,18 +2528,15 @@ function renderDashboard(){
           </div>`;
         }).join("")}
       </div>
-
       <!-- Strict lead funnel — 2026-07-28, replaces the old activity-volume funnel -->
       <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL</div>
       <div style="margin-bottom:12px;">${renderStrictLeadFunnel(coord)}</div>
-
       <!-- Follow-ups -->
       ${T.followup_overdue>0?`<div style="background:var(--red);color:var(--redt);padding:8px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
         ⚠ ${T.followup_overdue} overdue follow-up${T.followup_overdue>1?"s":""} · ${T.followup_open} open total
       </div>`:`<div style="background:var(--green);color:var(--greent);padding:6px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
         ✓ ${T.followup_open} open follow-ups · none overdue
       </div>`}
-
       <!-- Follow-up health -->
       ${(()=>{
         const allFu=getAllOpenFollowupsForDash(coord);
@@ -2776,17 +2566,15 @@ function renderDashboard(){
           const bg=st==="productive"?"var(--green)":st==="partial"?"var(--amber)":"var(--s2)";
           const col=st==="productive"?"var(--greent)":st==="partial"?"var(--ambert)":"var(--tm)";
           return `<div style="flex:1;background:${bg};color:${col};border-radius:var(--r);padding:6px;text-align:center;font-size:11px;font-weight:600">
-            ${dayOfWeek(d)}<br>${dy.activities?.length||0}
+            ${dayOfWeek(d)}<br>${realDayActivities(dy).length}
           </div>`;
         }).join("")}
       </div>
     </div>`;
   });
-
   h += renderFilteredActivityLog(coordsToShow, weekDaysMF(targetDate));
   return h;
 }
-
 // 2026-07-28: management dashboard filters, added to address the audit gap
 // that filtering was previously limited to coordinator + date only.
 // Options are shown but pipeline-stage / relationship filters only really
@@ -2837,7 +2625,6 @@ function renderDashboardFilterControls(){
     </div>`:""}
   </div>`;
 }
-
 // Gathers activities for the given coordinators/dates and applies the
 // active dashboard filters. Excludes the same auto-generated rows the
 // rest of the app already excludes from counts/logs (auto_fu_, auto_acap_,
@@ -2848,8 +2635,7 @@ function getFilteredDashboardActivities(coordsToShow, dates){
   coordsToShow.forEach(function(coord){
     dates.forEach(function(d){
       const day = loadDay(coord, d);
-      (day.activities||[]).forEach(function(a){
-        if (a.id && (a.id.startsWith("auto_fu_")||a.id.startsWith("auto_acap_")||a.id.startsWith("sl_"))) return;
+      realDayActivities(day).forEach(function(a){
         if (ds.activityType && a.type!==ds.activityType) return;
         if (ds.outcome && a.activityOutcome!==ds.outcome) return;
         if (ds.relType && a.relType!==ds.relType) return;
@@ -2861,7 +2647,6 @@ function getFilteredDashboardActivities(coordsToShow, dates){
   });
   return out;
 }
-
 // Only renders (and only costs anything) when at least one filter beyond
 // coordinator/date is active — keeps the dashboard's default view exactly
 // as it was before this was added.
@@ -2877,7 +2662,6 @@ function renderFilteredActivityLog(coordsToShow, dates){
       }).join("")}
   </div>`;
 }
-
 // ═══════════════════════════════════════════════════════════
 // ACTIVITY MODALS
 // ═══════════════════════════════════════════════════════════
@@ -2888,7 +2672,6 @@ function renderModal(){
   if(m.type==="close_followup") return renderCloseFollowupModal(m);
   return "";
 }
-
 const MEANINGFUL_OUTCOMES = [
   "Connected — discussed and resolved",
   "Connected — next steps agreed",
@@ -2896,7 +2679,6 @@ const MEANINGFUL_OUTCOMES = [
   "Sign-up confirmed",
   "Registration submitted",
 ];
-
 // Outcomes that count as meaningful for general contact activities
 const CONTACT_OUTCOMES_MEANINGFUL = [
   "Connected — meaningful conversation",
@@ -2910,7 +2692,6 @@ const CONTACT_OUTCOMES_MEANINGFUL = [
   "F2F visit — productive",
   "Event attended — engaged",
 ];
-
 const CONTACT_OUTCOMES_ALL = [
   "",
   "Connected — meaningful conversation",
@@ -2929,7 +2710,6 @@ const CONTACT_OUTCOMES_ALL = [
   "Do not contact — removed from list",
   "Other",
 ];
-
 function renderCloseFollowupModal(m) {
   return `<div class="modal-bg">
   <div class="modal">
@@ -2998,7 +2778,6 @@ function renderCloseFollowupModal(m) {
     </div>
   </div></div>`;
 }
-
 function onFuOutcomeChange() {
   const val = document.getElementById("fu_outcome")?.value||"";
   const isMeaningful = MEANINGFUL_OUTCOMES.indexOf(val) !== -1;
@@ -3007,7 +2786,6 @@ function onFuOutcomeChange() {
   if (mWrap)  mWrap.classList.toggle("hidden", !isMeaningful);
   if (nmWrap) nmWrap.classList.toggle("hidden", !(val && !isMeaningful));
 }
-
 function renderSettingsModal(){
   return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
   <div class="modal">
@@ -3041,7 +2819,6 @@ function renderSettingsModal(){
     </div>
   </div></div>`;
 }
-
 // ── Debug: trace exactly what getAllDueToday sees at each stage ─────────
 // Use this when the raw server fetch (debugFollowups) matches across
 // devices but the Due Today card still shows different counts — that
@@ -3074,7 +2851,6 @@ async function debugEnrolmentPipeline(){
     (localList.length>5?"\n...":"")
   );
 }
-
 async function debugStudentLeads(){
   const coord=S.user.coord;
   let rawList=[];
@@ -3095,7 +2871,6 @@ async function debugStudentLeads(){
     (localList.length>5?"\n...":"")
   );
 }
-
 async function debugMergeFollowups(){
   const coord=S.user.coord, state=STATES[coord];
   const url=WEBAPP_URL+"?action=get_followups&coord="+encodeURIComponent(coord)+"&state="+state;
@@ -3104,7 +2879,6 @@ async function debugMergeFollowups(){
     data=await jsonpFetch(url);
   }catch(e){ alert("Fetch failed: "+e.message); return; }
   if(!data.ok){ alert("Server error: "+(data.msg||"unknown")); return; }
-
   const list=data.followups||[];
   let ok=0, failed=[], skippedNoDate=0;
   list.forEach(a=>{
@@ -3120,17 +2894,14 @@ async function debugMergeFollowups(){
       failed.push(a.type+" | "+a.id+" | ERROR: "+e.message);
     }
   });
-
   let cacheError = "";
   try{
     localStorage.setItem(PFX+"followups:"+coord,JSON.stringify(list));
   }catch(e){
     cacheError = e.message;
   }
-
   const byType={};
   list.forEach(a=>{ byType[a.type]=(byType[a.type]||0)+1; });
-
   alert(
     "Total fetched: "+list.length+" ("+Object.keys(byType).map(t=>t+":"+byType[t]).join(", ")+")\n"+
     "Successfully merged: "+ok+"\n"+
@@ -3141,12 +2912,10 @@ async function debugMergeFollowups(){
   );
   render();
 }
-
 function debugDueToday(){
   const coord=S.user.coord;
   const _cd = S.date||TODAY;
   const days = allDays(coord);
-
   const fromDays=[];
   days.forEach(d=>{
     const day=loadDay(coord,d);
@@ -3154,7 +2923,6 @@ function debugDueToday(){
       if(a.followUpDate===_cd) fromDays.push(a.type+" | "+a.id+" | status="+a.status+" | bucket="+d);
     });
   });
-
   const fromCache=[];
   try{
     const cf=localStorage.getItem(PFX+"followups:"+coord);
@@ -3162,11 +2930,9 @@ function debugDueToday(){
       if(a.followUpDate===_cd) fromCache.push(a.type+" | "+a.id+" | status="+a.status);
     });
   }catch(e){}
-
   const finalResult = getAllDueToday(coord);
   const byType={};
   finalResult.forEach(f=>{ byType[f.type]=(byType[f.type]||0)+1; });
-
   alert(
     "Selected date (S.date||TODAY): "+_cd+"\n"+
     "System TODAY constant: "+TODAY+"\n"+
@@ -3177,7 +2943,6 @@ function debugDueToday(){
     Object.keys(byType).map(t=>t+": "+byType[t]).join("\n")
   );
 }
-
 // ── Debug: fetch raw follow-ups via the app's own code path ─────────────
 // Uses jsonpFetch (same function pullFollowups uses) so results are directly
 // comparable across devices — no browser-tab auth/caching confounds like
@@ -3203,7 +2968,6 @@ async function debugFollowups(){
     alert("Fetch failed: "+e.message);
   }
 }
-
 function renderActivityModal(type,data){
   const isEdit=!!data.id;
   const baseTitles={
@@ -3217,11 +2981,9 @@ function renderActivityModal(type,data){
   Object.keys(baseTitles).forEach(k => {
     titles[k] = isEdit ? baseTitles[k].replace("Log ","Edit ").replace("Add ","Edit ") : baseTitles[k];
   });
-
   let fields=``;
   const needsOutcome=!["commencement","registration","enrolment"].includes(type);
   const needsFollowup=!["commencement","enrolment","intro_call"].includes(type);
-
   // ── STUDENT/COMMENCEMENT TYPES ─────────────────────────────────────────
   if(type==="commencement"){
     fields+='<div class="field" style="position:relative">'+
@@ -3286,7 +3048,6 @@ function renderActivityModal(type,data){
     fields+=fld("Trade","strade","select",data.trade||"",["",...TRADE_OPTIONS]);
     fields+=fld("Follow-up required","sfollowup","text",data.followUp||"");
   }
-
   // ── ACAP ───────────────────────────────────────────────────────────────
   if(type==="add_acap"){
     fields+=fld("ACAP organisation","add_acap_org","text",data.acapOrg||"",null,"true");
@@ -3298,7 +3059,6 @@ function renderActivityModal(type,data){
     fields+=fld("Mobile","add_acap_mobile","text",data.mobile||"");
     fields+=fld("Profile Builder","add_acap_profile","textarea",data.profileNotes||"");
   }
-
   if(["acap_contact","acap_f2f"].includes(type)){
     const acapCache=getAcapCache(S.user.coord);
     const acapOpts=acapCache.map(function(a){
@@ -3318,7 +3078,6 @@ function renderActivityModal(type,data){
     fields+=fld("Contact outcome","acap_outcome","select",data.activityOutcome||"",ACAP_OUTCOMES,"true");
     fields+=`<div id="acap_meaningful_hint" style="font-size:11px;padding:4px 8px;border-radius:4px;margin-bottom:8px;display:none"></div>`;
   }
-
   // ── EVENT ──────────────────────────────────────────────────────────────
   if(type==="event"){
     fields+=fld("Event name","ev_name","text",data.eventName||"",null,"true");
@@ -3326,7 +3085,6 @@ function renderActivityModal(type,data){
     fields+=fld("Approximate attendees","ev_att","number",data.attendees||"");
     fields+=fld("Activity outcome","ev_outcome","select",data.activityOutcome||"",["","No opportunity identified",...ACTIVITY_OUTCOMES.slice(1)]);
   }
-
   // ── EMPLOYER CALL ──────────────────────────────────────────────────────
   if(type==="employer_call"){
     // Employer lookup from cache
@@ -3354,7 +3112,6 @@ function renderActivityModal(type,data){
     fields+=`</div>`;
     fields+=fld("Profile Builder","ec_profile","textarea",data.profileNotes||"");
   }
-
   // ── SITE VISIT ─────────────────────────────────────────────────────────
   if(type==="site_visit"){
     const svCache=getEmployerCache(S.user.coord);
@@ -3379,7 +3136,6 @@ function renderActivityModal(type,data){
     fields+=fld("Activity outcome","sv_outcome","select",data.activityOutcome||"",[""].concat(ACTIVITY_OUTCOMES),"true");
     fields+=fld("Profile Builder","sv_profile","textarea",data.profileNotes||"");
   }
-
   // ── NEW EMPLOYER MET / DB ──────────────────────────────────────────────
   if(["new_employer_met","new_employer_db","add_employer"].includes(type)){
     fields+=fld("Business name","ne_biz","text",data.bizName||"",null,"true");
@@ -3400,7 +3156,6 @@ function renderActivityModal(type,data){
     }
     fields+=fld("Profile Builder","ne_profile","textarea",data.profileNotes||"");
   }
-
   // ── PIPELINE ───────────────────────────────────────────────────────────
   if(type==="enrolment_pipeline"){
     fields+='<div class="field" style="position:relative">'+
@@ -3419,7 +3174,6 @@ function renderActivityModal(type,data){
     fields+=fld("Barrier to enrolment","ep_barrier","text",data.barrier||"");
     fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
   }
-
   if(type==="pipeline"){
     fields+=fld("Lead / student name","pl_name","text",data.leadName||"",null,"true");
     fields+=fldRow([
@@ -3436,7 +3190,6 @@ function renderActivityModal(type,data){
     fields+=fld("Action completed today","pl_action","textarea",data.actionToday||"");
     fields+=fld("Expected registration date","pl_expreg","date",data.expectedReg||"");
   }
-
   // ── COMMON FIELDS ──────────────────────────────────────────────────────
   // Next action & follow-up (for most types)
   if(needsFollowup){
@@ -3449,7 +3202,6 @@ function renderActivityModal(type,data){
     fields+=fld("Status","cm_status","select",data.status||"Open",["Open","Completed","On hold","Closed"]);
   }
   fields+=fld("Notes","cm_notes","textarea",data.notes||"");
-
   return `<div class="modal-bg">
   <div class="modal">
     <div class="modal-title"><i class="ti ti-plus"></i> ${titles[type]||type}</div>
@@ -3461,7 +3213,6 @@ function renderActivityModal(type,data){
     </div>
   </div></div>`;
 }
-
 // Inline validation errors — 2026-07-28: previously a blocking alert()
 // popup. Injects into the already-open modal DOM in place (no re-render),
 // so the user's already-typed field values are never lost.
@@ -3479,7 +3230,6 @@ function showModalErrors(errors){
 // validation existed anywhere in the form.
 function isValidEmail_(v){ return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function isValidPhone_(v){ return !v || /^[0-9+()\s-]{6,20}$/.test(v); }
-
 // Field builder helpers
 function fld(label,id,type,val,options,required){
   // options = array of option values (for select), or null/undefined for other types
@@ -3500,7 +3250,6 @@ function fld(label,id,type,val,options,required){
 function fldRow(fields){
   return `<div class="field-row">${fields.join("")}</div>`;
 }
-
 // ═══════════════════════════════════════════════════════════
 // SAVE HANDLERS
 // ═══════════════════════════════════════════════════════════
@@ -3514,7 +3263,6 @@ function scrollTabIntoView(tab) {
   const btn = bar.querySelector(".tb.on");
   if (btn) btn.scrollIntoView({behavior:"smooth", block:"nearest", inline:"center"});
 }
-
 function saveFocus(){
   const v=document.getElementById("focus_sel")?.value;
   const day=getDay(); day.focus=v; saveDay(day); render();
@@ -3562,7 +3310,6 @@ function saveWeeklyReflection(){
   S.status={ok:true,msg:"Weekly reflection saved"};
   render();
 }
-
 function openActivityModal(type){
   S.modal={type:"activity",actType:type,data:{}};
   render();
@@ -3570,7 +3317,6 @@ function openActivityModal(type){
 function closeModal(){
   S.modal=null; render();
 }
-
 function saveActivityFromModal(type){
   const editId = S.modal?.editId || null;
   const editCoord = S.modal?.editCoord || null;
@@ -3582,7 +3328,6 @@ function saveActivityFromModal(type){
     ? {...existingAct}  // copy existing, preserve id and timestamp
     : {id:uuid(), type, timestamp:new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})};
   const g=(id)=>document.getElementById(id)?.value||"";
-
   // Collect fields by type
   if(type==="commencement"){
     act.studentName=g("comm_name"); act.studentState=g("sstate"); act.trade=g("strade");
@@ -3624,12 +3369,10 @@ function saveActivityFromModal(type){
   }
   if(type==="enrolment_pipeline"){ act.studentName=g("ep_name");act.studentState=g("ep_state");act.trade=g("ep_trade");act.prevStage=g("ep_prev");act.newStage=g("ep_new");act.contactOutcome=g("ep_contact");act.barrier=g("ep_barrier");act.actionToday=g("ep_action");act.expectedReg=g("ep_expreg"); }
   if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.pipelineType=g("pl_pipeline_type");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg"); }
-
   // Common
   act.nextAction=g("cm_next"); act.followUpDate=g("cm_fudate");
   act.responsible=g("cm_resp")||S.user.coord; act.status=g("cm_status")||"Open";
   act.notes=g("cm_notes");
-
   // Validation
   const errors=[];
   if(["commencement","registration","enrolment","lead"].includes(type) && !act.studentName) errors.push("Student name is required");
@@ -3650,10 +3393,8 @@ function saveActivityFromModal(type){
   if(!isValidEmail_(act.email)) errors.push("Email address doesn't look valid");
   if(!isValidPhone_(act.mobile)) errors.push("Mobile number doesn't look valid");
   if(!isValidPhone_(act.phone)) errors.push("Phone number doesn't look valid");
-
   if(errors.length>0){ showModalErrors(errors); return; }
   showModalErrors([]); // clear any previous error banner on a successful pass
-
   // 2026-07-28: confirm before letting a pipeline-style stage move
   // backward — previously any stage could be silently overwritten either
   // way with no distinction from normal forward progress.
@@ -3669,7 +3410,6 @@ function saveActivityFromModal(type){
       }
     }
   }
-
   if(!day.activities) day.activities=[];
   if(isEdit && editId){
     const idx=day.activities.findIndex(a=>a.id===editId);
@@ -3679,7 +3419,6 @@ function saveActivityFromModal(type){
     day.activities.push(act);
   }
   saveDay(day);
-
   // If this enrolment pipeline update closes the student out (Enrolled,
   // Registered, etc.), remove any cached follow-up for them immediately —
   // the server-side follow-up date gets cleared too, but without this the
@@ -3707,14 +3446,12 @@ function saveActivityFromModal(type){
       }
     } catch(e_){}
   }
-
   S.modal=null;
   S.unsyncedChanges=true;
   S.status={ok:true,msg:`${activityLabel(type)} ${isEdit?"updated":"logged"} — syncing…`};
   schedulePush();
   render();
 }
-
 function findActivityAnyDay(coord, id) {
   // Activities rendered in This Week / History may belong to a day other
   // than whatever is currently selected as S.date — search every known
@@ -3729,7 +3466,6 @@ function findActivityAnyDay(coord, id) {
   }
   return null;
 }
-
 function editActivity(id, coord) {
   const targetCoord = coord || S.user.coord;
   const found = findActivityAnyDay(targetCoord, id);
@@ -3738,7 +3474,6 @@ function editActivity(id, coord) {
   S.modal = {type:"activity", actType:found.act.type, data:found.act, editId:found.act.id, editCoord:targetCoord, editDate:found.date};
   render();
 }
-
 function deleteActivity(id, coord){
   if(!confirm("Delete this activity?")) return;
   // Manager can delete from any coordinator's records
@@ -3753,7 +3488,6 @@ function deleteActivity(id, coord){
   schedulePush();
   render();
 }
-
 // ═══════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -3761,7 +3495,6 @@ function openCloseFollowupModal(id, date, coord, name) {
   S.modal = {type:"close_followup", id:id, date:date, coord:coord, name:name};
   render();
 }
-
 function closeFollowup(id, date, coord) {
   // Update local day record
   const day = loadDay(coord, date);
@@ -3783,7 +3516,6 @@ function closeFollowup(id, date, coord) {
   S.status = {ok:true, msg:"Follow-up marked complete — push to sync"};
   render();
 }
-
 function snoozeFollowup(id, date, coord) {
   // Hard cap — refuse to proceed regardless of how this was triggered
   // (the disabled button is the normal path, but this guards against a
@@ -3804,7 +3536,6 @@ function snoozeFollowup(id, date, coord) {
       return;
     }
   } catch(e_) {}
-
   // Capture bizName FIRST before any mutations
   let bizName = "";
   try {
@@ -3821,14 +3552,12 @@ function snoozeFollowup(id, date, coord) {
       }
     }
   } catch(e_) {}
-
   // Move follow-up to next working day relative to S.date
   const base = new Date((S.date||TODAY)+"T12:00:00");
   base.setDate(base.getDate()+1);
   // Skip weekends
   while (base.getDay()===0 || base.getDay()===6) base.setDate(base.getDate()+1);
   const tomorrowStr = base.toISOString().substring(0,10);
-
   // Update in local day record
   const day = loadDay(coord, date);
   const act = (day.activities||[]).find(a=>a.id===id);
@@ -3840,7 +3569,6 @@ function snoozeFollowup(id, date, coord) {
     newSnoozeCount = act.snoozeCount;
     saveDay(day);
   }
-
   // Update cloud cache
   try {
     const cacheKey = PFX+"followups:"+coord;
@@ -3860,7 +3588,6 @@ function snoozeFollowup(id, date, coord) {
     }
     localStorage.setItem(cacheKey, JSON.stringify(followups));
   } catch(e) {}
-
   // Fire WIP update — detect if ACAP or employer activity
   const snoozeActType = (function(){
     try {
@@ -3910,12 +3637,10 @@ function snoozeFollowup(id, date, coord) {
       snoozeCount:newSnoozeCount
     });
   }
-
   S.unsyncedChanges = true;
   S.status = {ok:true, msg:"Snoozed to "+tomorrowStr+(bizName?" — "+bizName:"")+" — push to sync"};
   render();
 }
-
 function getAllDueToday(coord){
   const result=[];
   allDays(coord).forEach(d=>{
@@ -3937,7 +3662,6 @@ function getAllDueToday(coord){
   }catch(e_){}
   return result.sort((a,b)=>a.type>b.type?1:-1);
 }
-
 function getAllOverdueFollowups(coord){
   const result=[];
   allDays(coord).forEach(d=>{
@@ -3948,7 +3672,6 @@ function getAllOverdueFollowups(coord){
   });
   return result.sort((a,b)=>a.followUpDate>b.followUpDate?1:-1);
 }
-
 function getAllWeeks(coord){
   const dates=allDays(coord);
   if(dates.length===0) return [mondayOf(TODAY)];
@@ -3957,7 +3680,6 @@ function getAllWeeks(coord){
   weeks.add(mondayOf(TODAY));
   return Array.from(weeks).sort().reverse();
 }
-
 function confirmCloseFollowup(id, date, coord) {
   const outcome       = document.getElementById("fu_outcome")?.value||"";
   const notes         = document.getElementById("fu_notes")?.value?.trim()||"";
@@ -3965,7 +3687,6 @@ function confirmCloseFollowup(id, date, coord) {
   const newFu         = document.getElementById("fu_new_followup")?.value||"no";
   const newDate       = document.getElementById("fu_new_date")?.value||"";
   const newAction     = document.getElementById("fu_new_action")?.value?.trim()||"";
-
   // Validation — 2026-07-28: inline instead of blocking alert() popups.
   const closeErrors = [];
   if (!outcome) closeErrors.push("Please select an outcome");
@@ -3976,9 +3697,7 @@ function confirmCloseFollowup(id, date, coord) {
   }
   if (closeErrors.length) { showModalErrors(closeErrors); return; }
   showModalErrors([]);
-
   const closeDate = S.date||TODAY;
-
   // Update original activity record
   const day = loadDay(coord, date);
   const act = (day.activities||[]).find(a=>a.id===id);
@@ -3991,14 +3710,12 @@ function confirmCloseFollowup(id, date, coord) {
     act.meaningful    = isMeaningful;
     saveDay(day);
   }
-
   // Remove from followup cache
   try {
     const cacheKey = PFX+"followups:"+coord;
     const cf = localStorage.getItem(cacheKey);
     if (cf) localStorage.setItem(cacheKey, JSON.stringify(JSON.parse(cf).filter(a=>a.id!==id)));
   } catch(e) {}
-
   // If meaningful — log as a new activity on TODAY (counts toward day's log)
   if (isMeaningful) {
     const todayRec = loadDay(coord, closeDate);
@@ -4018,7 +3735,6 @@ function confirmCloseFollowup(id, date, coord) {
     });
     saveDay(todayRec);
   }
-
   // If new follow-up needed
   if (newFu==="yes" && newDate) {
     const origDay = loadDay(coord, date);
@@ -4038,10 +3754,8 @@ function confirmCloseFollowup(id, date, coord) {
       } catch(e) {}
     }
   }
-
   S.modal = null;
   S.unsyncedChanges = true;
-
   // Update WIP database (Employer/ACAP next contact date, or Student
   // Lead/Enrolment Pipeline follow-up date) so this closure actually
   // persists server-side, not just in this device's local cache.
@@ -4055,7 +3769,6 @@ function confirmCloseFollowup(id, date, coord) {
     }
     // Also check the act variable already retrieved above
     if (!origAct2 && act) origAct2 = act;
-
     const today_ = S.date||TODAY;
     let nextDate = "";
     if (!isMeaningful) {
@@ -4065,44 +3778,43 @@ function confirmCloseFollowup(id, date, coord) {
     const fuAction = outcome==="Do not contact — removed from list"
       ? "do_not_contact"
       : isMeaningful ? "closed_meaningful" : "closed_no_contact";
-
     const isAcapClose = origAct2 && (origAct2.type==="acap_contact"||origAct2.type==="acap_f2f");
     const isStudentClose = origAct2 && (origAct2.type==="lead"||origAct2.type==="enrolment_pipeline");
     const acapOrgClose = isAcapClose ? (origAct2.acapOrg||origAct2.bizName||"") : "";
     const bizName2 = (!isAcapClose && !isStudentClose && origAct2) ? (origAct2.bizName||"") : "";
     const studentName2 = isStudentClose ? (origAct2.studentName||origAct2.leadName||"") : "";
-
     if (isAcapClose && acapOrgClose) {
       postBestEffort({type:"update_acap_followup",coord,org:acapOrgClose,id,
-        nextContactDate:nextDate,lastContactDate:today_,action:fuAction});
+        nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
+        notes:notes,justification:justification||""});
     } else if (isStudentClose && studentName2) {
       postBestEffort({type:"update_student_followup",coord,name:studentName2,type:origAct2.type,
-        nextContactDate:nextDate,lastContactDate:today_,action:fuAction});
+        nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
+        notes:notes,justification:justification||""});
     } else if (bizName2) {
       postBestEffort({
         type:"update_employer_followup",
         coord, bizName:bizName2, id,
         nextContactDate:nextDate,
         lastContactDate:today_,
-        action: fuAction
+        action: fuAction,
+        notes:notes,
+        justification:justification||""
       });
     }
   } catch(e_){}
-
   const msg = isMeaningful
     ? "✅ Follow-up closed — counted as today's activity. Push to sync."
     : "Follow-up closed (no meaningful contact recorded). Push to sync.";
   S.status = {ok:true, msg};
   render();
 }
-
 // Toggle new follow-up date field
 function toggleNewFollowup() {
   const val = document.getElementById("fu_new_followup")?.value;
   const wrap = document.getElementById("fu_new_date_wrap");
   if (wrap) wrap.classList.toggle("hidden", val!=="yes");
 }
-
 function getAllOpenFollowupsForDash(coord) {
   // For manager dashboard — reads from local cache for this coord
   const result = [];
@@ -4127,7 +3839,6 @@ function getAllOpenFollowupsForDash(coord) {
   });
   return result;
 }
-
 function switchToCoord(coord){
   // Manager only — switch view to a coordinator's records
   if(!S.user.isManager) return;
@@ -4137,7 +3848,6 @@ function switchToCoord(coord){
   S.status = {ok:true, msg:"Viewing as " + coord + " (manager mode)"};
   render();
 }
-
 function onEcBizInput(val){
   const emp=findEmployer(S.user.coord,val);
   const hint=document.getElementById("ec_emp_hint");
@@ -4152,7 +3862,6 @@ function onEcBizInput(val){
     const rel=document.getElementById("ec_rel"); if(rel&&!rel.value&&emp.empRelationship) rel.value=emp.empRelationship;
   }
 }
-
 function renderEpDropdown(filterText){
   const dd=document.getElementById("ep_name_dropdown");
   if(!dd) return;
@@ -4198,7 +3907,6 @@ function onEpNameInput(val){
     if(prev && student.stage && PIPELINE_STAGES.includes(student.stage)) prev.value=student.stage;
   } else if(hint){ hint.innerHTML=""; }
 }
-
 // FIXED 2026-07-28: "n/a" was wrongly included here. In the source data,
 // "N/A" on a Student Lead means "no stage recorded yet" — the lead is
 // still open, just unclassified — NOT "closed". With "n/a" in this list,
@@ -4220,7 +3928,7 @@ function onEpNameInput(val){
 const CLOSED_STUDENT_LEAD_STATUSES = ["completed","complete","n/a","cancelled"];
 function normalizeStageText_(raw){
   return String(raw||"")
-    .replace(/[​‌‍﻿ ]/g,"")
+    .replace(/[‌‍﻿ ]/g,"")
     .replace(/\s+/g,"")
     .toLowerCase();
 }
@@ -4273,7 +3981,6 @@ function onRegNameInput(val){
     if(prev && student.stage && PIPELINE_STAGES.includes(student.stage)) prev.value=student.stage;
   } else if(hint){ hint.innerHTML=""; }
 }
-
 function renderCommDropdown(filterText){
   const dd=document.getElementById("comm_name_dropdown");
   if(!dd) return;
@@ -4316,7 +4023,6 @@ function onCommNameInput(val){
       (student.qualification?' · Qualification on file: '+student.qualification:'');
   } else if(hint){ hint.innerHTML=""; }
 }
-
 function onAcapOrgInput(val){
   const acap=findAcap(S.user.coord,val);
   const hint=document.getElementById("acap_org_hint");
@@ -4325,7 +4031,6 @@ function onAcapOrgInput(val){
     const c=document.getElementById("acap_contact"); if(c&&!c.value) c.value=acap.contactName||"";
   } else if(hint){ hint.innerHTML=""; }
 }
-
 function onSvBizInput(val){
   const emp=findEmployer(S.user.coord,val);
   const hint=document.getElementById("sv_emp_hint");
@@ -4336,7 +4041,6 @@ function onSvBizInput(val){
     const e=document.getElementById("sv_email");   if(e&&!e.value) e.value=emp.email||"";
   } else if(hint){ hint.innerHTML=""; }
 }
-
 // 2026-07-28: same auto-detect pattern as onEcBizInput/onSvBizInput,
 // applied to Intro Call's Employer / business name field.
 function onIcBizInput(val){
@@ -4349,7 +4053,6 @@ function onIcBizInput(val){
     const e=document.getElementById("ic_email");   if(e&&!e.value) e.value=emp.email||"";
   } else if(hint){ hint.innerHTML=""; }
 }
-
 function attachHandlers(){
   // Conditionally show meaningful call fields
   const acapOutSel=document.getElementById("acap_outcome");
@@ -4366,7 +4069,6 @@ function attachHandlers(){
       hint.textContent=meaningful?"✅ Meaningful contact — counts toward daily target":"○ Non-meaningful contact — does not count toward target";
     });
   }
-
   const callOutSel=document.getElementById("ec_outcome");
   if(callOutSel){
     callOutSel.addEventListener("change",function(){
@@ -4378,7 +4080,6 @@ function attachHandlers(){
     });
   }
 }
-
 // 2026-07-28: previously a single generic confirm() regardless of sync
 // state. Now warns specifically and more strongly when there is unsynced
 // data, since clearing then would genuinely lose today's/this week's
@@ -4399,7 +4100,6 @@ function clearAllData(){
   keys.forEach(k=>localStorage.removeItem(k));
   S.user=null; S.modal=null; render();
 }
-
 // ═══════════════════════════════════════════════════════════
 // PUSH TO SHEETS
 // ═══════════════════════════════════════════════════════════
@@ -4424,7 +4124,6 @@ function actToRow(a, day, coord, state) {
     a.postcode||"", a.leadName||"",
   ];
 }
-
 // Best-effort background sync for side-effect WIP updates (follow-up snooze,
 // close, "do not contact" marking) that fire immediately from the UI but are
 // NOT the source of truth for sync completion — the authoritative sync still
@@ -4452,7 +4151,6 @@ function postBestEffort(payload) {
       });
     });
 }
-
 async function post(type, payload) {
   const body = JSON.stringify({...payload, type});
   try {
@@ -4473,17 +4171,14 @@ async function post(type, payload) {
   });
   return {ok:true, msg:"Pushed (no-cors mode)"};
 }
-
 async function pushData() {
   if(S.syncing) return;
   S.syncing=true; S.status={ok:true,msg:"Syncing…"}; if(!S.modal) render();
-
   const coord=S.user.coord, state=STATES[coord];
   const monday=mondayOf(S.date);
   const days=weekDaysMF(S.date);
   const errors=[];
   let pushed=0;
-
   // Build activity rows
   const actRows=[], leadRows=[], empRows=[], dayMetaArr=[];
   days.forEach(d=>{
@@ -4495,9 +4190,7 @@ async function pushData() {
       nwins:day.nwins||"", nblockers:day.nblockers||"",
       npipeline:day.npipeline||"", ncampaign:day.ncampaign||"",
     });
-    const realActs=(day.activities||[]).filter(a=>
-      !a.id||(a.id&&!a.id.startsWith("auto_fu_")&&!a.id.startsWith("auto_acap_")&&!a.id.startsWith("sl_"))
-    );
+    const realActs=realDayActivities(day); // shared with dayStatus() — see note above dayStatus()
     realActs.forEach(a=>{
       actRows.push(actToRow(a, day, coord, state));
       if(a.type==="lead"){
@@ -4517,7 +4210,6 @@ async function pushData() {
       }
     });
   });
-
   // Push activities
   const deletedIds = getPendingDeletes(coord);
   try {
@@ -4525,25 +4217,21 @@ async function pushData() {
     if(r.ok) { pushed+=actRows.length; clearPendingDeletes(coord, deletedIds); }
     else errors.push("Activities: "+r.msg);
   } catch(e){ errors.push("Activities: "+e.message); }
-
   // Push day meta (focus, EOD, notes)
   try {
     const r=await post("push_day_meta",{coord,days:dayMetaArr});
     if(!r.ok) errors.push("Day meta: "+r.msg);
   } catch(e){ errors.push("Day meta: "+e.message); }
-
   // Push leads
   try {
     const r=await post("push_leads",{coord,state,mondayStr:monday,rows:leadRows});
     if(!r.ok) errors.push("Leads: "+r.msg);
   } catch(e){ errors.push("Leads: "+e.message); }
-
   // Push employers
   try {
     const r=await post("push_employers",{coord,state,mondayStr:monday,rows:empRows});
     if(!r.ok) errors.push("Employers: "+r.msg);
   } catch(e){ errors.push("Employers: "+e.message); }
-
   // Push weekly reflection
   try {
     const wkMon=mondayOf(S.date);
@@ -4554,7 +4242,6 @@ async function pushData() {
       if(!r.ok) errors.push("Reflection: "+r.msg);
     }
   } catch(e){ errors.push("Reflection: "+e.message); }
-
   if(errors.length>0){
     S.status={ok:false,msg:"Errors: "+errors.join(" | ")};
     S.unsyncedChanges=true;
@@ -4566,7 +4253,6 @@ async function pushData() {
   }
   S.syncing=false; if(!S.modal) render();
 }
-
 // ── JSONP fetch — works from local file:// and SharePoint ────────────────
 async function jsonpFetch(url, retries) {
   retries = retries || 0;
@@ -4583,7 +4269,6 @@ async function jsonpFetch(url, retries) {
   } catch(fetchErr) {
     // fetch failed (CORS not enabled on Apps Script) — fall through to JSONP
   }
-
   // JSONP fallback
   return new Promise(function(resolve, reject) {
     const cbName = "cb_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2);
@@ -4623,7 +4308,6 @@ async function pullWeek(coord, dateInWeek) {
   if(!data.ok) throw new Error(data.msg||"Cloud load failed");
   return data;
 }
-
 // ── Merge cloud data into localStorage ──────────────────────────────────
 function mergeCloudData(cloudData, coord) {
   const {activities, dayMeta} = cloudData;
@@ -4670,7 +4354,6 @@ function mergeCloudData(cloudData, coord) {
     saveDay(day);
   });
 }
-
 // ── Auto-load from cloud on open/date change ─────────────────────────────
 async function loadFromCloud() {
   if(!S.user||!WEBAPP_URL) return;
@@ -4686,11 +4369,9 @@ async function loadFromCloud() {
   try {
     const coord=S.user.coord;
     const state=STATES[coord];
-
     // Pull current week data
     const data=await pullWeek(coord, S.date);
     mergeCloudData(data, coord);
-
     // Pull all open follow-ups (across all weeks) in background
     pullFollowups(coord, state);
     // Pull employer and ACAP databases in background
@@ -4699,7 +4380,6 @@ async function loadFromCloud() {
     pullEnrolmentPipeline(coord);
     pullStudentLeads(coord);
     pullCommencements(coord);
-
     S.status={ok:true,msg:"✓ Loaded from cloud — "+new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})};
   } catch(e){
     const isLocal = location.protocol === "content:" || location.protocol === "file:";
@@ -4707,7 +4387,6 @@ async function loadFromCloud() {
   }
   S.loading=false; if(!S.modal) render();
 }
-
 async function pullFollowups(coord, state) {
   try {
     const url=WEBAPP_URL+"?action=get_followups&coord="+encodeURIComponent(coord)+"&state="+state;
@@ -4731,7 +4410,6 @@ async function pullFollowups(coord, state) {
     // silent
   }
 }
-
 // ── Manager: load all coordinators for dashboard ─────────────────────────
 async function pullEmployers(coord) {
   try {
@@ -4742,7 +4420,6 @@ async function pullEmployers(coord) {
     if(!S.modal) render();
   } catch(e) {}
 }
-
 // ── ACAP cache ────────────────────────────────────────────────────────────
 function acapCacheKey(coord){ return PFX+"acaps:"+coord; }
 function enrolmentPipelineCacheKey(coord){ return PFX+"enrolPipeline:"+coord; }
@@ -4771,7 +4448,6 @@ async function pullEnrolmentPipeline(coord) {
     if(!S.modal) render();
   } catch(e) {}
 }
-
 function studentLeadsCacheKey(coord){ return PFX+"studentLeads:"+coord; }
 function getStudentLeadsCache(coord){
   try{ const c=localStorage.getItem(studentLeadsCacheKey(coord)); return c?JSON.parse(c):[]; }
@@ -4798,7 +4474,6 @@ async function pullStudentLeads(coord) {
     if(!S.modal) render();
   } catch(e) {}
 }
-
 function commencementsCacheKey(coord){ return PFX+"commencements:"+coord; }
 function getCommencementsCache(coord){
   try{ const c=localStorage.getItem(commencementsCacheKey(coord)); return c?JSON.parse(c):[]; }
@@ -4825,17 +4500,14 @@ async function pullCommencements(coord) {
     if(!S.modal) render();
   } catch(e) {}
 }
-
 function getAcapCache(coord){
   try{ const c=localStorage.getItem(acapCacheKey(coord)); return c?JSON.parse(c):[]; }
   catch(e){ return []; }
 }
-
 function setAcapCache(coord, acaps){
   try{ localStorage.setItem(acapCacheKey(coord), JSON.stringify(acaps)); }
   catch(e){}
 }
-
 function findAcap(coord, orgName) {
   if (!orgName) return null;
   const org = orgName.trim().toLowerCase();
@@ -4844,7 +4516,6 @@ function findAcap(coord, orgName) {
     return n===org || n.indexOf(org)!==-1 || org.indexOf(n)!==-1;
   })||null;
 }
-
 async function pullAcaps(coord) {
   try {
     const url = WEBAPP_URL+"?action=get_acaps&coord="+encodeURIComponent(coord);
@@ -4854,7 +4525,6 @@ async function pullAcaps(coord) {
     if(!S.modal) render();
   } catch(e) {}
 }
-
 async function loadAllForDashboard() {
   if(!S.user?.isManager||!WEBAPP_URL) return;
   S.loading=true; render();
@@ -4873,7 +4543,6 @@ async function loadAllForDashboard() {
   }
   S.loading=false; render();
 }
-
 // ═══════════════════════════════════════════════════════════
 // PDF DOWNLOAD
 // ═══════════════════════════════════════════════════════════
@@ -4881,10 +4550,8 @@ function downloadWeeklyNotes(){
   const coord=S.user.coord, state=STATES[coord];
   const wkMon=mondayOf(S.date);
   const days=weekDaysMF(S.date);
-
   let ref={wr1:"",wr2:"",wr3:""};
   try{const r=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(r)ref=JSON.parse(r);}catch(e){}
-
   const cats={wins:[],blockers:[],pipeline:[],campaign:[]};
   days.forEach(d=>{
     const dy=loadDay(coord,d);
@@ -4893,7 +4560,6 @@ function downloadWeeklyNotes(){
     if(dy.npipeline?.trim()) cats.pipeline.push({d,text:dy.npipeline.trim()});
     if(dy.ncampaign?.trim()) cats.campaign.push({d,text:dy.ncampaign.trim()});
   });
-
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Weekly Notes — ${coord}</title>
   <style>body{font-family:Arial,sans-serif;font-size:13px;max-width:800px;margin:0 auto;padding:20px;color:#1a1a1a}
   .hdr{background:#1C3C6B;color:#fff;padding:20px;border-radius:8px;margin-bottom:20px}
@@ -4921,12 +4587,10 @@ function downloadWeeklyNotes(){
   </div>
   <div style="margin-top:30px;font-size:11px;color:#aaa;text-align:center;border-top:1px solid #eee;padding-top:10px">CRBGC CRBG Tracker · ${fmtWkRange(S.date)}</div>
   </body></html>`;
-
   const win=window.open("","_blank","width=900,height=700");
   win.document.write(html); win.document.close(); win.focus();
   setTimeout(()=>win.print(),400);
 }
-
 // ═══════════════════════════════════════════════════════════
 // GLOBAL ERROR CAPTURE — surfaces uncaught errors visibly and keeps a
 // log, since silent JS errors on mobile are otherwise invisible to us.
@@ -4954,7 +4618,6 @@ function clearErrorLog(){
   try{ localStorage.removeItem(lsKey("errorLog")); }catch(e){}
   alert("Error log cleared.");
 }
-
 // Realtime push — debounced 3 seconds after activity save
 let _pushDebounceTimer = null;
 let _lastPushTime = 0;
@@ -4967,26 +4630,21 @@ function schedulePush() {
     }
   }, 3000);
 }
-
 function recentlyPushed() {
   // Returns true if a push happened in the last 90 seconds (cloud may be stale)
   return (Date.now() - _lastPushTime) < 90000;
 }
-
 // ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
 render();
 // Load from cloud after initial render
 if(S.user) loadFromCloud();
-
 // Auto-push every 5 minutes if there are unsynced changes
 // Auto-push every 5 minutes as fallback
 setInterval(function(){
   if(S.unsyncedChanges && !S.syncing && S.user) pushData();
 }, 5*60*1000);
-
-
 // Warn before closing if unsynced
 window.addEventListener("beforeunload", function(e){
   if(S.unsyncedChanges){
