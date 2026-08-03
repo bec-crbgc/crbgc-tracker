@@ -3498,7 +3498,18 @@ function weeklyTileMetrics(coord, targetDate){
     // pipeline no longer inflates this tile.
     registrations:       acts.filter(a=>a.type==="registration"&&a.newContactDetails).length,
     enrolments:          acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length,
-    pipelineContacted:   acts.filter(a=>["pipeline","enrolment_pipeline"].includes(effContactType(a))).length,
+    // FIXED 2026-08-06 per Bec: "Pipeline progression attempts should show
+    // any pipeline (enrolment/registrations) that have been logged in the
+    // individuals pipeline tab regardless of whether they are marked as
+    // progressed as well as any follow-ups closed that relate to the
+    // enrolment/registrations pipeline types." Was pipeline+enrolment_
+    // pipeline only — silently excluding "registration" (Registration
+    // Pipeline), even though the Pipeline tab itself (renderPipeline's
+    // `pipes`) has always treated all three as the same underlying
+    // pipeline log. Now matches that tab's type set exactly, and (via
+    // effContactType, unchanged) still credits a closed follow-up back to
+    // whichever of the three types its original activity was.
+    pipelineContacted:   acts.filter(a=>["pipeline","registration","enrolment_pipeline"].includes(effContactType(a))).length,
     acapContacts:        acts.filter(a=>effContactType(a)==="acap_contact"||effContactType(a)==="acap_f2f").length,
     siteVisits:          acts.filter(a=>effContactType(a)==="site_visit"||effContactType(a)==="new_employer_met").length,
     existingEmployerCalls: acts.filter(a=>effContactType(a)==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&!NEW_EMPLOYER_STAGE_RELS.includes((effRelType(a)||"").trim())).length,
@@ -3603,7 +3614,10 @@ function renderDailyDashboard(){
     // new_employer_met, right above) already merges its sibling subtypes
     // the same way. A day with 2 Enrolment Pipeline touches and 0
     // Registration Pipeline touches was showing 0 here instead of 2.
-    const pipelineContacted   = acts.filter(a=>["pipeline","enrolment_pipeline"].includes(effContactType(a))).length; // records touched, regardless of whether the stage changed — now including closed Pipeline/Enrolment Pipeline follow-ups
+    // FIXED 2026-08-06 per Bec: widened to include "registration" (matches
+    // the Pipeline tab's own `pipes` type set exactly) — see
+    // weeklyTileMetrics()'s matching fix for the full rationale.
+    const pipelineContacted   = acts.filter(a=>["pipeline","registration","enrolment_pipeline"].includes(effContactType(a))).length; // records touched, regardless of whether the stage changed — now including closed Pipeline/Registration/Enrolment Pipeline follow-ups
     const acapContacts        = acts.filter(a=>effContactType(a)==="acap_contact"||effContactType(a)==="acap_f2f").length; // calls + F2F visits combined — now including closed ACAP follow-ups
     const siteVisits          = acts.filter(a=>effContactType(a)==="site_visit"||effContactType(a)==="new_employer_met").length; // Existing + New Employer site visits combined — now including closed site-visit follow-ups
     // Existing vs New Employer Calls — split by the "Employer relationship"
