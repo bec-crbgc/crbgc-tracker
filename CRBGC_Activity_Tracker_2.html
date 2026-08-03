@@ -275,20 +275,69 @@ const ACT_OUTCOME_NEEDS_FOLLOWUP = [
   "Employer meeting booked","Candidate referred to employer","Sign-up booked","Future opportunity"
 ];
 
-// Productive day thresholds per primary focus
+// Productive day thresholds per primary focus.
+// OVERHAULED per Bec, 2026-08: the original model (a flat "log at least N
+// of these activity types TODAY") was scrapped for the focuses below in
+// favour of a pace-based model — see FOCUS_PACE_METRICS and
+// computeFocusThresholdMet(). Bec's own words, in order: first asked for
+// flat-but-bigger numbers (30 employer calls, 4 site visits, 50% of open
+// pipeline progressed, 30 ACAP contacts/F2F, 6 sign-up/enrolment/
+// registration records, 1 event) — then, when told a single day could
+// never realistically reach 30 employer calls (2× the WEEKLY target),
+// said: "lets forget the current logic and make it adaptable to the
+// combined total of daily targets not achieved, if the primary focus
+// equals the minimum for all, or above, it will be accepted, if not an
+// explanation is required as to why" — then, asked to confirm a design
+// built around her flat numbers as the target, said: "scrap my new flat
+// numbers/metrics entirely." Net result: for the focuses with a matching
+// WEEKLY_TARGETS metric, "met" now means the coordinator's WEEK-TO-DATE
+// total for that metric is at/above the week-to-date pace target (weekly
+// target × elapsed working days ÷ 5 — the exact math computeDailyPaceDetails
+// already uses for the Daily Pace card/EOD off-pace gate), not a fixed
+// per-day count. Pipeline conversion became its own %-based check (see
+// computePipelineConversionMet). This const now only holds the 3 focuses
+// Bec's threshold overhaul didn't mention (New employer acquisition/
+// Existing employer engagement/Employer meetings) — left exactly as they
+// were on the old flat "N of these types, today" model — plus
+// Administration/Other, which Bec explicitly kept at "1 activity of any
+// type" (day-only, handled as a special case directly in
+// computeFocusThresholdMet rather than needing a types:[] entry here).
 const PRODUCTIVITY_THRESHOLDS = {
-  "Employer call campaign":         {minActivities:5, types:["employer_call"]},
-  "Employer site visits":           {minActivities:2, types:["site_visit"]},
-  "Pipeline conversion":            {minActivities:3, types:["pipeline"]},
   "New employer acquisition":       {minActivities:3, types:["employer_call","site_visit","new_employer"]},
   "Existing employer engagement":   {minActivities:3, types:["employer_call","site_visit"]},
-  "ACAP engagement":                {minActivities:3, types:["acap_contact","acap_f2f"]},
   "Employer meetings":              {minActivities:2, types:["site_visit","new_employer"]},
-  "Events":                         {minActivities:1, types:["event"]},
-  "Sign-ups and registrations":     {minActivities:2, types:["commencement","enrolment","registration"]},
-  "Administration and follow-up":   {minActivities:1, types:[]},
-  "Other":                          {minActivities:1, types:[]},
 };
+
+// Pace-based focuses: "met" = week-to-date actual (via weeklyTotals, which
+// already credits closed follow-ups back to their original type — see
+// effContactType) is at/above the week-to-date pace target for the
+// combined WEEKLY_TARGETS metric(s) listed. actualFields sum straight off
+// the weeklyTotals() T object; targetKeys sum off WEEKLY_TARGETS for the
+// coordinator's state. (Sign-ups and registrations includes "enrolment" in
+// actualFields for parity with the old types list — even though its
+// WEEKLY_TARGETS entry is 0 for every state, so it never adds to the pace
+// target, only ever gives free credit toward the actual total.)
+const FOCUS_PACE_METRICS = {
+  "Employer call campaign":       {actualFields:["call_attempted"],                    targetKeys:["employer_call"]},
+  "Employer site visits":         {actualFields:["site_employers"],                    targetKeys:["site_visit"]},
+  "ACAP engagement":              {actualFields:["acap_contact_attempted"],            targetKeys:["acap_contact","acap_f2f"]},
+  "Sign-ups and registrations":   {actualFields:["commencement","registration","enrolment"], targetKeys:["commencement","registration","enrolment"]},
+  "Events":                       {actualFields:["event"],                             targetKeys:["event"]},
+};
+
+// Terminal pipeline stages — a lead in one of these is no longer "open"
+// for the purposes of Pipeline conversion's % calculation below.
+const TERMINAL_PIPELINE_STAGES = ["Registered","Enrolled","Closed/lost"];
+
+// Same day-of-week → 1..5 pace-day clamp used by computeDailyPaceDetails,
+// duplicated deliberately (matches this file's established pattern of
+// small local re-derivations over threading extra params through shared
+// functions — see effContactType's 4 call sites).
+function weekPaceDayNum(dateStr){
+  const d = new Date(dateStr+"T12:00:00");
+  const dow = d.getDay();
+  return dow===0 ? 5 : dow===6 ? 5 : dow;
+}
 
 const WEEKLY_TARGETS = {
   commencement:{VIC:6,NSW:6,QLD:2},
@@ -1219,15 +1268,91 @@ function realDayActivities(day){
   );
 }
 
+// Pipeline conversion — its own %-based model, per Bec 2026-08:
+// "Pipeline conversion needs at least 50% of open all pipeline leads
+// (enrolments/registrations) progressed", clarified as: measured against
+// EVERY open pipeline/registration/enrolment_pipeline lead the coordinator
+// currently has (not just today's), where "open" excludes leads whose
+// latest known stage is Registered/Enrolled/Closed-lost, and "progressed"
+// means that lead has had at least one recorded stage move (newStage set,
+// prevStage set, and they differ) at any point — matching the Pipeline
+// tab's own "progressed" definition (renderPipeline). A lead with no open
+// leads at all is vacuously "met" (nothing outstanding to explain).
+function computePipelineConversionMet(day){
+  const leadMap = {};
+  allDays(day.coord).forEach(function(d){
+    const dd = loadDay(day.coord, d);
+    (dd.activities||[]).forEach(function(a){
+      if(!["pipeline","registration","enrolment_pipeline"].includes(a.type)) return;
+      const key = (a.leadName||a.studentName||"").trim().toLowerCase();
+      if(!key) return; // can't identify which lead this is — skip, same as the Pipeline tab showing "—"
+      if(!leadMap[key]) leadMap[key] = {stage:"", progressedEver:false};
+      const progressedNow = !!(a.newStage && a.prevStage && a.newStage!==a.prevStage);
+      leadMap[key].stage = a.newStage || a.prevStage || leadMap[key].stage;
+      leadMap[key].progressedEver = leadMap[key].progressedEver || progressedNow;
+    });
+  });
+  const leads = Object.values(leadMap);
+  const openLeads = leads.filter(l=>!TERMINAL_PIPELINE_STAGES.includes(l.stage));
+  const openCount = openLeads.length;
+  const progressedCount = openLeads.filter(l=>l.progressedEver).length;
+  const pct = openCount>0 ? Math.round((progressedCount/openCount)*1000)/10 : null;
+  const met = openCount===0 ? true : (progressedCount/openCount) >= 0.5;
+  return {
+    met, count:progressedCount, minActivities:openCount>0?Math.ceil(openCount*0.5):0,
+    mode:"percent", pct, openCount, progressedCount, minPercent:50
+  };
+}
+
 // 2026-08-06: pulled the "did today's logged activity meet this focus's
 // minimum" check out of dayStatus() so the same determination can also
 // drive the Daily Notes primary-focus gate (see computeFocusThresholdMet/
 // saveFocusFollowup) without re-implementing the threshold math a second
 // time and risking the two drifting apart.
+// OVERHAULED 2026-08 per Bec's threshold redesign (see the long note above
+// PRODUCTIVITY_THRESHOLDS) — now branches by focus:
+//  - Administration and follow-up / Other: unchanged, day-only, 1 activity
+//    of any type.
+//  - Pipeline conversion: delegates to computePipelineConversionMet (its
+//    own %-of-open-leads model).
+//  - Any focus in FOCUS_PACE_METRICS (Employer call campaign, Employer
+//    site visits, ACAP engagement, Sign-ups and registrations, Events):
+//    week-to-date actual vs. week-to-date pace target.
+//  - The 3 focuses Bec's redesign didn't touch (New employer acquisition/
+//    Existing employer engagement/Employer meetings): unchanged, the
+//    original day-only "N of these types, today" model, still crediting
+//    closed follow-ups via effContactType (the fix from Bec's earlier
+//    ACAP-engagement screenshot report).
 function computeFocusThresholdMet(day){
   if(!day.focus) return null; // no focus selected — not applicable
+
+  if(day.focus==="Administration and follow-up" || day.focus==="Other"){
+    const acts=realDayActivities(day);
+    return {met:acts.length>=1, count:acts.length, minActivities:1, mode:"day"};
+  }
+
+  if(day.focus==="Pipeline conversion") return computePipelineConversionMet(day);
+
+  const paceCfg = FOCUS_PACE_METRICS[day.focus];
+  if(paceCfg){
+    const state = STATES[day.coord];
+    const T = weeklyTotals(day.coord, day.date);
+    const dayNum = weekPaceDayNum(day.date);
+    let actual=0;
+    paceCfg.actualFields.forEach(f=>{ actual += T[f]||0; });
+    let weeklySum=0;
+    paceCfg.targetKeys.forEach(k=>{ weeklySum += (WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0; });
+    const pace = Math.round((weeklySum*dayNum/5)*10)/10;
+    return {
+      met:actual>=pace, count:actual, minActivities:Math.ceil(pace),
+      mode:"pace", pace, dayNum
+    };
+  }
+
+  // Legacy day-only type-list model — the 3 focuses untouched by Bec's
+  // threshold redesign.
   const acts=realDayActivities(day);
-  const thresh=PRODUCTIVITY_THRESHOLDS[day.focus]||{minActivities:1,types:[]};
+  const thresh=PRODUCTIVITY_THRESHOLDS[day.focus]||{minActivities:1, types:[]};
   let relevant;
   if(thresh.types.length===0){
     relevant=acts;
@@ -1255,7 +1380,27 @@ function computeFocusThresholdMet(day){
     relevant=acts.filter(a=>thresh.types.includes(effContactType(a)));
   }
   const count=relevant.length;
-  return {met:count>=thresh.minActivities, count, minActivities:thresh.minActivities};
+  return {met:count>=thresh.minActivities, count, minActivities:thresh.minActivities, mode:"day"};
+}
+
+// Shared shortfall wording for the Daily Notes Primary Focus card (long
+// form, with the running numbers) and the saveEOD gate's error message
+// (short form) — mode-aware since "count/minActivities" means something
+// different for each of the 3 models computeFocusThresholdMet can return.
+function focusThresholdShortfallHeadline(day, ft){
+  if(ft.mode==="percent"){
+    const pctTxt = ft.pct===null ? "0" : ft.pct;
+    return `Only ${ft.progressedCount}/${ft.openCount} open pipeline leads (${pctTxt}%) have progressed — below the ${ft.minPercent}% minimum for "${day.focus}"`;
+  }
+  if(ft.mode==="pace"){
+    return `This week's total for "${day.focus}" hasn't reached this week's pace minimum yet (${ft.count}/${ft.minActivities} so far this week)`;
+  }
+  return `Today's activity didn't meet the minimum for "${day.focus}" (${ft.count}/${ft.minActivities})`;
+}
+function focusThresholdShortfallPrompt(day, ft){
+  if(ft.mode==="percent") return 'Please explain why "'+day.focus+'" hasn\'t reached the '+ft.minPercent+'% open-pipeline-progression minimum before marking the day complete.';
+  if(ft.mode==="pace") return 'Please explain why this week\'s "'+day.focus+'" total hasn\'t reached this week\'s pace minimum before marking the day complete.';
+  return 'Please explain why today\'s activity didn\'t meet the minimum for "'+day.focus+'" before marking the day complete.';
 }
 
 function dayStatus(day){
@@ -3080,8 +3225,8 @@ function renderDailyNotes(coord,state,day){
         </div>`;
       }
       return `<div class="field" style="margin-bottom:0;background:#fcebeb;border-radius:var(--r);padding:10px;border-left:3px solid var(--redt)">
-        <label style="color:#9c0006">Today's activity didn't meet the minimum for "${day.focus}" (${focusThreshold.count}/${focusThreshold.minActivities})<span class="req">*</span></label>
-        <div class="hint" style="margin-bottom:4px">Why didn't today's activity meet this focus's minimum? Were you focused on something that doesn't show up here, or blocked some other way?</div>
+        <label style="color:#9c0006">${focusThresholdShortfallHeadline(day,focusThreshold)}<span class="req">*</span></label>
+        <div class="hint" style="margin-bottom:4px">Why hasn't this focus's minimum been reached? Were you focused on something that doesn't show up here, or blocked some other way?</div>
         <textarea id="focus_shortfall" placeholder="e.g. Spent most of the day on an urgent employer issue that isn't a loggable activity type." onchange="saveFocusFollowup('shortfall',this.value)" style="min-height:60px">${day.focusShortfallReason||""}</textarea>
       </div>`;
     })()}
@@ -5188,7 +5333,7 @@ function saveEOD(field,val){
           const liveShortfall = document.getElementById("focus_shortfall")?.value;
           if(liveShortfall!==undefined) day.focusShortfallReason = liveShortfall;
           if(!day.focusShortfallReason||!day.focusShortfallReason.trim()){
-            eodErrs.push('Please explain why today\'s activity didn\'t meet the minimum for "'+day.focus+'" before marking the day complete.');
+            eodErrs.push(focusThresholdShortfallPrompt(day, focusThreshold));
           }
         }
       }
