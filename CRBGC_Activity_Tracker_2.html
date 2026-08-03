@@ -1376,6 +1376,35 @@ function weeklyPaceActuals(coord, ds){
   return T;
 }
 
+// How many of the 7 STANDARD_PACE_METRICS are behind (pct<0.7 of their
+// day-prorated pace target) — the exact same "behind" bucket
+// computeDailyPaceDetails classifies (pct>=1 "on", pct>=0.7 "amber", else
+// "behind"), but computed off weeklyPaceActuals (not weeklyTotals) so it
+// can safely be called from dayStatus() without recursing: weeklyTotals()
+// calls dayStatus() per day, and computeDailyPaceDetails() calls
+// weeklyTotals() — so dayStatus() must never call computeDailyPaceDetails()
+// directly (that was exactly the "Maximum call stack size exceeded" crash
+// fixed once already — see weeklyPaceActuals' own note). 2026-08 — Bec:
+// Primary Focus should now only be asked (and gate "Mark day complete")
+// "only to appear when daily pace is not met" — this is that trigger,
+// matching the original off-pace-explanation feature's own definition of
+// "off pace" (pace.behind>0, not the looser amber/"not fully on track").
+function dailyPaceBehindCount(day){
+  const state = STATES[day.coord];
+  const T = weeklyPaceActuals(day.coord, day.date);
+  const dayNum = weekPaceDayNum(day.date);
+  let behind=0;
+  STANDARD_PACE_METRICS.forEach(m=>{
+    const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
+    if(weekly<=0) return;
+    const pace = Math.round((weekly*dayNum/5)*10)/10;
+    const actual = T[m.actualField]||0;
+    const pct = pace>0 ? actual/pace : 1;
+    if(pct<0.7) behind++;
+  });
+  return behind;
+}
+
 // Pipeline conversion — its own %-based model, per Bec 2026-08:
 // "Pipeline conversion needs at least 50% of open all pipeline leads
 // (enrolments/registrations) progressed", clarified as: measured against
@@ -1553,7 +1582,18 @@ function focusThresholdShortfallPrompt(day, ft){
   return 'Please explain why today\'s activity didn\'t meet the minimum for "'+day.focus+'" before marking the day complete.';
 }
 
+// 2026-08 — Bec: Primary Focus now "only appear[s] when daily pace is not
+// met" (see dailyPaceBehindCount) — on an on-pace day nothing asks for a
+// focus at all, so day.focus being empty no longer means "none" the way
+// it used to. On-pace days are classified purely on completion/activity;
+// only off-pace days (where a focus WAS asked for) still run the focus-
+// threshold check.
 function dayStatus(day){
+  if(dailyPaceBehindCount(day)===0){
+    if(day.eodStatus==="complete") return "productive";
+    if(realDayActivities(day).length>0) return "partial";
+    return "none";
+  }
   if(!day.focus) return "none";
   const ft=computeFocusThresholdMet(day);
   if(ft.met && day.eodStatus==="complete") return "productive";
@@ -3346,15 +3386,26 @@ function renderDailyNotes(coord,state,day){
   // to the daily notes section and update to: what was your primary focus
   // today? apply the same logic on how many should be met to accept it as
   // a primary focus, if not, highlight and ask for a reason as to why...
-  // if it does - ask for a brief outline of that primary focus." Now asked
-  // retrospectively (was set prospectively at the top of the Today tab),
-  // with a follow-up driven by the SAME threshold check dayStatus() itself
-  // uses (via the shared computeFocusThresholdMet — see the note above
-  // that function), so this can never disagree with the day's own
-  // productive/partial/none classification shown right below it.
+  // if it does - ask for a brief outline of that primary focus." Asked
+  // retrospectively, with a follow-up driven by the SAME threshold check
+  // dayStatus() itself uses (via the shared computeFocusThresholdMet — see
+  // the note above that function), so this can never disagree with the
+  // day's own productive/partial/none classification.
+  //
+  // UPDATED 2026-08 per Bec, after asking to confirm it always showed:
+  // "can you add this to the end of day review instead of it having it's
+  // own card and set the condition for it only to appear when daily pace
+  // is not met?" So Primary Focus no longer has its own standalone card —
+  // its markup is now built here (focusSectionHtml) and spliced into the
+  // End-of-day review card below, ahead of the existing result/tomorrow/
+  // all-entered fields, and only rendered at all when
+  // dailyPaceBehindCount(day)>0 (matches the original off-pace-explanation
+  // feature's own "behind" trigger — see dailyPaceBehindCount's note). On
+  // an on-pace day nothing here is asked or required — day.focus can stay
+  // empty and dayStatus() no longer depends on it in that case.
   const focusThreshold = computeFocusThresholdMet(day);
-  let h=`<div class="card">
-    <div class="card-title"><i class="ti ti-target"></i> Primary focus</div>
+  const paceBehindCount = dailyPaceBehindCount(day);
+  const focusSectionHtml = paceBehindCount===0 ? "" : `
     <div class="field">
       <label>What was your primary focus today?<span class="req">*</span></label>
       <select id="focus_sel" onchange="saveFocus()">
@@ -3380,9 +3431,9 @@ function renderDailyNotes(coord,state,day){
         <textarea id="focus_shortfall" placeholder="e.g. Spent most of the day on an urgent employer issue that isn't a loggable activity type." onchange="saveFocusFollowup('shortfall',this.value)" style="min-height:60px">${day.focusShortfallReason||""}</textarea>
       </div>`;
     })()}
-  </div>`;
+  `;
 
-  h+=`<div class="card">
+  let h=`<div class="card">
     <div class="card-title"><i class="ti ti-notes"></i> Daily Notes — ${fmtDate(S.date)}</div>
     ${noteFields.map(f=>`
     <div class="field">
@@ -3443,6 +3494,7 @@ function renderDailyNotes(coord,state,day){
       ${eodComplete?'<span class="tag" style="background:var(--green);color:var(--greent);font-size:11px">✓ Day complete</span>':'<span class="tag" style="background:var(--amber);color:var(--ambert);font-size:11px">Draft</span>'}
     </div>
     <div id="eod_errors"></div>
+    ${focusSectionHtml}
     <div class="field">
       <label>What result did today's activity create?</label>
       <textarea id="eod_result" placeholder="What was actually achieved?" onchange="saveEOD('result',this.value)" style="min-height:72px">${day.eodResult||""}</textarea>
@@ -5451,31 +5503,38 @@ function saveEOD(field,val){
       // primary focus today? apply the same logic on how many should be
       // met to accept it as a primary focus, if not, highlight and ask
       // for a reason as to why ... if it does - ask for a brief outline
-      // of that primary focus." Re-read the live form values first (same
-      // reasoning as the off-pace note below — the coordinator may have
+      // of that primary focus."
+      // UPDATED 2026-08 per Bec: "set the condition for it only to appear
+      // when daily pace is not met" — the whole focus section (including
+      // this gate) is now skipped entirely on an on-pace day, matching
+      // dailyPaceBehindCount(day)===0 not rendering focusSectionHtml at
+      // all in renderDailyNotes. Re-read the live form values first (same
+      // reasoning as elsewhere in this gate — the coordinator may have
       // just typed/selected without triggering onchange yet).
-      const liveFocus = document.getElementById("focus_sel")?.value;
-      if(liveFocus!==undefined) day.focus = liveFocus;
-      const liveFocusOther = document.getElementById("focus_other")?.value;
-      if(liveFocusOther!==undefined) day.focusOther = liveFocusOther;
-      if(!day.focus||!day.focus.trim()){
-        eodErrs.push("Please select today's primary focus before marking the day complete.");
-      } else {
-        if(day.focus==="Other" && (!day.focusOther||!day.focusOther.trim())){
-          eodErrs.push("Please describe your primary focus before marking the day complete.");
-        }
-        const focusThreshold = computeFocusThresholdMet(day);
-        if(focusThreshold.met){
-          const liveOutline = document.getElementById("focus_outline")?.value;
-          if(liveOutline!==undefined) day.focusOutline = liveOutline;
-          if(!day.focusOutline||!day.focusOutline.trim()){
-            eodErrs.push("Please give a brief outline of today's primary focus before marking the day complete.");
-          }
+      if(dailyPaceBehindCount(day)>0){
+        const liveFocus = document.getElementById("focus_sel")?.value;
+        if(liveFocus!==undefined) day.focus = liveFocus;
+        const liveFocusOther = document.getElementById("focus_other")?.value;
+        if(liveFocusOther!==undefined) day.focusOther = liveFocusOther;
+        if(!day.focus||!day.focus.trim()){
+          eodErrs.push("Please select today's primary focus before marking the day complete.");
         } else {
-          const liveShortfall = document.getElementById("focus_shortfall")?.value;
-          if(liveShortfall!==undefined) day.focusShortfallReason = liveShortfall;
-          if(!day.focusShortfallReason||!day.focusShortfallReason.trim()){
-            eodErrs.push(focusThresholdShortfallPrompt(day, focusThreshold));
+          if(day.focus==="Other" && (!day.focusOther||!day.focusOther.trim())){
+            eodErrs.push("Please describe your primary focus before marking the day complete.");
+          }
+          const focusThreshold = computeFocusThresholdMet(day);
+          if(focusThreshold.met){
+            const liveOutline = document.getElementById("focus_outline")?.value;
+            if(liveOutline!==undefined) day.focusOutline = liveOutline;
+            if(!day.focusOutline||!day.focusOutline.trim()){
+              eodErrs.push("Please give a brief outline of today's primary focus before marking the day complete.");
+            }
+          } else {
+            const liveShortfall = document.getElementById("focus_shortfall")?.value;
+            if(liveShortfall!==undefined) day.focusShortfallReason = liveShortfall;
+            if(!day.focusShortfallReason||!day.focusShortfallReason.trim()){
+              eodErrs.push(focusThresholdShortfallPrompt(day, focusThreshold));
+            }
           }
         }
       }
