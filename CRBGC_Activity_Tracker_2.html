@@ -356,7 +356,12 @@ function loadDay(coord,date){
     // 2026-08-06: risks entered on the Daily Summary — each a structured
     // {issue, department, action, outcome} record (see renderDailyNotes'
     // Risk card), rolled up into the Weekly Summary's own Risk section.
-    risks:[]
+    risks:[],
+    // 2026-08-06 — Bec: "ask as a prompt before closing out the daily
+    // summary to give an explanation as to why some areas weren't met if
+    // they were focused on one thing" — only required when at least one
+    // daily KR target is off pace (see computeDailyPaceDetails/saveEOD).
+    eodOffPaceNote:""
   };
 }
 function saveDay(day){ lsSet(dayKey(day.coord,day.date),day); }
@@ -2547,14 +2552,23 @@ function openSettings(){
 // TODAY TAB
 // ═══════════════════════════════════════════════════════════
 
-// ── Daily pace card ───────────────────────────────────────────────────────
-function renderDailyPaceCard(coord, state, T) {
+// ── Daily pace computation — 2026-08-06: pulled out of renderDailyPaceCard
+// so the SAME "is this coordinator off-pace today" determination can also
+// gate the End-of-day review's off-pace explanation prompt (see saveEOD()
+// and the "Needs attention" note on renderDailyNotes()'s EOD card) without
+// re-implementing the pace math a second time and risking the two drifting
+// apart. Returns per-metric status ("on"/"amber"/"behind") exactly as
+// already shown in the "Needs attention" list below — "behind" is <70% of
+// the day-prorated weekly target, same threshold as before this refactor. ─
+function computeDailyPaceDetails(coord, state, date) {
+  const ds = date||S.date||TODAY;
   // Which day of the week is it? (1=Mon, 5=Fri)
-  const d = new Date((S.date||TODAY)+"T12:00:00");
+  const d = new Date(ds+"T12:00:00");
   const dow = d.getDay(); // 0=Sun, 1=Mon...5=Fri, 6=Sat
   const dayNum = dow === 0 ? 5 : dow === 6 ? 5 : dow; // clamp weekends to 5
   const tgt = WEEKLY_TARGETS;
   const s = state;
+  const T = weeklyTotals(coord, ds);
 
   // Metrics to pace-check (those with targets > 0)
   const paceMetrics = [
@@ -2579,9 +2593,15 @@ function renderDailyPaceCard(coord, state, T) {
   });
 
   const total = paceMetrics.length;
-  const overallPct = total > 0 ? ahead / total : 0;
   const dayLabels = ["","Mon","Tue","Wed","Thu","Fri"];
   const dayLabel = dayLabels[dayNum]||"Today";
+
+  return {details, onTrack, behind, ahead, total, dayNum, dayLabel};
+}
+
+// ── Daily pace card ───────────────────────────────────────────────────────
+function renderDailyPaceCard(coord, state, date) {
+  const {details, onTrack, behind, ahead, total, dayLabel} = computeDailyPaceDetails(coord, state, date);
 
   // Overall status
   let statusBg, statusTxt, statusIcon, statusMsg;
@@ -2632,7 +2652,6 @@ function renderDailyPaceCard(coord, state, T) {
 }
 
 function renderToday(coord,state,day){
-  const T=weeklyTotals(coord,S.date);
   const status=dayStatus(day);
   const overdueFollowups=getAllOverdueFollowups(coord);
 
@@ -2700,7 +2719,7 @@ function renderToday(coord,state,day){
   }
 
   // Daily pace status card
-  h+=renderDailyPaceCard(coord, state, T);
+  h+=renderDailyPaceCard(coord, state, S.date);
 
   // Primary focus
   h+=`<div class="card">
@@ -3033,6 +3052,25 @@ function renderDailyNotes(coord,state,day){
         <option value="No"${day.eodAllEntered==="No"?" selected":""}>No — some items still to enter</option>
       </select>
     </div>
+    ${(()=>{
+      // 2026-08-06 — Bec: "can we have this only to be set where a team
+      // member hasn't met their daily thresholds ... ask as a prompt
+      // before closing out the daily summary to give an explanation as to
+      // why some areas weren't met if they were focused on one thing?"
+      // Only appears (and is only required) when computeDailyPaceDetails
+      // finds at least one KR metric behind its day-prorated pace — the
+      // SAME "behind" determination already shown in this tab's Daily
+      // Pace card's "Needs attention" list, so the two can never disagree
+      // about whether today is off pace.
+      const pace = computeDailyPaceDetails(coord, state, S.date);
+      if (pace.behind===0) return "";
+      const behindLabels = pace.details.filter(m=>m.status==="behind").map(m=>m.label);
+      return `<div class="field">
+        <label>Explain why the following weren't met today: ${behindLabels.join(", ")}<span class="req">*</span></label>
+        <div class="hint" style="margin-bottom:4px">Were you focused on one area today? A short explanation is enough — this isn't a penalty, it's context for anyone reviewing the numbers later.</div>
+        <textarea id="eod_offpace_note" placeholder="e.g. Spent the day on a single ACAP site visit run, so employer calls were deprioritised." onchange="saveEOD('offPaceNote',this.value)" style="min-height:70px">${day.eodOffPaceNote||""}</textarea>
+      </div>`;
+    })()}
     <div style="display:flex;gap:8px;margin-top:4px">
       <button onclick="saveEOD('status','draft')" class="${!eodComplete?"btn-primary":"btn-ghost"} btn-sm">Save as draft</button>
       <button onclick="saveEOD('status','complete')" class="${eodComplete?"btn-success":"btn-primary"} btn-sm">✓ Mark day complete</button>
@@ -3153,6 +3191,10 @@ function renderWkNotes(coord,state){
   // 2026-08-06: risk entries roll up here too — every risk logged on any
   // day this week, tagged with which day it came from.
   const weekRisks=[];
+  // 2026-08-06: off-pace explanations roll up here too — every day this
+  // week that was behind on a daily KR target and had an explanation
+  // recorded at EOD (see computeDailyPaceDetails/saveEOD).
+  const weekOffPaceNotes=[];
   days.forEach(d=>{
     const dy=loadDay(coord,d);
     if(dy.nwins&&dy.nwins.trim()) cats.wins.push({d,text:dy.nwins.trim()});
@@ -3160,6 +3202,13 @@ function renderWkNotes(coord,state){
     if(dy.npipeline&&dy.npipeline.trim()) cats.pipeline.push({d,text:dy.npipeline.trim()});
     if(dy.ncampaign&&dy.ncampaign.trim()) cats.campaign.push({d,text:dy.ncampaign.trim()});
     (dy.risks||[]).forEach(r=>{ if(r.issue&&r.issue.trim()) weekRisks.push({d,...r}); });
+    // NOTE: deliberately doesn't re-derive "which metrics were behind" via
+    // computeDailyPaceDetails() here — that would recompute against
+    // whatever the week's cumulative totals are RIGHT NOW (which keeps
+    // moving as later days in the week get logged), not what was actually
+    // true at the moment this day was closed off. The note text itself is
+    // the record of what the coordinator explained at the time.
+    if(dy.eodOffPaceNote&&dy.eodOffPaceNote.trim()) weekOffPaceNotes.push({d, note:dy.eodOffPaceNote.trim()});
   });
 
   let h=`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0;">
@@ -3204,6 +3253,18 @@ function renderWkNotes(coord,state){
         <div style="margin-bottom:4px"><b>Issue (root cause):</b> ${r.issue||""}</div>
         ${r.action?`<div style="margin-bottom:4px"><b>Action taken:</b> ${r.action}</div>`:""}
         ${r.outcome?`<div><b>Outcome / follow-up:</b> ${r.outcome}</div>`:""}
+      </div>`).join("")}
+    </div>`;
+  }
+
+  // 2026-08-06: Off-pace explanations — every day this week the
+  // coordinator was behind a daily KR target and explained why at EOD.
+  if(weekOffPaceNotes.length){
+    h+=`<div class="card" style="border-left:3px solid #eda100;">
+      <div class="card-title" style="color:#633806"><i class="ti ti-gauge"></i> Off-pace explanations</div>
+      ${weekOffPaceNotes.map(n=>`<div style="margin-bottom:10px;padding:10px;background:#faeeda;border-radius:var(--r);font-size:12px;">
+        <div style="font-size:11px;font-weight:600;color:#633806;margin-bottom:4px">${fmtDate(n.d)}</div>
+        <div style="color:var(--tp);line-height:1.6">${n.note}</div>
       </div>`).join("")}
     </div>`;
   }
@@ -3558,6 +3619,14 @@ function renderDailyDashboard(){
         <div style="color:var(--ts)">${day.eodResult}</div>
         ${day.eodTomorrow?`<div style="margin-top:6px;color:var(--tm)"><i class="ti ti-arrow-right"></i> Tomorrow: ${day.eodTomorrow}</div>`:""}
       </div>`:`<div style="color:var(--tm);font-size:12px;padding:8px 0"><i class="ti ti-clock"></i> EOD review not yet completed</div>`}
+
+      <!-- 2026-08-06: off-pace explanation — only present when this day
+           was behind a daily KR target and the coordinator explained why
+           at EOD (see computeDailyPaceDetails/saveEOD). -->
+      ${day.eodOffPaceNote?`<div style="background:#faeeda;border-radius:var(--r);padding:10px 12px;border-left:3px solid #eda100;font-size:12px;margin-top:8px">
+        <div style="font-weight:600;color:#633806;margin-bottom:4px"><i class="ti ti-gauge"></i> Off-pace explanation</div>
+        <div style="color:var(--ts)">${day.eodOffPaceNote}</div>
+      </div>`:""}
 
       <!-- Activities log (expandable) -->
       ${(()=>{
@@ -3931,6 +4000,25 @@ function renderDashboard(){
            computeStrictLeadFunnel logic, not a re-implementation. -->
       <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL — ALL-TIME</div>
       <div>${renderStrictLeadFunnel(coord)}</div>
+
+      <!-- 2026-08-06: off-pace explanations logged this week — same rollup
+           as the coordinator's own Weekly Notes tab, surfaced here so Bec
+           doesn't need to click into each tracker to see why a threshold
+           was missed. -->
+      ${(()=>{
+        const notes = weekDaysMF(targetDate).map(d=>{
+          const dy = loadDay(coord, d);
+          return dy.eodOffPaceNote&&dy.eodOffPaceNote.trim() ? {d, note:dy.eodOffPaceNote.trim()} : null;
+        }).filter(Boolean);
+        if(!notes.length) return "";
+        return `<div style="margin-top:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">OFF-PACE EXPLANATIONS THIS WEEK</div>
+          ${notes.map(n=>`<div style="background:#faeeda;border-radius:var(--r);padding:8px 10px;border-left:3px solid #eda100;font-size:12px;margin-bottom:6px">
+            <div style="font-weight:600;color:#633806;margin-bottom:2px">${dayOfWeek(n.d)} ${fmtDateShort(n.d)}</div>
+            <div style="color:var(--ts)">${n.note}</div>
+          </div>`).join("")}
+        </div>`;
+      })()}
     </div>`;
   });
 
@@ -4897,6 +4985,7 @@ function saveEOD(field,val){
   if(field==="result") day.eodResult=val;
   else if(field==="tomorrow") day.eodTomorrow=val;
   else if(field==="entered") day.eodAllEntered=val;
+  else if(field==="offPaceNote") day.eodOffPaceNote=val; // 2026-08-06 — see the "Needs attention" gate below
   else if(field==="status"){
     // 2026-07-28: "Day complete" previously could be set with the
     // "all entered?" declaration left unanswered and no result recorded —
@@ -4906,6 +4995,26 @@ function saveEOD(field,val){
       const eodErrs=[];
       if(!day.eodResult||!day.eodResult.trim()) eodErrs.push("Please record what result today's activity created before marking the day complete.");
       if(!day.eodAllEntered) eodErrs.push('Please answer "All activities and follow-ups entered and current?" before marking the day complete.');
+      // 2026-08-06 — Bec: "can we have this only to be set where a team
+      // member hasn't met their daily thresholds ... ask as a prompt
+      // before closing out the daily summary to give an explanation as to
+      // why some areas weren't met if they were focused on one thing?"
+      // Uses the exact same computeDailyPaceDetails() "behind" check that
+      // drives this tab's Daily Pace card, so the gate can never fire (or
+      // fail to fire) inconsistently with what the coordinator can already
+      // see above. Re-read the live textarea value (not just day.
+      // eodOffPaceNote) in case the coordinator typed into it but the
+      // field hasn't fired its onchange yet (e.g. still focused, then
+      // clicked "Mark day complete" directly).
+      const pace = computeDailyPaceDetails(S.user.coord, STATES[S.user.coord], S.date);
+      if(pace.behind>0){
+        const liveNote = document.getElementById("eod_offpace_note")?.value;
+        if(liveNote!==undefined) day.eodOffPaceNote = liveNote;
+        if(!day.eodOffPaceNote||!day.eodOffPaceNote.trim()){
+          const behindLabels = pace.details.filter(m=>m.status==="behind").map(m=>m.label);
+          eodErrs.push("Please explain why "+behindLabels.join(", ")+" "+(behindLabels.length>1?"weren't":"wasn't")+" met today before marking the day complete.");
+        }
+      }
       if(eodErrs.length){
         const el=document.getElementById("eod_errors");
         if(el) el.innerHTML='<div style="background:var(--red);color:var(--redt);padding:10px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:12px">⚠ '+eodErrs.join('<br>⚠ ')+'</div>';
@@ -4915,7 +5024,19 @@ function saveEOD(field,val){
     }
     day.eodStatus=val;
   }
-  saveDay(day); render();
+  saveDay(day);
+  // FIXED 2026-08-06: saveEOD previously never set S.unsyncedChanges, the
+  // same silent local-only-save gap already found and fixed once for
+  // saveNote() (Daily Notes) — neither the 3s debounced push nor the
+  // 5-minute fallback timer (both gated on that flag) would fire for an
+  // EOD-only save on its own. That's now specifically a problem for the
+  // off-pace explanation above: Bec asked for it to reach the Manager
+  // Dashboard, which only ever sees what's actually been pushed to the
+  // Sheet — so "Mark day complete" (and every other EOD field) now syncs
+  // reliably, matching the same pattern used everywhere else this gap was
+  // found and closed.
+  S.unsyncedChanges=true; schedulePush();
+  render();
 }
 function saveWeeklyReflection(){
   const wkMon=mondayOf(S.date);
@@ -6319,6 +6440,7 @@ async function pushData() {
       nwins:day.nwins||"", nblockers:day.nblockers||"",
       npipeline:day.npipeline||"", ncampaign:day.ncampaign||"",
       risks:day.risks||[],
+      eodOffPaceNote:day.eodOffPaceNote||"", // 2026-08-06
     });
     const realActs=realDayActivities(day); // shared with dayStatus()/weeklyTotals() — see note above dayStatus()
     realActs.forEach(a=>{
@@ -6515,6 +6637,7 @@ function mergeCloudData(cloudData, coord) {
       day.nblockers=dm.nblockers||day.nblockers;
       day.npipeline=dm.npipeline||day.npipeline;
       day.ncampaign=dm.ncampaign||day.ncampaign;
+      day.eodOffPaceNote=dm.eodOffPaceNote||day.eodOffPaceNote; // 2026-08-06
       // 2026-08-06: risks — an array, not a string, so the "||" fallback
       // pattern above (falsy-string means untouched) doesn't apply; only
       // adopt the cloud's version when it actually has entries, so a
@@ -6764,6 +6887,7 @@ function downloadWeeklyNotes(){
 
   const cats={wins:[],blockers:[],pipeline:[],campaign:[]};
   const weekRisks=[];
+  const weekOffPaceNotes=[];
   days.forEach(d=>{
     const dy=loadDay(coord,d);
     if(dy.nwins?.trim()) cats.wins.push({d,text:dy.nwins.trim()});
@@ -6771,6 +6895,7 @@ function downloadWeeklyNotes(){
     if(dy.npipeline?.trim()) cats.pipeline.push({d,text:dy.npipeline.trim()});
     if(dy.ncampaign?.trim()) cats.campaign.push({d,text:dy.ncampaign.trim()});
     (dy.risks||[]).forEach(r=>{ if(r.issue&&r.issue.trim()) weekRisks.push({d,...r}); });
+    if(dy.eodOffPaceNote?.trim()) weekOffPaceNotes.push({d,text:dy.eodOffPaceNote.trim()});
   });
 
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Weekly Notes — ${coord}</title>
@@ -6784,6 +6909,9 @@ function downloadWeeklyNotes(){
   .risk{background:#fcebeb;border-radius:6px;padding:10px;margin-bottom:8px}
   .risk-day{font-size:11px;font-weight:700;color:#9c0006;margin-bottom:4px}
   .risk div{margin-bottom:4px}
+  .offpace-sec-title{font-size:14px;font-weight:700;color:#633806;border-bottom:2px solid #633806;padding-bottom:4px;margin-bottom:10px}
+  .offpace{background:#faeeda;border-radius:6px;padding:10px;margin-bottom:8px}
+  .offpace-day{font-size:11px;font-weight:700;color:#633806;margin-bottom:4px}
   .q{font-weight:700;margin-bottom:3px}.sub{font-size:11px;color:#888;margin-bottom:6px}
   .ans{background:#f8f9fa;border-left:3px solid #1C3C6B;padding:10px;border-radius:0 6px 6px 0;white-space:pre-wrap;line-height:1.6}
   .empty{color:#aaa;font-style:italic}
@@ -6803,6 +6931,9 @@ function downloadWeeklyNotes(){
       ${r.action?`<div><b>Action taken:</b> ${r.action}</div>`:""}
       ${r.outcome?`<div><b>Outcome / follow-up:</b> ${r.outcome}</div>`:""}
     </div>`).join("")}
+  </div>`:""}
+  ${weekOffPaceNotes.length?`<div class="sec"><div class="offpace-sec-title">Off-pace explanations</div>
+    ${weekOffPaceNotes.map(n=>`<div class="offpace"><div class="offpace-day">${fmtDate(n.d)}</div><div>${n.text}</div></div>`).join("")}
   </div>`:""}
   <div class="sec"><div class="sec-title">Weekly Reflection</div>
     <div style="margin-bottom:14px"><div class="q">1. What moved registrations forward this week?</div><div class="sub">Which decisions, conversations, or actions genuinely advanced BAA and CWBTS?</div><div class="ans ${!ref.wr1?"empty":""}">${ref.wr1||"No response recorded"}</div></div>
