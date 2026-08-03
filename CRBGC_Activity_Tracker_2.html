@@ -1228,7 +1228,32 @@ function computeFocusThresholdMet(day){
   if(!day.focus) return null; // no focus selected — not applicable
   const acts=realDayActivities(day);
   const thresh=PRODUCTIVITY_THRESHOLDS[day.focus]||{minActivities:1,types:[]};
-  const relevant=thresh.types.length===0?acts:acts.filter(a=>thresh.types.includes(a.type));
+  let relevant;
+  if(thresh.types.length===0){
+    relevant=acts;
+  } else {
+    // FIXED 2026-08-06 per Bec (screenshot: ACAP engagement showing 2/3 —
+    // "didn't meet minimum" — when the coordinator actually had 4 ACAP
+    // touches that day, 2 fresh + 2 via closed follow-ups): this used to
+    // filter on the record's raw a.type, so a closed follow-up (whose type
+    // is always "follow_up_closed") could never match a focus's type list
+    // — even though that exact closure already credits the matching
+    // Manager Dashboard tile (e.g. ACAP Contacts) via effContactType. Same
+    // resolution used everywhere else in the app: origType first, then
+    // the _closedFromId lookup fallback for legacy closures.
+    const origActLookup = {};
+    allDays(day.coord).forEach(function(d){
+      const dd = loadDay(day.coord, d);
+      (dd.activities||[]).forEach(function(a){ if(a.id) origActLookup[a.id]=a; });
+    });
+    const effContactType = a => {
+      if(a.type!=="follow_up_closed") return a.type;
+      if(a.origType) return a.origType;
+      const orig = a._closedFromId ? origActLookup[a._closedFromId] : null;
+      return orig ? orig.type : "";
+    };
+    relevant=acts.filter(a=>thresh.types.includes(effContactType(a)));
+  }
   const count=relevant.length;
   return {met:count>=thresh.minActivities, count, minActivities:thresh.minActivities};
 }
