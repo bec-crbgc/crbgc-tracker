@@ -5721,7 +5721,20 @@ function clearAllData(){
 // ═══════════════════════════════════════════════════════════
 // PUSH TO SHEETS
 // ═══════════════════════════════════════════════════════════
-// ── Convert activity object to sheet row (41 columns) ────────────────────
+// ── Convert activity object to sheet row (42 columns) ────────────────────
+// UPDATED 2026-08-04: added col 42 (index 41) for origType — see the
+// matching ACT_COLS/rowToActivity() comment in appscript.js. Before this
+// column existed, a closed follow-up's origType only ever lived in this
+// browser's in-memory/localStorage copy of the activity: actToRow() had
+// nowhere to put it when pushing, so it was silently dropped on every
+// sync, and the very next cloud pull (mergeCloudData(), which now runs
+// automatically on login/coordinator-switch/every 5 min) overwrote the
+// local copy with the column-less version from the sheet — wiping
+// origType back out. That's why Pipeline Progression Attempts/ACAP
+// Contacts/Existing Employer Calls kept resetting to their undercounted
+// values no matter how many times a follow-up was closed with the
+// "credit the original type" fix in place. This column makes origType
+// actually persist through the round trip.
 function actToRow(a, day, coord, state) {
   const d = a._date || day.date || S.date;
   return [
@@ -5740,6 +5753,7 @@ function actToRow(a, day, coord, state) {
     day.eodTomorrow||"", day.eodAllEntered||"",
     a.acapOrg||"", a.eventName||"", a.attendees||"",
     a.postcode||"", a.leadName||"",
+    a.origType||"",
   ];
 }
 
