@@ -4478,7 +4478,7 @@ function renderActivityModal(type,data){
     <div id="modal_errors"></div>
     ${fields}
     <div style="display:flex;gap:8px;margin-top:16px">
-      <button onclick="saveActivityFromModal('${type}')" class="btn-primary" style="flex:1">Save</button>
+      <button onclick="saveActivityFromModal('${type}')" class="btn-primary" style="flex:1" ${S.savingActivity?"disabled":""}>${S.savingActivity?"Saving…":"Save"}</button>
       <button onclick="closeModal()" class="btn-ghost">Cancel</button>
     </div>
   </div></div>`;
@@ -4602,6 +4602,25 @@ function closeModal(){
 }
 
 function saveActivityFromModal(type){
+  // 2026-08-06 (backlog item 2 — "Duplicate Contact Creation"): the Save
+  // button had no double-click/double-submit guard anywhere in the
+  // tracker. A fast double-click (or a slow network making a user think
+  // the first click didn't register) called this function twice, each
+  // time generating a fresh uuid() and creating a separate activity —
+  // which, for a "+ new contact" employer/ACAP link, meant a separate new
+  // contact row on push. This is almost certainly what produced the
+  // reported "Carol created eight duplicate records." The lock is reset
+  // in a finally so every early-return path (validation errors, backward
+  // stage-change not confirmed) still releases it.
+  if (S.savingActivity) return;
+  S.savingActivity = true;
+  try {
+    saveActivityFromModal_(type);
+  } finally {
+    S.savingActivity = false;
+  }
+}
+function saveActivityFromModal_(type){
   const editId = S.modal?.editId || null;
   const editCoord = S.modal?.editCoord || null;
   const editDate = S.modal?.editDate || null;
@@ -5778,6 +5797,18 @@ function attachHandlers(){
 // data, since clearing then would genuinely lose today's/this week's
 // un-pushed activity — not just re-confirm an already-safe action.
 function confirmClearLocalData(){
+  // 2026-08-06 (backlog item 7 — "Hard Reset / Local Data Sync"): the
+  // warning below is based on the S.unsyncedChanges snapshot only, which
+  // is reliable once a push has settled but says nothing about a push
+  // that is ACTIVELY in flight right now. Without this check, clicking
+  // Clear Local Data mid-sync could wipe local data out from under a
+  // pushData() call that hasn't finished writing yet. Block outright
+  // rather than just warn — there's no "sure, clear anyway" that's safe
+  // here, the sync needs to finish (or fail) first.
+  if (S.syncing) {
+    alert("A sync to Google Sheets is currently in progress.\n\nPlease wait for it to finish (you'll see the Push button return to normal) before clearing local data.");
+    return;
+  }
   if (S.unsyncedChanges) {
     if (!confirm("⚠ You have UNSYNCED changes that have not been pushed to Google Sheets yet.\n\nClearing local data now will PERMANENTLY LOSE that unsynced activity — it cannot be recovered.\n\nPush to sync first unless you're sure. Clear anyway?")) return;
   } else {
