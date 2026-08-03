@@ -3168,7 +3168,16 @@ function renderDailyDashboard(){
       || !["site_visit","new_employer_met","event"].includes(a.type)
     ).length;
     const callsMeaningful     = acts.filter(isMeaningfulCall).length;
-    const leads                = acts.filter(a=>effContactType(a)==="lead").length; // new Student Leads added to the database — now including closed Student Lead follow-ups
+    // CHANGED 2026-08-05 per Bec: "student leads should only count new
+    // leads added to database on that day" — reverted from effContactType
+    // back to a plain, fresh-only a.type==="lead" check. This tile is
+    // deliberately DIFFERENT from ACAP Contacts/Site Visits/Employer
+    // Calls/Events, which DO credit closed follow-ups (per Bec's earlier
+    // "contacts attempted should also include followups" instruction) —
+    // a closed follow-up is a RE-contact with an already-existing lead,
+    // not a brand-new lead being added to the database, so it should never
+    // count here regardless of what its origType resolves to.
+    const leads                = acts.filter(a=>a.type==="lead").length; // ONLY genuinely new leads added to the database today — closed follow-ups never count here, even if their original activity was a "lead"
     const events                = acts.filter(a=>effContactType(a)==="event").length; // now including closed Event follow-ups
     const pipelineProgressed = acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
     const followupsClosed = acts.filter(a=>a.type==="follow_up_closed").length;
