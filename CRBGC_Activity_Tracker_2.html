@@ -1268,6 +1268,51 @@ function realDayActivities(day){
   );
 }
 
+// Lightweight week-to-date activity totals for the pace-based focuses
+// (Employer call campaign/Employer site visits/ACAP engagement/Sign-ups
+// and registrations/Events) — deliberately NOT weeklyTotals(), even though
+// this duplicates a handful of its per-type counting lines. weeklyTotals()
+// calls dayStatus() for every day in the week (to tally days_productive/
+// days_partial/days_none), and dayStatus() calls computeFocusThresholdMet()
+// — so if computeFocusThresholdMet's pace branch called weeklyTotals(), any
+// day with a pace-based focus set would recurse forever (dayStatus →
+// computeFocusThresholdMet → weeklyTotals → dayStatus → ...), which is
+// exactly the "Maximum call stack size exceeded" crash Bec hit on load.
+// This only computes the handful of fields FOCUS_PACE_METRICS actually
+// needs, with the same effContactType (closed-follow-up-crediting)
+// resolution weeklyTotals uses, but never calls dayStatus.
+function weeklyPaceActuals(coord, ds){
+  const days = weekDaysMF(ds);
+  const T = {commencement:0, registration:0, enrolment:0, acap_contact_attempted:0, event:0, call_attempted:0, site_employers:0};
+  const origActLookup = {};
+  allDays(coord).forEach(function(d){
+    const dd = loadDay(coord, d);
+    (dd.activities||[]).forEach(function(a){ if(a.id) origActLookup[a.id]=a; });
+  });
+  const effContactType = a => {
+    if(a.type!=="follow_up_closed") return a.type;
+    if(a.origType) return a.origType;
+    const orig = a._closedFromId ? origActLookup[a._closedFromId] : null;
+    return orig ? orig.type : "";
+  };
+  days.forEach(d=>{
+    const day = loadDay(coord, d);
+    const realActs = realDayActivities(day);
+    realActs.forEach(a=>{
+      const effType = effContactType(a);
+      if(a.type==="commencement") T.commencement++;
+      if(a.type==="registration" && a.newContactDetails) T.registration++;
+      if(a.type==="enrolment") T.enrolment++;
+      if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled") T.enrolment++;
+      if(effType==="acap_contact"||effType==="acap_f2f") T.acap_contact_attempted++;
+      if(effType==="event") T.event++;
+      if(effType==="employer_call") T.call_attempted++;
+      if(effType==="site_visit") T.site_employers++;
+    });
+  });
+  return T;
+}
+
 // Pipeline conversion — its own %-based model, per Bec 2026-08:
 // "Pipeline conversion needs at least 50% of open all pipeline leads
 // (enrolments/registrations) progressed", clarified as: measured against
@@ -1336,7 +1381,7 @@ function computeFocusThresholdMet(day){
   const paceCfg = FOCUS_PACE_METRICS[day.focus];
   if(paceCfg){
     const state = STATES[day.coord];
-    const T = weeklyTotals(day.coord, day.date);
+    const T = weeklyPaceActuals(day.coord, day.date);
     const dayNum = weekPaceDayNum(day.date);
     let actual=0;
     paceCfg.actualFields.forEach(f=>{ actual += T[f]||0; });
