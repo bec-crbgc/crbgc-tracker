@@ -24,7 +24,11 @@ body{background:#f0f2f5;min-height:100vh;font-size:14px;color:var(--tp);overscro
 .hdr-title{font-size:15px;font-weight:700;}
 .hdr-sub{font-size:11px;opacity:.75;margin-top:2px;}
 .hdr-btns{display:flex;gap:8px;}
-.icon-btn{background:rgba(255,255,255,.15);border:none;color:#fff;width:34px;height:34px;border-radius:var(--r);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;}
+/* 2026-08-06 (backlog item 13 — "Mobile Optimisation"): icon-only buttons
+   were 34x34px — under the ~40-44px touch-target guideline for reliable
+   tapping on a phone. Bumped to 40x40, still compact enough for the
+   header bar. */
+.icon-btn{background:rgba(255,255,255,.15);border:none;color:#fff;width:40px;height:40px;border-radius:var(--r);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;}
 .icon-btn:hover{background:rgba(255,255,255,.25);}
 /* Status bar */
 .sb{display:flex;align-items:center;gap:8px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--bd);font-size:12px;}
@@ -50,13 +54,17 @@ label .req{color:var(--redt);margin-left:2px;}
 .hint{font-size:11px;color:var(--tm);margin-top:3px;}
 .err-msg{font-size:11px;color:var(--redt);margin-top:3px;display:flex;align-items:center;gap:3px;}
 /* Buttons */
-button{padding:8px 16px;border-radius:var(--r);border:1.5px solid var(--bds);cursor:pointer;font-size:13px;font-weight:500;font-family:Arial,sans-serif;transition:.15s;}
+/* 2026-08-06 (backlog item 13 — "Mobile Optimisation"): min-height:38px
+   added so every plain <button> (Done/Snooze/Edit/Delete inline actions
+   included) has a reliably tappable target on a phone, even where the
+   label text is short and padding alone wouldn't reach it. */
+button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px solid var(--bds);cursor:pointer;font-size:13px;font-weight:500;font-family:Arial,sans-serif;transition:.15s;}
 .btn-primary{background:var(--accent);color:#fff;border-color:#1558b0;}
 .btn-primary:hover{background:#1558b0;}
 .btn-success{background:#085041;color:#fff;border-color:#085041;}
 .btn-danger{background:var(--redt);color:#fff;border-color:#800000;}
 .btn-ghost{background:none;color:var(--ts);border-color:var(--bd);}
-.btn-sm{padding:5px 11px;font-size:12px;}
+.btn-sm{padding:5px 11px;font-size:12px;min-height:32px;}
 /* Activity pills */
 .pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:500;}
 /* Activity type tags */
@@ -403,7 +411,16 @@ function groupByOrg(list, nameField) {
   order.forEach(function(key){
     groups[key].contacts.sort(function(a,b){ return (b.isPrimary==="Y")-(a.isPrimary==="Y"); });
   });
-  return order.map(function(key){ return groups[key]; });
+  // 2026-08-06 (backlog item 10 — "Employer Search"): groups used to come
+  // back in raw sheet/cache insertion order, which has no relationship to
+  // how a coordinator scans a datalist while typing — "struggles with
+  // previous employers, businesses with many contacts... alphabetical
+  // ordering" was called out explicitly. Every datalist/dropdown built
+  // from groupByOrg's output (Employer Call, Site Visit, Intro Call, New
+  // Employer, Registration/Student Lead's linked-employer picker) now gets
+  // this ordering for free.
+  return order.map(function(key){ return groups[key]; })
+    .sort(function(a,b){ return a.name.trim().toLowerCase().localeCompare(b.name.trim().toLowerCase()); });
 }
 
 // Renders the "Step 2" contact picker HTML for a given org group (or an
@@ -536,7 +553,61 @@ function orgHintLinesHtml(g){
   if(rel) lines.push("Employer relationship: "+rel);
   if(primary&&primary.contactName) lines.push("Primary contact: "+primary.contactName+(primary.position?" ("+primary.position+")":""));
   if(g.contacts.length>1) lines.push(g.contacts.length+" contacts on file");
+  // 2026-08-06 (backlog item 15 — "Better Contact Timeline"): Last Contact
+  // Date, Next Follow-up Date and contact count directly on the org hint,
+  // so a coordinator can see the timeline right where they're already
+  // looking (filling in the employer field) instead of switching to WIP.
+  if(primary&&primary.lastContact) lines.push("Last contact: "+fmtDateShort(primary.lastContact));
+  if(primary&&primary.nextContact) lines.push("Next follow-up: "+fmtDateShort(primary.nextContact));
+  // 2026-08-06 (backlog item 12 — "Contact Notes Visibility"): surfaces the
+  // most recent interaction note inline, so CRs can review history before
+  // calling without leaving the tracker.
+  if(primary&&primary.notes){
+    const firstLine=String(primary.notes).split("\n")[0];
+    lines.push("Latest note: "+(firstLine.length>140?firstLine.slice(0,140)+"…":firstLine));
+  }
+  // 2026-08-06 (backlog item 11 — "Profile Builder Visibility"): read-only
+  // preview of whatever Profile Builder notes are already on file for this
+  // employer. "Edit" is the existing Profile Builder field already present
+  // on every call-logging form for this employer — typing there appends a
+  // new dated entry (see isSameAsTopEntry_), so no separate edit UI is
+  // needed here.
+  if(primary&&primary.profileNotes){
+    const pbFirstLine=String(primary.profileNotes).split("\n")[0];
+    lines.push("Profile Builder: "+(pbFirstLine.length>140?pbFirstLine.slice(0,140)+"…":pbFirstLine));
+  }
+  // 2026-08-06 (backlog items 9/19 — "Employer Active Status"): shows the
+  // current Active/Inactive status with an inline toggle, so a coordinator
+  // can flip it right from the tracker instead of opening WIP directly.
+  if(primary){
+    const isActive=String(primary.active||"Y").trim().toUpperCase()!=="N";
+    const orgIdSafe=(g.orgId||"").replace(/'/g,"\\'");
+    const bizSafe=(g.name||"").replace(/'/g,"\\'");
+    lines.push(`<span>Status: <b style="color:${isActive?"var(--gt,#1baf7a)":"var(--redt)"}">${isActive?"Active":"Inactive"}</b> `+
+      `<a href="javascript:void(0)" onclick="toggleEmployerActive('${orgIdSafe}','${bizSafe}',${isActive})" style="margin-left:6px;color:var(--acc,#1a73e8);text-decoration:underline">`+
+      `Mark ${isActive?"inactive":"active"}</a></span>`);
+  }
   return lines.map(l=>`<div>${l}</div>`).join("");
+}
+
+// 2026-08-06 (backlog items 9/19): flips an employer's Active status
+// directly from the tracker via set_employer_active, then refreshes the
+// local employer cache so the hint reflects the change immediately.
+async function toggleEmployerActive(orgId, bizName, currentlyActive){
+  const newActive = currentlyActive ? "N" : "Y";
+  if(!confirm(`Mark "${bizName}" as ${newActive==="Y"?"Active":"Inactive"}?`)) return;
+  try{
+    const r = await post("set_employer_active", {coord:S.user.coord, orgId, bizName, active:newActive});
+    if(r.ok){
+      S.status={ok:true, msg:`${bizName} marked ${newActive==="Y"?"Active":"Inactive"}.`};
+      await pullEmployers(S.user.coord);
+    } else {
+      S.status={ok:false, msg:"Couldn't update status: "+(r.msg||"unknown error")};
+    }
+  } catch(e){
+    S.status={ok:false, msg:"Couldn't update status: "+friendlyError_(e)};
+  }
+  render();
 }
 
 function primaryContactCheckboxHtml(prefix, data) {
@@ -4202,7 +4273,14 @@ function renderActivityModal(type,data){
   // ── ACAP ───────────────────────────────────────────────────────────────
   if(type==="add_acap"){
     fields+=fld("ACAP organisation","add_acap_org","text",data.acapOrg||"",null,"true");
-    fields+=fld("Contact name","add_acap_contact","text",data.contactName||"");
+    // 2026-08-06 (backlog item 8 — "Required Fields"): Contact Name is one
+    // of the docx's own listed mandatory-field examples, and every other
+    // "add a new contact" form in the tracker (new_employer_db,
+    // new_employer_met, intro_call, site_visit) already requires it — this
+    // was the one gap the 2026-07-30 full-script required-fields audit
+    // missed, since Add ACAP Contact didn't exist as a distinct type yet
+    // at that point.
+    fields+=fld("Contact name","add_acap_contact","text",data.contactName||"",null,"true");
     fields+=fld("Position","add_acap_position","text",data.position||"");
     fields+=fld("State","add_acap_state","select",data.studentState||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]);
     fields+=fld("Region","add_acap_region","text",data.suburb||"");
@@ -4777,6 +4855,7 @@ function saveActivityFromModal_(type){
   if(type==="intro_call" && !act.regDate) errors.push("Registration / assignment date is required");
   if(type==="intro_call" && !act.callDate) errors.push("Intro call date is required");
   if(["acap_contact","acap_f2f","add_acap"].includes(type) && !act.acapOrg) errors.push("ACAP organisation is required");
+  if(type==="add_acap" && !act.contactName) errors.push("Contact name is required");
   if(["acap_contact","acap_f2f"].includes(type) && !act.activityOutcome) errors.push("Contact outcome is required for ACAP activities");
   if(["employer_call"].includes(type) && !act.bizName) errors.push("Business name is required");
   if(["employer_call"].includes(type) && !act.callOutcome) errors.push("Call outcome is required");
@@ -5892,6 +5971,28 @@ function postBestEffort(payload) {
     });
 }
 
+// 2026-08-06 (backlog item 18 — "Error Messages"): raw browser fetch
+// errors (e.g. "Failed to fetch", "NetworkError when attempting to fetch
+// resource", "Load failed") were being shown to coordinators verbatim,
+// which reads as a cryptic technical failure rather than telling them
+// what actually happened or what to do about it. This maps the common,
+// recognisable failure shapes to the specific messages the docx asked
+// for ("Unable to sync", "Internet connection lost") and otherwise falls
+// back to a labelled generic message rather than a bare stack-trace-style
+// string.
+function friendlyError_(e){
+  const raw = (e && e.message) ? e.message : String(e||"");
+  const low = raw.toLowerCase();
+  if (low.indexOf("failed to fetch")!==-1 || low.indexOf("networkerror")!==-1 ||
+      low.indexOf("load failed")!==-1 || low.indexOf("network request failed")!==-1) {
+    return "Internet connection lost — check your connection and try again.";
+  }
+  if (low.indexOf("timeout")!==-1 || low.indexOf("timed out")!==-1) {
+    return "Sync timed out — the server took too long to respond. Try again in a moment.";
+  }
+  if (!raw) return "Unable to sync — an unknown error occurred.";
+  return "Unable to sync: "+raw;
+}
 async function post(type, payload) {
   const body = JSON.stringify({...payload, type});
   try {
@@ -6005,25 +6106,25 @@ async function pushData() {
     const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows,deletedIds,newContactDetailsByRowId,leadContactIdByRowId,contactEditByRowId,employerLinkByRowId});
     if(r.ok) { pushed+=actRows.length; clearPendingDeletes(coord, deletedIds); }
     else errors.push("Activities: "+r.msg);
-  } catch(e){ errors.push("Activities: "+e.message); }
+  } catch(e){ errors.push("Activities: "+friendlyError_(e)); }
 
   // Push day meta (focus, EOD, notes)
   try {
     const r=await post("push_day_meta",{coord,days:dayMetaArr});
     if(!r.ok) errors.push("Day meta: "+r.msg);
-  } catch(e){ errors.push("Day meta: "+e.message); }
+  } catch(e){ errors.push("Day meta: "+friendlyError_(e)); }
 
   // Push leads
   try {
     const r=await post("push_leads",{coord,state,mondayStr:monday,rows:leadRows,employerLinks:leadEmployerLinks});
     if(!r.ok) errors.push("Leads: "+r.msg);
-  } catch(e){ errors.push("Leads: "+e.message); }
+  } catch(e){ errors.push("Leads: "+friendlyError_(e)); }
 
   // Push employers
   try {
     const r=await post("push_employers",{coord,state,mondayStr:monday,rows:empRows});
     if(!r.ok) errors.push("Employers: "+r.msg);
-  } catch(e){ errors.push("Employers: "+e.message); }
+  } catch(e){ errors.push("Employers: "+friendlyError_(e)); }
 
   // Push weekly reflection
   try {
@@ -6034,7 +6135,7 @@ async function pushData() {
       const r=await post("push_reflection",{coord,weekMonday:wkMon,...ref});
       if(!r.ok) errors.push("Reflection: "+r.msg);
     }
-  } catch(e){ errors.push("Reflection: "+e.message); }
+  } catch(e){ errors.push("Reflection: "+friendlyError_(e)); }
 
   if(errors.length>0){
     S.status={ok:false,msg:"Errors: "+errors.join(" | ")};
@@ -6184,7 +6285,7 @@ async function loadFromCloud() {
     S.status={ok:true,msg:"✓ Loaded from cloud — "+new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})};
   } catch(e){
     const isLocal = location.protocol === "content:" || location.protocol === "file:";
-    S.status={ok:false, msg: isLocal ? "⚠ Open via SharePoint/OneDrive link for live sync — local file mode detected." : "Cloud load failed — showing local data. "+e.message};
+    S.status={ok:false, msg: isLocal ? "⚠ Open via SharePoint/OneDrive link for live sync — local file mode detected." : "Cloud load failed — showing local data. "+friendlyError_(e)};
   }
   S.loading=false; if(!S.modal) render();
 }
