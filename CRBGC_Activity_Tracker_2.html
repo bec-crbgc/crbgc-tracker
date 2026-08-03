@@ -3248,6 +3248,65 @@ function renderHistory(coord,state){
 // ═══════════════════════════════════════════════════════════
 // MANAGER DASHBOARD
 // ═══════════════════════════════════════════════════════════
+// ── Weekly Dashboard tile metrics — 2026-08-06 ─────────────────────────────
+// Bec: "update the weekly dashboard to match the updates we did with the
+// daily dashboard (keeping targets visible) this should still be an accrual
+// of all daily activity." Replicates the EXACT SAME 14-tile computation
+// logic used by renderDailyDashboard() above (including the
+// effContactType/effRelType closed-follow-up resolution) but summed across
+// every Mon-Fri day of the selected week instead of a single day, so a
+// closed follow-up logged on Tuesday still credits the correct tile in the
+// weekly card exactly as it would in that day's own Daily Dashboard card.
+function weeklyTileMetrics(coord, targetDate){
+  const days = weekDaysMF(targetDate);
+  const acts = days.reduce((all,d)=>all.concat(realDayActivities(loadDay(coord,d))), []);
+
+  // Same origType/_closedFromId resolution as renderDailyDashboard() — see
+  // that function's comment block for the full history/rationale.
+  const origActLookup = {};
+  allDays(coord).forEach(function(d){
+    const dd = loadDay(coord, d);
+    (dd.activities||[]).forEach(function(a){ if(a.id) origActLookup[a.id]=a; });
+  });
+  const resolveOrigAct = a => a._closedFromId ? origActLookup[a._closedFromId] : null;
+  const effContactType = a => {
+    if(a.type!=="follow_up_closed") return a.type;
+    if(a.origType) return a.origType;
+    const orig = resolveOrigAct(a);
+    return orig ? orig.type : "";
+  };
+  const effRelType = a => {
+    if(a.type!=="follow_up_closed") return a.relType;
+    if(a.relType) return a.relType;
+    const orig = resolveOrigAct(a);
+    return orig ? (orig.relType||"") : "";
+  };
+
+  return {
+    commencements:       acts.filter(a=>a.type==="commencement").length,
+    registrations:       acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length,
+    enrolments:          acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length,
+    pipelineContacted:   acts.filter(a=>["pipeline","enrolment_pipeline"].includes(effContactType(a))).length,
+    acapContacts:        acts.filter(a=>effContactType(a)==="acap_contact"||effContactType(a)==="acap_f2f").length,
+    siteVisits:          acts.filter(a=>effContactType(a)==="site_visit"||effContactType(a)==="new_employer_met").length,
+    existingEmployerCalls: acts.filter(a=>effContactType(a)==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&!NEW_EMPLOYER_STAGE_RELS.includes((effRelType(a)||"").trim())).length,
+    newEmployerCalls:      acts.filter(a=>effContactType(a)==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&NEW_EMPLOYER_STAGE_RELS.includes((effRelType(a)||"").trim())).length,
+    newEmployersAdded:   acts.filter(a=>effContactType(a)==="new_employer_db"||effContactType(a)==="add_employer").length,
+    totalContactsAttempted: acts.filter(a=>
+      a.type==="follow_up_closed"
+      || !["site_visit","new_employer_met","event"].includes(a.type)
+    ).length,
+    callsMeaningful:     acts.filter(isMeaningfulCall).length,
+    leads:               acts.filter(a=>a.type==="lead").length,
+    events:              acts.filter(a=>effContactType(a)==="event").length,
+    newOpportunity: acts.filter(a=>
+      OPPORTUNITY_OUTCOMES.includes(a.activityOutcome)
+      || (["acap_contact","acap_f2f"].includes(a.type) && ACAP_OPPORTUNITY_OUTCOMES.includes(a.activityOutcome))
+      || (a.type==="employer_call" && a.callOutcome==="Future opportunity")
+    ).length,
+  };
+}
+
 function renderDailyDashboard(){
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
   const date = S.date;
@@ -3712,6 +3771,15 @@ function renderDashboard(){
     const T=weeklyTotals(coord,targetDate);
     const tgt=WEEKLY_TARGETS;
     const s=state;
+    // 2026-08-06: replaced the old 11-tile set with the same 14 tiles/labels
+    // used on the Daily Dashboard, computed as a WEEKLY ACCRUAL (summed
+    // across every day in the week via weeklyTileMetrics — same
+    // effContactType/effRelType-aware logic, not a re-implementation) per
+    // Bec's request, with the FULL weekly target shown on each tile (not
+    // paceTarget()'s daily-prorated slice — that's specific to the
+    // single-day Daily Dashboard view; this card already represents the
+    // whole week, so the raw tgt.X[s] value is the correct comparison).
+    const W = weeklyTileMetrics(coord, targetDate);
 
     h+=`<div class="card">
       <div class="card-title"><i class="ti ti-user-circle"></i> ${coord} — ${state}
@@ -3719,20 +3787,24 @@ function renderDashboard(){
         <button onclick="switchToCoord('${coord}')" style="margin-left:auto;font-size:11px;padding:3px 10px;background:var(--hdr);color:#fff;border:none;border-radius:var(--r);cursor:pointer">View & Edit →</button>
       </div>
 
-      <!-- Activity summary grid -->
+      <!-- Activity summary grid — 2026-08-06: matches the Daily Dashboard's
+           14-tile set, accrued across the whole week (see weeklyTileMetrics) -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
         ${[
-          {lbl:"Calls attempted",val:T.call_attempted,tgt:tgt.employer_call[s]},
-          {lbl:"Meaningful convs",val:T.call_meaningful,tgt:0},
-          {lbl:"Opps generated",val:T.opp_generated,tgt:0},
-          {lbl:"Site visits",val:T.site_employers,tgt:tgt.site_visit[s]},
-          {lbl:"New employers",val:T.new_employer_met,tgt:tgt.new_employer_met[s]},
-          {lbl:"Student leads",val:T.lead,tgt:tgt.lead_generated[s]},
-          {lbl:"ACAP contacts",val:T.acap_contact_attempted,tgt:tgt.acap_contact[s]},
-          {lbl:"Pipeline progressed",val:T.pipeline_progressed,tgt:0},
-          {lbl:"Pipeline no movement",val:T.pipeline_no_movement,tgt:0},
-          {lbl:"Pipeline overdue",val:T.pipeline_overdue,tgt:0},
-          {lbl:"Commencements",val:T.commencement,tgt:tgt.commencement[s]},
+          {lbl:"Registrations",              val:W.registrations,          tgt:tgt.registration[s]},
+          {lbl:"Enrolments",                 val:W.enrolments,             tgt:tgt.enrolment[s]},
+          {lbl:"Commencements",              val:W.commencements,          tgt:tgt.commencement[s]},
+          {lbl:"Pipeline Progression Attempts",val:W.pipelineContacted,    tgt:0},
+          {lbl:"ACAP Contacts",              val:W.acapContacts,           tgt:tgt.acap_contact[s]},
+          {lbl:"Site Visits",                val:W.siteVisits,             tgt:tgt.site_visit[s]},
+          {lbl:"Existing Employer Calls",    val:W.existingEmployerCalls,  tgt:tgt.employer_call[s]},
+          {lbl:"New Employer Calls",         val:W.newEmployerCalls,       tgt:0},
+          {lbl:"New Employers Added",        val:W.newEmployersAdded,      tgt:tgt.new_employer_db[s]},
+          {lbl:"Total Contacts Attempted",   val:W.totalContactsAttempted, tgt:0},
+          {lbl:"Meaningful Contacts",        val:W.callsMeaningful,        tgt:0},
+          {lbl:"New Student Leads",          val:W.leads,                  tgt:tgt.lead_generated[s]},
+          {lbl:"Events",                     val:W.events,                 tgt:tgt.event[s]},
+          {lbl:"New Opportunity",            val:W.newOpportunity,         tgt:0},
         ].map(k=>{
           const pct=k.tgt>0?Math.min(100,k.val/k.tgt*100):50;
           const col=k.tgt===0?"var(--hdr)":pct>=100?"var(--greent)":pct>=70?"var(--ambert)":"var(--redt)";
