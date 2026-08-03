@@ -3088,8 +3088,40 @@ function renderDailyDashboard(){
     // onto a follow_up_closed record (a closure doesn't itself represent
     // a fresh Registered/Enrolled event), so closures correctly don't
     // inflate those two tiles.
-    const effContactType = a => a.type==="follow_up_closed" ? (a.origType||"") : a.type;
-    const effRelType     = a => a.type==="follow_up_closed" ? (a.relType||"")  : a.relType;
+    // UPDATED 2026-08-04: Bec reported Pipeline/ACAP/Existing Employer
+    // Calls tiles showing far fewer than the Activity Log's actual
+    // breakdown (e.g. Pipeline 0 vs 3, ACAP 2 vs 4, Existing Employer
+    // Calls 0 vs 3), while Total Contacts Attempted (11) was already
+    // correct. Root cause: those closures were made using whatever build
+    // was live in production at the time — if that predates this file's
+    // 2026-08-03 fix (which first started stamping origType/relType onto
+    // a follow_up_closed record), the closure record has no origType at
+    // all, so effContactType() fell through to "" and the closure didn't
+    // credit any type-specific tile (though it still counted toward Total
+    // Contacts Attempted, which doesn't care about type). Rather than
+    // depending on every device/coordinator already running the latest
+    // deployed build, fall back to resolving the original activity via
+    // _closedFromId (present on every follow_up_closed record regardless
+    // of build) — scanning this coordinator's locally-cached days once —
+    // so both old and new closure records resolve to the correct type.
+    const origActLookup = {};
+    allDays(coord).forEach(function(d){
+      const dd = loadDay(coord, d);
+      (dd.activities||[]).forEach(function(a){ if(a.id) origActLookup[a.id]=a; });
+    });
+    const resolveOrigAct = a => a._closedFromId ? origActLookup[a._closedFromId] : null;
+    const effContactType = a => {
+      if(a.type!=="follow_up_closed") return a.type;
+      if(a.origType) return a.origType;
+      const orig = resolveOrigAct(a);
+      return orig ? orig.type : "";
+    };
+    const effRelType = a => {
+      if(a.type!=="follow_up_closed") return a.relType;
+      if(a.relType) return a.relType;
+      const orig = resolveOrigAct(a);
+      return orig ? (orig.relType||"") : "";
+    };
 
     const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced (commencements can never have a follow-up, so no closure ever attributes here)
     const registrations       = acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length; // logged as registered (not every registration touch — see Total Contacts Attempted for that)
