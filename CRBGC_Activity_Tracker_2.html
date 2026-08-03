@@ -3442,12 +3442,23 @@ function renderDailyDashboard(){
       </div>`:`<div style="color:var(--tm);font-size:12px;padding:8px 0"><i class="ti ti-clock"></i> EOD review not yet completed</div>`}
 
       <!-- Activities log (expandable) -->
-      ${acts.length>0?`
+      ${(()=>{
+        // 2026-08-06: "+N more — tap to view all" used to call
+        // switchToCoord() + jump to the Today tab — that took the manager
+        // OFF the Manager Dashboard entirely, into that coordinator's own
+        // tracker view. Now expands the SAME card in place instead, via a
+        // per-coordinator toggle (same S.<x>Expanded pattern as the Due
+        // Today card), so the manager stays on the dashboard.
+        S.dashActsExpanded = S.dashActsExpanded || {};
+        const expanded = !!S.dashActsExpanded[coord];
+        const shown = expanded ? acts : acts.slice(0,3);
+        return acts.length>0 ? `
       <div style="margin-top:10px">
         <div style="font-size:11px;font-weight:600;color:var(--tm);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Activity log (${acts.length})</div>
-        ${acts.slice(0,3).map(a=>renderActItem(a,coord)).join("")}
-        ${acts.length>3?`<div style="font-size:12px;color:var(--tm);text-align:center;padding:4px;cursor:pointer" onclick="switchToCoord('${coord}');S.tab='today';render()">+${acts.length-3} more — tap to view all</div>`:""}
-      </div>`:`<div style="color:var(--tm);font-size:12px;padding:8px 0"><i class="ti ti-circle-dashed"></i> No activities logged today</div>`}
+        ${shown.map(a=>renderActItem(a,coord)).join("")}
+        ${acts.length>3?`<div style="font-size:12px;color:var(--tm);text-align:center;padding:4px;cursor:pointer" onclick="S.dashActsExpanded['${coord}']=!S.dashActsExpanded['${coord}'];render()">${expanded?"Show less":`+${acts.length-3} more — tap to view all`}</div>`:""}
+      </div>` : `<div style="color:var(--tm);font-size:12px;padding:8px 0"><i class="ti ti-circle-dashed"></i> No activities logged today</div>`;
+      })()}
     </div>`;
   });
 
@@ -3733,11 +3744,6 @@ function renderDashboard(){
         }).join("")}
       </div>
 
-      <!-- Weekly (in-week) lead funnel — 2026-08-03, replaces the all-leads-ever
-           funnel here; that one now lives on each coordinator's History tab. -->
-      <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL — NEW LEADS THIS WEEK</div>
-      <div style="margin-bottom:12px;">${renderWeeklyLeadFunnel(coord, targetDate)}</div>
-
       <!-- Follow-ups -->
       ${T.followup_overdue>0?`<div style="background:var(--red);color:var(--redt);padding:8px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
         ⚠ ${T.followup_overdue} overdue follow-up${T.followup_overdue>1?"s":""} · ${T.followup_open} open total
@@ -3781,6 +3787,19 @@ function renderDashboard(){
           </div>`;
         }).join("")}
       </div>
+
+      <!-- 2026-08-06: moved to after Daily Completion per Bec's request
+           (previously sat right after the activity summary grid, above the
+           follow-up cards). -->
+      <div style="font-size:11px;font-weight:600;color:var(--tm);margin:12px 0 6px">LEAD CONVERSION FUNNEL — NEW LEADS THIS WEEK</div>
+      <div style="margin-bottom:12px;">${renderWeeklyLeadFunnel(coord, targetDate)}</div>
+
+      <!-- 2026-08-06: all-time funnel, added right after the weekly one per
+           Bec's request. Reuses the exact same renderStrictLeadFunnel(coord)
+           already used on each coordinator's History tab — same underlying
+           computeStrictLeadFunnel logic, not a re-implementation. -->
+      <div style="font-size:11px;font-weight:600;color:var(--tm);margin-bottom:6px">LEAD CONVERSION FUNNEL — ALL-TIME</div>
+      <div>${renderStrictLeadFunnel(coord)}</div>
     </div>`;
   });
 
@@ -4699,7 +4718,17 @@ function saveFocusOther(){
   const day=getDay(); day.focusOther=v; saveDay(day);
 }
 function saveNote(field,val){
+  // 2026-08-06: previously saved local-only — this never set
+  // S.unsyncedChanges, so schedulePush()'s 3s debounce and the 5-minute
+  // fallback timer (both gated on that flag) would never fire for a
+  // Wins/Blockers/Pipeline/Campaign note on its own. It only ever reached
+  // the cloud if some UNRELATED action in the same session happened to
+  // trigger a sync afterwards — a coordinator who only touched Daily
+  // Notes all day could go the whole day without these ever syncing.
+  // Fixed to match the same reliable-sync pattern used everywhere else
+  // (e.g. addRisk/updateRisk/deleteRisk).
   const day=getDay(); day[field]=val; saveDay(day);
+  S.unsyncedChanges=true; schedulePush();
 }
 
 // 2026-08-06: Risk section (Daily Summary → rolls up into the Weekly
