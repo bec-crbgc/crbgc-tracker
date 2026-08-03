@@ -1033,6 +1033,16 @@ function dayOfWeek(ds){
 // than silently drifting apart the way the follow-up open/overdue counts
 // did earlier.
 function isMeaningfulCall(act){
+  // UPDATED 2026-08-03: a follow_up_closed record only counts as a
+  // meaningful contact when the CR member actually selected a meaningful
+  // outcome on the close-followup form (activityOutcome, one of the 5
+  // MEANINGFUL_OUTCOMES) — NOT just because the record exists. Per Bec's
+  // explicit correction: "i don't want them to auto count towards
+  // meaningful contacts as the CR member could simply close off. add an
+  // outcome field rather than status." Closing a follow-up off (e.g. a
+  // snooze-to-close, "no longer relevant", etc.) must NOT silently credit
+  // a meaningful contact just because a closure record was created.
+  if(act.type==="follow_up_closed" && MEANINGFUL_OUTCOMES.includes(act.activityOutcome)) return true;
   if(act.type==="employer_call" && act.callOutcome && act.callOutcome.startsWith("Connected – meaningful")) return true;
   if(act.type==="enrolment_pipeline" && act.contactOutcome==="Enrolled") return true;
   if(act.type==="registration" && act.contactOutcome==="Registered") return true;
@@ -3066,34 +3076,54 @@ function renderDailyDashboard(){
     // UPDATED 2026-08-03 — redefined per Bec's tile-by-tile spec (see
     // isMeaningfulCall() for the shared "Meaningful Contacts" definition,
     // now used consistently everywhere that label appears, not just here).
-    const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced
+    //
+    // effContactType(a): a closed follow-up (type "follow_up_closed") now
+    // carries the ORIGINAL activity's type (origType) and, for employer
+    // calls, its relType — captured in confirmCloseFollowup() — so a
+    // closure counts toward whichever tile its original type belongs to,
+    // "as per the type" per Bec's request, instead of only ever showing
+    // up in the separate "follow-ups closed" badge below. Registrations/
+    // Enrolments stay outcome-gated (needing contactOutcome==="Registered"
+    // / newStage==="Enrolled") — those fields are deliberately NOT copied
+    // onto a follow_up_closed record (a closure doesn't itself represent
+    // a fresh Registered/Enrolled event), so closures correctly don't
+    // inflate those two tiles.
+    const effContactType = a => a.type==="follow_up_closed" ? (a.origType||"") : a.type;
+    const effRelType     = a => a.type==="follow_up_closed" ? (a.relType||"")  : a.relType;
+
+    const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced (commencements can never have a follow-up, so no closure ever attributes here)
     const registrations       = acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length; // logged as registered (not every registration touch — see Total Contacts Attempted for that)
     const enrolments          = acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length; // marked as enrolled, or a standalone Enrolment record added
-    const pipelineContacted   = acts.filter(a=>a.type==="pipeline").length; // records touched, regardless of whether the stage changed
-    const acapContacts        = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length; // calls + F2F visits combined
-    const siteVisits          = acts.filter(a=>a.type==="site_visit"||a.type==="new_employer_met").length; // Existing + New Employer site visits combined
+    const pipelineContacted   = acts.filter(a=>effContactType(a)==="pipeline").length; // records touched, regardless of whether the stage changed — now including closed Pipeline follow-ups
+    const acapContacts        = acts.filter(a=>effContactType(a)==="acap_contact"||effContactType(a)==="acap_f2f").length; // calls + F2F visits combined — now including closed ACAP follow-ups
+    const siteVisits          = acts.filter(a=>effContactType(a)==="site_visit"||effContactType(a)==="new_employer_met").length; // Existing + New Employer site visits combined — now including closed site-visit follow-ups
     // Existing vs New Employer Calls — split by the "Employer relationship"
     // field on the single Employer Call form, using the same New-prospect/
     // New-employer-acquired grouping already used elsewhere in the app
     // (e.g. the Site Visit — New Employer tile's business auto-detect).
-    const existingEmployerCalls = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&!NEW_EMPLOYER_STAGE_RELS.includes((a.relType||"").trim())).length;
-    const newEmployerCalls      = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&NEW_EMPLOYER_STAGE_RELS.includes((a.relType||"").trim())).length;
-    const newEmployersAdded   = acts.filter(a=>a.type==="new_employer_db"||a.type==="add_employer").length; // added to the database — distinct from site-visiting a new employer, now folded into Site Visits above
+    // Now also includes closed Employer Call follow-ups, split the same way.
+    const existingEmployerCalls = acts.filter(a=>effContactType(a)==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&!NEW_EMPLOYER_STAGE_RELS.includes((effRelType(a)||"").trim())).length;
+    const newEmployerCalls      = acts.filter(a=>effContactType(a)==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&NEW_EMPLOYER_STAGE_RELS.includes((effRelType(a)||"").trim())).length;
+    const newEmployersAdded   = acts.filter(a=>effContactType(a)==="new_employer_db"||effContactType(a)==="add_employer").length; // added to the database — distinct from site-visiting a new employer, now folded into Site Visits above; now including closed Add Employer follow-ups
     // Total Contacts Attempted — every "actually tried to reach someone"
     // type in one count: Existing + New Employer Calls, ACAP Contacts
     // (calls+F2F), Intro Calls, Registration/Enrolment Pipeline/Pipeline
-    // touches. Deliberately excludes Employer site visits (per Bec's
-    // explicit note) and Events (Bec asked for Events as its own separate
-    // tile instead), and excludes "add to database" actions (new
+    // touches — now also crediting closed follow-ups whose ORIGINAL type
+    // is one of these. Deliberately excludes Employer site visits (per
+    // Bec's explicit note) and Events (Bec asked for Events as its own
+    // separate tile instead), and excludes "add to database" actions (new
     // employer/student lead/commencement/enrolment) — those are records of
-    // an outcome or addition, not a contact attempt in themselves.
+    // an outcome or addition, not a contact attempt in themselves, so a
+    // closed follow-up originally logged as one of those types still
+    // doesn't count here (only against its own matching tile, e.g. Site
+    // Visits or New Employers Added).
     const totalContactsAttempted = acts.filter(a=>
-      (a.type==="employer_call"||a.type==="acap_contact"||a.type==="acap_f2f"||a.type==="intro_call"||a.type==="registration"||a.type==="enrolment_pipeline"||a.type==="pipeline")
+      ["employer_call","acap_contact","acap_f2f","intro_call","registration","enrolment_pipeline","pipeline"].includes(effContactType(a))
       && (!a.id||!a.id.startsWith("auto_fu_"))
     ).length;
     const callsMeaningful     = acts.filter(isMeaningfulCall).length;
-    const leads                = acts.filter(a=>a.type==="lead").length; // new Student Leads added to the database
-    const events                = acts.filter(a=>a.type==="event").length;
+    const leads                = acts.filter(a=>effContactType(a)==="lead").length; // new Student Leads added to the database — now including closed Student Lead follow-ups
+    const events                = acts.filter(a=>effContactType(a)==="event").length; // now including closed Event follow-ups
     const pipelineProgressed = acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
     const followupsClosed = acts.filter(a=>a.type==="follow_up_closed").length;
     const oppsGenerated   = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
@@ -5031,6 +5061,21 @@ function confirmCloseFollowup(id, date, coord) {
       status: "Completed",
       closeOutcome: outcome,
       _closedFromId: id,
+      // ADDED 2026-08-03: preserve the ORIGINAL activity's type (and, for
+      // employer calls, its Existing/New relType) so the Manager
+      // Dashboard's contact-count tiles can credit this closure back to
+      // the right tile "as per the type" — per Bec's explicit request —
+      // instead of only ever showing up in the separate "follow-ups
+      // closed" badge, disconnected from the type-specific tiles. See
+      // effContactType() in renderDailyDashboard() and isMeaningfulCall().
+      // Deliberately NOT carrying forward the original contactOutcome/
+      // newStage/prevStage — those reflect whatever was true when the
+      // follow-up was first logged, not anything this closure itself
+      // achieved, so outcome-gated tiles (Registrations needing
+      // "Registered", Enrolments needing "Enrolled") correctly do not
+      // get credit from a closure alone.
+      origType: act?.type||"",
+      relType: act?.relType||"",
     });
     saveDay(todayRec);
   }
