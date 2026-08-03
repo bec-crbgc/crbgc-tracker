@@ -1022,10 +1022,21 @@ function dayOfWeek(ds){
 // ═══════════════════════════════════════════════════════════
 // ACTIVITY ANALYSIS
 // ═══════════════════════════════════════════════════════════
+// UPDATED 2026-08-03 — broadened per Bec's redefinition of "Meaningful
+// Contacts" on the Manager Dashboard: a Registration/Enrolment Pipeline
+// touch now also counts as meaningful when it progressed the record from
+// one status to the next, not just when the outcome was literally
+// Registered/Enrolled. This is the single shared definition used
+// everywhere "meaningful conv(s)"/"Meaningful Contacts" appears — This
+// Week tab, Weekly Excel/PDF, the dashboard's weekly card, Trend charts —
+// so all of those stay consistent with the Daily Dashboard tile rather
+// than silently drifting apart the way the follow-up open/overdue counts
+// did earlier.
 function isMeaningfulCall(act){
   if(act.type==="employer_call" && act.callOutcome && act.callOutcome.startsWith("Connected – meaningful")) return true;
   if(act.type==="enrolment_pipeline" && act.contactOutcome==="Enrolled") return true;
   if(act.type==="registration" && act.contactOutcome==="Registered") return true;
+  if((act.type==="registration"||act.type==="enrolment_pipeline") && act.newStage && act.prevStage && act.newStage!==act.prevStage) return true;
   return false;
 }
 function activityLabel(type){
@@ -3052,16 +3063,37 @@ function renderDailyDashboard(){
     const acts = realDayActivities(day); // FIXED 2026-08-03 — was raw day.activities, inflating this Daily-view card's counts and activity log with auto-generated placeholder rows
     const status = dayStatus(day);
 
-    // Daily counts
-    const commencements   = acts.filter(a=>a.type==="commencement").length;
-    const registrations   = acts.filter(a=>a.type==="registration").length;
-    const acapContacts    = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
-    const callsAttempted  = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))).length;
-    const callsMeaningful = acts.filter(isMeaningfulCall).length;
-    const siteVisits      = acts.filter(a=>a.type==="site_visit").length;
-    const newEmployers    = acts.filter(a=>a.type==="new_employer_met"||a.type==="new_employer_db").length;
-    const leads           = acts.filter(a=>a.type==="lead").length;
-    const pipelineContacted = acts.filter(a=>a.type==="pipeline").length;
+    // UPDATED 2026-08-03 — redefined per Bec's tile-by-tile spec (see
+    // isMeaningfulCall() for the shared "Meaningful Contacts" definition,
+    // now used consistently everywhere that label appears, not just here).
+    const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced
+    const registrations       = acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length; // logged as registered (not every registration touch — see Total Contacts Attempted for that)
+    const enrolments          = acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length; // marked as enrolled, or a standalone Enrolment record added
+    const pipelineContacted   = acts.filter(a=>a.type==="pipeline").length; // records touched, regardless of whether the stage changed
+    const acapContacts        = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length; // calls + F2F visits combined
+    const siteVisits          = acts.filter(a=>a.type==="site_visit"||a.type==="new_employer_met").length; // Existing + New Employer site visits combined
+    // Existing vs New Employer Calls — split by the "Employer relationship"
+    // field on the single Employer Call form, using the same New-prospect/
+    // New-employer-acquired grouping already used elsewhere in the app
+    // (e.g. the Site Visit — New Employer tile's business auto-detect).
+    const existingEmployerCalls = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&!NEW_EMPLOYER_STAGE_RELS.includes((a.relType||"").trim())).length;
+    const newEmployerCalls      = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&NEW_EMPLOYER_STAGE_RELS.includes((a.relType||"").trim())).length;
+    const newEmployersAdded   = acts.filter(a=>a.type==="new_employer_db"||a.type==="add_employer").length; // added to the database — distinct from site-visiting a new employer, now folded into Site Visits above
+    // Total Contacts Attempted — every "actually tried to reach someone"
+    // type in one count: Existing + New Employer Calls, ACAP Contacts
+    // (calls+F2F), Intro Calls, Registration/Enrolment Pipeline/Pipeline
+    // touches. Deliberately excludes Employer site visits (per Bec's
+    // explicit note) and Events (Bec asked for Events as its own separate
+    // tile instead), and excludes "add to database" actions (new
+    // employer/student lead/commencement/enrolment) — those are records of
+    // an outcome or addition, not a contact attempt in themselves.
+    const totalContactsAttempted = acts.filter(a=>
+      (a.type==="employer_call"||a.type==="acap_contact"||a.type==="acap_f2f"||a.type==="intro_call"||a.type==="registration"||a.type==="enrolment_pipeline"||a.type==="pipeline")
+      && (!a.id||!a.id.startsWith("auto_fu_"))
+    ).length;
+    const callsMeaningful     = acts.filter(isMeaningfulCall).length;
+    const leads                = acts.filter(a=>a.type==="lead").length; // new Student Leads added to the database
+    const events                = acts.filter(a=>a.type==="event").length;
     const pipelineProgressed = acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
     const followupsClosed = acts.filter(a=>a.type==="follow_up_closed").length;
     const oppsGenerated   = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
@@ -3080,18 +3112,22 @@ function renderDailyDashboard(){
       <!-- Focus -->
       ${day.focus?`<div style="margin-bottom:10px"><span class="focus-badge"><i class="ti ti-target"></i> ${day.focus}${day.focusOther?" — "+day.focusOther:""}</span></div>`:`<div style="color:var(--tm);font-size:12px;margin-bottom:10px"><i class="ti ti-alert-circle"></i> No primary focus set</div>`}
 
-      <!-- Daily activity grid -->
+      <!-- Daily activity grid — reordered/redefined 2026-08-03 per Bec's spec -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
         ${[
-          {lbl:"Commencements",   val:commencements,    tgt:Math.round(paceTarget(tgt.commencement[s]))},
-          {lbl:"Registrations",   val:registrations,    tgt:Math.round(paceTarget(tgt.registration[s]))},
-          {lbl:"ACAP contacts",   val:acapContacts,      tgt:Math.round(paceTarget(tgt.acap_contact[s]))},
-          {lbl:"Calls attempted", val:callsAttempted,   tgt:Math.round(paceTarget(tgt.employer_call[s]))},
-          {lbl:"Meaningful convs",val:callsMeaningful,  tgt:0},
-          {lbl:"Site visits",     val:siteVisits,       tgt:Math.round(paceTarget(tgt.site_visit[s]))},
-          {lbl:"New employers",   val:newEmployers,     tgt:Math.round(paceTarget(tgt.new_employer_met[s]))},
-          {lbl:"Student leads",   val:leads,            tgt:Math.round(paceTarget(tgt.lead_generated[s]))},
-          {lbl:"Pipeline",        val:pipelineContacted,tgt:0},
+          {lbl:"Registrations",              val:registrations,          tgt:Math.round(paceTarget(tgt.registration[s]))},
+          {lbl:"Enrolments",                 val:enrolments,             tgt:Math.round(paceTarget(tgt.enrolment[s]))},
+          {lbl:"Commencements",              val:commencements,          tgt:Math.round(paceTarget(tgt.commencement[s]))},
+          {lbl:"Pipeline Progression Attempts",val:pipelineContacted,    tgt:0},
+          {lbl:"ACAP Contacts",              val:acapContacts,           tgt:Math.round(paceTarget(tgt.acap_contact[s]))},
+          {lbl:"Site Visits",                val:siteVisits,             tgt:Math.round(paceTarget(tgt.site_visit[s]))},
+          {lbl:"Existing Employer Calls",    val:existingEmployerCalls,  tgt:Math.round(paceTarget(tgt.employer_call[s]))},
+          {lbl:"New Employer Calls",         val:newEmployerCalls,       tgt:0},
+          {lbl:"New Employers Added",        val:newEmployersAdded,      tgt:Math.round(paceTarget(tgt.new_employer_db[s]))},
+          {lbl:"Total Contacts Attempted",   val:totalContactsAttempted, tgt:0},
+          {lbl:"Meaningful Contacts",        val:callsMeaningful,        tgt:0},
+          {lbl:"Student Leads",              val:leads,                  tgt:Math.round(paceTarget(tgt.lead_generated[s]))},
+          {lbl:"Events",                     val:events,                 tgt:Math.round(paceTarget(tgt.event[s]))},
         ].map(k=>{
           const onPace = k.tgt===0 || k.val>=k.tgt;
           const col = k.val===0?"var(--tm)":onPace?"var(--greent)":"var(--redt)";
