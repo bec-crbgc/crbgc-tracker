@@ -308,21 +308,48 @@ const PRODUCTIVITY_THRESHOLDS = {
   "Employer meetings":              {minActivities:2, types:["site_visit","new_employer"]},
 };
 
-// Pace-based focuses: "met" = week-to-date actual (via weeklyTotals, which
-// already credits closed follow-ups back to their original type — see
-// effContactType) is at/above the week-to-date pace target for the
-// combined WEEKLY_TARGETS metric(s) listed. actualFields sum straight off
-// the weeklyTotals() T object; targetKeys sum off WEEKLY_TARGETS for the
-// coordinator's state. (Sign-ups and registrations includes "enrolment" in
-// actualFields for parity with the old types list — even though its
-// WEEKLY_TARGETS entry is 0 for every state, so it never adds to the pace
-// target, only ever gives free credit toward the actual total.)
+// The 7 metrics the Daily Pace card itself tracks (see
+// computeDailyPaceDetails' paceMetrics array) — field-name-driven off
+// weeklyPaceActuals() instead of weeklyTotals() so this can be reused
+// inside computeFocusThresholdMet without the weeklyTotals→dayStatus→
+// computeFocusThresholdMet recursion (see weeklyPaceActuals' own note).
+const STANDARD_PACE_METRICS = [
+  {label:"Commencements",     actualField:"commencement",           targetKey:"commencement"},
+  {label:"Registrations",     actualField:"registration",           targetKey:"registration"},
+  {label:"ACAP contacts",     actualField:"acap_contact_attempted", targetKey:"acap_contact"},
+  {label:"Employer calls",    actualField:"call_attempted",         targetKey:"employer_call"},
+  {label:"Site visits",       actualField:"site_employers",         targetKey:"site_visit"},
+  {label:"New employers met", actualField:"new_employer_met",       targetKey:"new_employer_met"},
+  {label:"Student leads",     actualField:"lead",                   targetKey:"lead_generated"},
+];
+
+// Pace-based focuses. UPDATED again per Bec, 2026-08 (after seeing this
+// only asked for the single-metric pace figure — e.g. Employer calls
+// showing "0/3" on a Monday when the Daily Pace card right below it showed
+// 7 metrics needing 15 combined): "yes one combined number (plus the
+// minimum for that specific focus) ei, 15+3 = he should have 18 entries
+// against that specific focus." So the minimum a pace-based focus now
+// needs is: the SAME combined "needed" total shown at the top of the Daily
+// Pace card (sum of every one of the 7 STANDARD_PACE_METRICS' currently-
+// needed amount — see computeCombinedPaceNeeded) PLUS the selected focus's
+// own needed amount again on top (its contribution to that combined total
+// counted a second time — confirmed deliberate by Bec's own 15+3=18
+// example). What counts toward MEETING that combined number stays
+// focus-specific only (her answer: "Only the focus's own type(s)") — a
+// coordinator logging Employer calls doesn't get credit from ACAP contacts
+// just because ACAP is also behind pace.
+//
+// standardLabels: which STANDARD_PACE_METRICS label(s) this focus's own
+// "+N" add-on comes from (summed if more than one, e.g. Sign-ups). Events
+// isn't one of the 7 standard metrics at all, so it's handled as its own
+// small pace calc via targetKeys/actualFields instead (see
+// computeFocusThresholdMet) — nothing to double-count there.
 const FOCUS_PACE_METRICS = {
-  "Employer call campaign":       {actualFields:["call_attempted"],                    targetKeys:["employer_call"]},
-  "Employer site visits":         {actualFields:["site_employers"],                    targetKeys:["site_visit"]},
-  "ACAP engagement":              {actualFields:["acap_contact_attempted"],            targetKeys:["acap_contact","acap_f2f"]},
-  "Sign-ups and registrations":   {actualFields:["commencement","registration","enrolment"], targetKeys:["commencement","registration","enrolment"]},
-  "Events":                       {actualFields:["event"],                             targetKeys:["event"]},
+  "Employer call campaign":       {actualFields:["call_attempted"],                          standardLabels:["Employer calls"]},
+  "Employer site visits":         {actualFields:["site_employers"],                          standardLabels:["Site visits"]},
+  "ACAP engagement":              {actualFields:["acap_contact_attempted"],                  standardLabels:["ACAP contacts"]},
+  "Sign-ups and registrations":   {actualFields:["commencement","registration","enrolment"], standardLabels:["Commencements","Registrations"]},
+  "Events":                       {actualFields:["event"], targetKeys:["event"]},
 };
 
 // Terminal pipeline stages — a lead in one of these is no longer "open"
@@ -337,6 +364,18 @@ function weekPaceDayNum(dateStr){
   const d = new Date(dateStr+"T12:00:00");
   const dow = d.getDay();
   return dow===0 ? 5 : dow===6 ? 5 : dow;
+}
+
+// Same "needed" math as renderDailyPaceCard's "Needs attention" rows
+// (paceRound = Math.ceil(pace); needed = Math.max(0, paceRound-actual)) —
+// duplicated here (not called from computeDailyPaceDetails/
+// renderDailyPaceCard directly) so computeFocusThresholdMet never has to
+// call weeklyTotals()/computeDailyPaceDetails() and reintroduce the
+// dayStatus() recursion those fixed (see weeklyPaceActuals' note).
+function paceNeeded(actual, weeklyTarget, dayNum){
+  const pace = Math.round((weeklyTarget*dayNum/5)*10)/10;
+  const paceRound = Math.ceil(pace);
+  return Math.max(0, paceRound-actual);
 }
 
 const WEEKLY_TARGETS = {
@@ -1283,7 +1322,12 @@ function realDayActivities(day){
 // resolution weeklyTotals uses, but never calls dayStatus.
 function weeklyPaceActuals(coord, ds){
   const days = weekDaysMF(ds);
-  const T = {commencement:0, registration:0, enrolment:0, acap_contact_attempted:0, event:0, call_attempted:0, site_employers:0};
+  // 2026-08 — new_employer_met/lead added so computeFocusThresholdMet can
+  // compute the FULL combined "needed" total across all 7
+  // STANDARD_PACE_METRICS (matching the Daily Pace card) without calling
+  // weeklyTotals()/computeDailyPaceDetails() (see the recursion note above
+  // this function and on STANDARD_PACE_METRICS/FOCUS_PACE_METRICS).
+  const T = {commencement:0, registration:0, enrolment:0, acap_contact_attempted:0, event:0, call_attempted:0, site_employers:0, new_employer_met:0, lead:0};
   const origActLookup = {};
   allDays(coord).forEach(function(d){
     const dd = loadDay(coord, d);
@@ -1308,6 +1352,8 @@ function weeklyPaceActuals(coord, ds){
       if(effType==="event") T.event++;
       if(effType==="employer_call") T.call_attempted++;
       if(effType==="site_visit") T.site_employers++;
+      if(effType==="new_employer_met") T.new_employer_met++;
+      if(a.type==="lead") T.lead++;
     });
   });
   return T;
@@ -1362,7 +1408,12 @@ function computePipelineConversionMet(day){
 //    own %-of-open-leads model).
 //  - Any focus in FOCUS_PACE_METRICS (Employer call campaign, Employer
 //    site visits, ACAP engagement, Sign-ups and registrations, Events):
-//    week-to-date actual vs. week-to-date pace target.
+//    week-to-date actual (focus-specific only) vs. a COMBINED minimum —
+//    the sum of every STANDARD_PACE_METRICS metric's currently-needed
+//    amount (the same total shown at the top of the Daily Pace card) PLUS
+//    the focus's own needed amount again on top. See the long note on
+//    FOCUS_PACE_METRICS for Bec's worked example (15 combined + 3
+//    Employer-calls-specific = 18).
 //  - The 3 focuses Bec's redesign didn't touch (New employer acquisition/
 //    Existing employer engagement/Employer meetings): unchanged, the
 //    original day-only "N of these types, today" model, still crediting
@@ -1383,14 +1434,47 @@ function computeFocusThresholdMet(day){
     const state = STATES[day.coord];
     const T = weeklyPaceActuals(day.coord, day.date);
     const dayNum = weekPaceDayNum(day.date);
+
+    // Combined total — every one of the 7 standard metrics' currently-
+    // needed amount, summed. Identical math/inputs to what
+    // renderDailyPaceCard's "Needs attention" rows show, just computed off
+    // weeklyPaceActuals (not weeklyTotals) to avoid recursion.
+    let combinedNeeded=0;
+    STANDARD_PACE_METRICS.forEach(m=>{
+      const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
+      if(weekly>0) combinedNeeded += paceNeeded(T[m.actualField]||0, weekly, dayNum);
+    });
+
+    // The selected focus's own add-on, counted again on top of whatever it
+    // already contributed to combinedNeeded above (deliberate — see Bec's
+    // 15+3=18 example).
+    let focusNeeded=0;
+    if(paceCfg.standardLabels){
+      paceCfg.standardLabels.forEach(label=>{
+        const m = STANDARD_PACE_METRICS.find(sm=>sm.label===label);
+        if(!m) return;
+        const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
+        if(weekly>0) focusNeeded += paceNeeded(T[m.actualField]||0, weekly, dayNum);
+      });
+    } else if(paceCfg.targetKeys){
+      // Events — not one of the 7 standard Daily Pace metrics, so nothing
+      // to double-count; computed as its own small pace figure.
+      let weeklySum=0;
+      paceCfg.targetKeys.forEach(k=>{ weeklySum += (WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0; });
+      let actualSum=0;
+      paceCfg.actualFields.forEach(f=>{ actualSum += T[f]||0; });
+      focusNeeded = paceNeeded(actualSum, weeklySum, dayNum);
+    }
+
+    // What counts toward MEETING the combined minimum stays focus-specific
+    // only, per Bec: "Only the focus's own type(s)".
     let actual=0;
     paceCfg.actualFields.forEach(f=>{ actual += T[f]||0; });
-    let weeklySum=0;
-    paceCfg.targetKeys.forEach(k=>{ weeklySum += (WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0; });
-    const pace = Math.round((weeklySum*dayNum/5)*10)/10;
+
+    const minActivities = combinedNeeded + focusNeeded;
     return {
-      met:actual>=pace, count:actual, minActivities:Math.ceil(pace),
-      mode:"pace", pace, dayNum
+      met:actual>=minActivities, count:actual, minActivities,
+      mode:"pace", combinedNeeded, focusNeeded, dayNum
     };
   }
 
