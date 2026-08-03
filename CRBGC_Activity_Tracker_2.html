@@ -361,7 +361,15 @@ function loadDay(coord,date){
     // summary to give an explanation as to why some areas weren't met if
     // they were focused on one thing" — only required when at least one
     // daily KR target is off pace (see computeDailyPaceDetails/saveEOD).
-    eodOffPaceNote:""
+    eodOffPaceNote:"",
+    // 2026-08-06 — Primary focus moved to Daily Notes, now asked
+    // retrospectively with a follow-up gated on whether today's activity
+    // met that focus's minimum (see computeFocusThresholdMet/
+    // renderDailyNotes/saveFocusFollowup): focusOutline when it was met,
+    // focusShortfallReason when it wasn't. Only one of the two is ever
+    // shown/required at a time, but both default here for a clean model.
+    focusOutline:"",
+    focusShortfallReason:""
   };
 }
 function saveDay(day){ lsSet(dayKey(day.coord,day.date),day); }
@@ -1211,14 +1219,25 @@ function realDayActivities(day){
   );
 }
 
-function dayStatus(day){
-  if(!day.focus) return "none";
+// 2026-08-06: pulled the "did today's logged activity meet this focus's
+// minimum" check out of dayStatus() so the same determination can also
+// drive the Daily Notes primary-focus gate (see computeFocusThresholdMet/
+// saveFocusFollowup) without re-implementing the threshold math a second
+// time and risking the two drifting apart.
+function computeFocusThresholdMet(day){
+  if(!day.focus) return null; // no focus selected — not applicable
   const acts=realDayActivities(day);
   const thresh=PRODUCTIVITY_THRESHOLDS[day.focus]||{minActivities:1,types:[]};
   const relevant=thresh.types.length===0?acts:acts.filter(a=>thresh.types.includes(a.type));
   const count=relevant.length;
-  if(count>=thresh.minActivities && day.eodStatus==="complete") return "productive";
-  if(count>0||day.eodStatus==="complete") return "partial";
+  return {met:count>=thresh.minActivities, count, minActivities:thresh.minActivities};
+}
+
+function dayStatus(day){
+  if(!day.focus) return "none";
+  const ft=computeFocusThresholdMet(day);
+  if(ft.met && day.eodStatus==="complete") return "productive";
+  if(ft.count>0||day.eodStatus==="complete") return "partial";
   return "none";
 }
 
@@ -2691,7 +2710,6 @@ function renderDailyPaceCard(coord, state, date) {
 }
 
 function renderToday(coord,state,day){
-  const status=dayStatus(day);
   const overdueFollowups=getAllOverdueFollowups(coord);
 
   let h=``;
@@ -2760,20 +2778,10 @@ function renderToday(coord,state,day){
   // Daily pace status card
   h+=renderDailyPaceCard(coord, state, S.date);
 
-  // Primary focus
-  h+=`<div class="card">
-    <div class="card-title"><i class="ti ti-target"></i> Primary focus today</div>
-    <div class="field">
-      <label>What is your principal activity today?<span class="req">*</span></label>
-      <select id="focus_sel" onchange="saveFocus()">
-        <option value="">— Select focus —</option>
-        ${PRIMARY_FOCUS.map(f=>`<option value="${f}"${day.focus===f?" selected":""}>${f}</option>`).join("")}
-      </select>
-    </div>
-    ${day.focus==="Other"?`<div class="field"><label>Describe your focus<span class="req">*</span></label>
-      <input id="focus_other" value="${day.focusOther||""}" placeholder="Describe..." onchange="saveFocusOther()"></div>`:""}
-    ${day.focus?`<div style="margin-top:4px">${getDayStatusLabel(status)}</div>`:""}
-  </div>`;
+  // 2026-08-06: Primary focus moved to the Daily Notes tab (see
+  // renderDailyNotes) — it now asks "What was your primary focus today?"
+  // retrospectively, alongside the reason/outline follow-up, rather than
+  // being set prospectively here at the top of the day.
 
   // Quick log activities (non-call, non-visit, non-pipeline)
   h+=`<div class="sect-hdr">Log activity</div>
@@ -3014,7 +3022,47 @@ function renderDailyNotes(coord,state,day){
     {id:"ncampaign",label:"Campaign progress notes",ph:"Updates on active campaigns, employer call runs, estate visits…",icon:"ti-speakerphone",col:"#0C447C"},
   ];
 
+  // 2026-08-06 — Bec: "move the Primary focus function from the today tab
+  // to the daily notes section and update to: what was your primary focus
+  // today? apply the same logic on how many should be met to accept it as
+  // a primary focus, if not, highlight and ask for a reason as to why...
+  // if it does - ask for a brief outline of that primary focus." Now asked
+  // retrospectively (was set prospectively at the top of the Today tab),
+  // with a follow-up driven by the SAME threshold check dayStatus() itself
+  // uses (via the shared computeFocusThresholdMet — see the note above
+  // that function), so this can never disagree with the day's own
+  // productive/partial/none classification shown right below it.
+  const focusThreshold = computeFocusThresholdMet(day);
   let h=`<div class="card">
+    <div class="card-title"><i class="ti ti-target"></i> Primary focus</div>
+    <div class="field">
+      <label>What was your primary focus today?<span class="req">*</span></label>
+      <select id="focus_sel" onchange="saveFocus()">
+        <option value="">— Select focus —</option>
+        ${PRIMARY_FOCUS.map(f=>`<option value="${f}"${day.focus===f?" selected":""}>${f}</option>`).join("")}
+      </select>
+    </div>
+    ${day.focus==="Other"?`<div class="field"><label>Describe your focus<span class="req">*</span></label>
+      <input id="focus_other" value="${day.focusOther||""}" placeholder="Describe..." onchange="saveFocusOther()"></div>`:""}
+    ${day.focus?`<div style="margin:4px 0 10px">${getDayStatusLabel(dayStatus(day))}</div>`:""}
+    ${(()=>{
+      if(!day.focus||!focusThreshold) return "";
+      if(focusThreshold.met){
+        return `<div class="field" style="margin-bottom:0">
+          <label>Brief outline of today's primary focus<span class="req">*</span></label>
+          <div class="hint" style="margin-bottom:4px">A couple of sentences on what this focus actually involved today.</div>
+          <textarea id="focus_outline" placeholder="What did today's ${day.focus} focus involve?" onchange="saveFocusFollowup('outline',this.value)" style="min-height:60px">${day.focusOutline||""}</textarea>
+        </div>`;
+      }
+      return `<div class="field" style="margin-bottom:0;background:#fcebeb;border-radius:var(--r);padding:10px;border-left:3px solid var(--redt)">
+        <label style="color:#9c0006">Today's activity didn't meet the minimum for "${day.focus}" (${focusThreshold.count}/${focusThreshold.minActivities})<span class="req">*</span></label>
+        <div class="hint" style="margin-bottom:4px">Why didn't today's activity meet this focus's minimum? Were you focused on something that doesn't show up here, or blocked some other way?</div>
+        <textarea id="focus_shortfall" placeholder="e.g. Spent most of the day on an urgent employer issue that isn't a loggable activity type." onchange="saveFocusFollowup('shortfall',this.value)" style="min-height:60px">${day.focusShortfallReason||""}</textarea>
+      </div>`;
+    })()}
+  </div>`;
+
+  h+=`<div class="card">
     <div class="card-title"><i class="ti ti-notes"></i> Daily Notes — ${fmtDate(S.date)}</div>
     ${noteFields.map(f=>`
     <div class="field">
@@ -4988,11 +5036,30 @@ function scrollTabIntoView(tab) {
 
 function saveFocus(){
   const v=document.getElementById("focus_sel")?.value;
-  const day=getDay(); day.focus=v; saveDay(day); render();
+  const day=getDay(); day.focus=v; saveDay(day);
+  // FIXED 2026-08-06: previously local-only, the same silent sync gap
+  // already found and fixed for saveNote()/saveEOD() — now that Primary
+  // focus lives in Daily Notes and gates "Mark day complete" via
+  // focusOutline/focusShortfallReason, it needs to reach the cloud
+  // reliably like everything else in that flow.
+  S.unsyncedChanges=true; schedulePush();
+  render();
 }
 function saveFocusOther(){
   const v=document.getElementById("focus_other")?.value||"";
   const day=getDay(); day.focusOther=v; saveDay(day);
+  S.unsyncedChanges=true; schedulePush(); // FIXED 2026-08-06 — see saveFocus()
+}
+// 2026-08-06: saves the Daily Notes primary-focus follow-up — whichever of
+// the two fields is currently applicable (outline when today's activity
+// met the focus's minimum, shortfall reason when it didn't; see
+// computeFocusThresholdMet/renderDailyNotes).
+function saveFocusFollowup(field,val){
+  const day=getDay();
+  if(field==="outline") day.focusOutline=val;
+  else if(field==="shortfall") day.focusShortfallReason=val;
+  saveDay(day);
+  S.unsyncedChanges=true; schedulePush();
 }
 function saveNote(field,val){
   // 2026-08-06: previously saved local-only — this never set
@@ -5053,6 +5120,39 @@ function saveEOD(field,val){
       const eodErrs=[];
       if(!day.eodResult||!day.eodResult.trim()) eodErrs.push("Please record what result today's activity created before marking the day complete.");
       if(!day.eodAllEntered) eodErrs.push('Please answer "All activities and follow-ups entered and current?" before marking the day complete.');
+      // 2026-08-06 — Bec: "move the Primary focus function from the today
+      // tab to the daily notes section and update to: what was your
+      // primary focus today? apply the same logic on how many should be
+      // met to accept it as a primary focus, if not, highlight and ask
+      // for a reason as to why ... if it does - ask for a brief outline
+      // of that primary focus." Re-read the live form values first (same
+      // reasoning as the off-pace note below — the coordinator may have
+      // just typed/selected without triggering onchange yet).
+      const liveFocus = document.getElementById("focus_sel")?.value;
+      if(liveFocus!==undefined) day.focus = liveFocus;
+      const liveFocusOther = document.getElementById("focus_other")?.value;
+      if(liveFocusOther!==undefined) day.focusOther = liveFocusOther;
+      if(!day.focus||!day.focus.trim()){
+        eodErrs.push("Please select today's primary focus before marking the day complete.");
+      } else {
+        if(day.focus==="Other" && (!day.focusOther||!day.focusOther.trim())){
+          eodErrs.push("Please describe your primary focus before marking the day complete.");
+        }
+        const focusThreshold = computeFocusThresholdMet(day);
+        if(focusThreshold.met){
+          const liveOutline = document.getElementById("focus_outline")?.value;
+          if(liveOutline!==undefined) day.focusOutline = liveOutline;
+          if(!day.focusOutline||!day.focusOutline.trim()){
+            eodErrs.push("Please give a brief outline of today's primary focus before marking the day complete.");
+          }
+        } else {
+          const liveShortfall = document.getElementById("focus_shortfall")?.value;
+          if(liveShortfall!==undefined) day.focusShortfallReason = liveShortfall;
+          if(!day.focusShortfallReason||!day.focusShortfallReason.trim()){
+            eodErrs.push('Please explain why today\'s activity didn\'t meet the minimum for "'+day.focus+'" before marking the day complete.');
+          }
+        }
+      }
       // 2026-08-06 — Bec: "can we have this only to be set where a team
       // member hasn't met their daily thresholds ... ask as a prompt
       // before closing out the daily summary to give an explanation as to
