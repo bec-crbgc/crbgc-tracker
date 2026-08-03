@@ -3459,25 +3459,17 @@ function renderDailyNotes(coord,state,day){
         <option value="No"${day.eodAllEntered==="No"?" selected":""}>No — some items still to enter</option>
       </select>
     </div>
-    ${(()=>{
-      // 2026-08-06 — Bec: "can we have this only to be set where a team
-      // member hasn't met their daily thresholds ... ask as a prompt
-      // before closing out the daily summary to give an explanation as to
-      // why some areas weren't met if they were focused on one thing?"
-      // Only appears (and is only required) when computeDailyPaceDetails
-      // finds at least one KR metric behind its day-prorated pace — the
-      // SAME "behind" determination already shown in this tab's Daily
-      // Pace card's "Needs attention" list, so the two can never disagree
-      // about whether today is off pace.
-      const pace = computeDailyPaceDetails(coord, state, S.date);
-      if (pace.behind===0) return "";
-      const behindLabels = pace.details.filter(m=>m.status==="behind").map(m=>m.label);
-      return `<div class="field">
-        <label>Explain why the following weren't met today: ${behindLabels.join(", ")}<span class="req">*</span></label>
-        <div class="hint" style="margin-bottom:4px">Were you focused on one area today? A short explanation is enough — this isn't a penalty, it's context for anyone reviewing the numbers later.</div>
-        <textarea id="eod_offpace_note" placeholder="e.g. Spent the day on a single ACAP site visit run, so employer calls were deprioritised." onchange="saveEOD('offPaceNote',this.value)" style="min-height:70px">${day.eodOffPaceNote||""}</textarea>
-      </div>`;
-    })()}
+    <!-- 2026-08 — Bec: "remove - this is redundant now the primary focus
+         is in the same tab." The standalone off-pace explanation prompt
+         (behind-pace metrics → required free-text reason) was removed:
+         the Primary Focus card above already covers this ground — it asks
+         for the same kind of explanation (why a focus's minimum wasn't
+         met) whenever the coordinator is behind on their selected focus,
+         so asking a second, near-identical question here was redundant.
+         day.eodOffPaceNote / saveEOD('offPaceNote',...) are left in place
+         (harmless) so already-recorded historical notes still display on
+         the Weekly Summary/Manager Dashboard "Needs attention" rollups —
+         only the input prompt and its required-field gate are removed. -->
     <div style="display:flex;gap:8px;margin-top:4px">
       <button onclick="saveEOD('status','draft')" class="${!eodComplete?"btn-primary":"btn-ghost"} btn-sm">Save as draft</button>
       <button onclick="saveEOD('status','complete')" class="${eodComplete?"btn-success":"btn-primary"} btn-sm">✓ Mark day complete</button>
@@ -5487,26 +5479,17 @@ function saveEOD(field,val){
           }
         }
       }
-      // 2026-08-06 — Bec: "can we have this only to be set where a team
-      // member hasn't met their daily thresholds ... ask as a prompt
-      // before closing out the daily summary to give an explanation as to
-      // why some areas weren't met if they were focused on one thing?"
-      // Uses the exact same computeDailyPaceDetails() "behind" check that
-      // drives this tab's Daily Pace card, so the gate can never fire (or
-      // fail to fire) inconsistently with what the coordinator can already
-      // see above. Re-read the live textarea value (not just day.
-      // eodOffPaceNote) in case the coordinator typed into it but the
-      // field hasn't fired its onchange yet (e.g. still focused, then
-      // clicked "Mark day complete" directly).
-      const pace = computeDailyPaceDetails(S.user.coord, STATES[S.user.coord], S.date);
-      if(pace.behind>0){
-        const liveNote = document.getElementById("eod_offpace_note")?.value;
-        if(liveNote!==undefined) day.eodOffPaceNote = liveNote;
-        if(!day.eodOffPaceNote||!day.eodOffPaceNote.trim()){
-          const behindLabels = pace.details.filter(m=>m.status==="behind").map(m=>m.label);
-          eodErrs.push("Please explain why "+behindLabels.join(", ")+" "+(behindLabels.length>1?"weren't":"wasn't")+" met today before marking the day complete.");
-        }
-      }
+      // 2026-08-06 — this standalone off-pace explanation gate (added per
+      // Bec: "ask as a prompt before closing out the daily summary to give
+      // an explanation as to why some areas weren't met") was REMOVED
+      // 2026-08 per Bec: "remove - this is redundant now the primary focus
+      // is in the same tab" — the Primary Focus shortfall gate above
+      // (focusThresholdShortfallPrompt) already asks essentially the same
+      // question whenever the coordinator's selected focus is behind, so
+      // requiring a second near-identical explanation here was redundant.
+      // day.eodOffPaceNote is left in the data model (unused going
+      // forward) so already-recorded historical notes keep displaying on
+      // the Weekly Summary/Manager Dashboard "Needs attention" rollups.
       if(eodErrs.length){
         const el=document.getElementById("eod_errors");
         if(el) el.innerHTML='<div style="background:var(--red);color:var(--redt);padding:10px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:12px">⚠ '+eodErrs.join('<br>⚠ ')+'</div>';
