@@ -3126,7 +3126,18 @@ function renderDailyDashboard(){
     const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced (commencements can never have a follow-up, so no closure ever attributes here)
     const registrations       = acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length; // logged as registered (not every registration touch — see Total Contacts Attempted for that)
     const enrolments          = acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length; // marked as enrolled, or a standalone Enrolment record added
-    const pipelineContacted   = acts.filter(a=>effContactType(a)==="pipeline").length; // records touched, regardless of whether the stage changed — now including closed Pipeline follow-ups
+    // FIXED 2026-08-05 per Bec: "Pipeline Progression Attempts" only ever
+    // counted the "pipeline" activity type (Registration Pipeline, i.e.
+    // pre-registration lead progression) — it silently excluded
+    // "enrolment_pipeline" (Enrolment Pipeline, post-registration
+    // progression) entirely, even though both are the same underlying
+    // concept for this tile's purpose ("a pipeline record got touched,
+    // regardless of stage") and every other combined tile here (ACAP
+    // Contacts = acap_contact+acap_f2f, Site Visits = site_visit+
+    // new_employer_met, right above) already merges its sibling subtypes
+    // the same way. A day with 2 Enrolment Pipeline touches and 0
+    // Registration Pipeline touches was showing 0 here instead of 2.
+    const pipelineContacted   = acts.filter(a=>["pipeline","enrolment_pipeline"].includes(effContactType(a))).length; // records touched, regardless of whether the stage changed — now including closed Pipeline/Enrolment Pipeline follow-ups
     const acapContacts        = acts.filter(a=>effContactType(a)==="acap_contact"||effContactType(a)==="acap_f2f").length; // calls + F2F visits combined — now including closed ACAP follow-ups
     const siteVisits          = acts.filter(a=>effContactType(a)==="site_visit"||effContactType(a)==="new_employer_met").length; // Existing + New Employer site visits combined — now including closed site-visit follow-ups
     // Existing vs New Employer Calls — split by the "Employer relationship"
