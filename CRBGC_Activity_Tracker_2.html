@@ -160,6 +160,15 @@ const CALL_OUTCOMES = [
   "Do not contact — removed from list","New Contact Added","Other"
 ];
 
+// 2026-08-05 per Bec: "Add 'future opportunity' to the outcome selection
+// within the 'log Employer call' activity" — scoped to the Employer Call
+// form's primary "Outcome" dropdown (ec_outcome/callOutcome) specifically,
+// NOT the shared CALL_OUTCOMES list above (which is also used by Student
+// Lead and Pipeline's own Outcome dropdowns — widening CALL_OUTCOMES
+// itself would have silently added this option to those two unrelated
+// forms as well).
+const EMPLOYER_CALL_OUTCOMES = CALL_OUTCOMES.concat(["Future opportunity"]);
+
 const ENROLMENT_CONTACT_OUTCOMES = [
   "Enrolled","Connected – meaningful conversation","Connected – no current opportunity",
   "No answer","Voicemail left","Follow-up message sent",
@@ -187,6 +196,37 @@ const ACTIVITY_OUTCOMES = [
 const SITE_VISIT_OUTCOMES = ACTIVITY_OUTCOMES.filter(function(o){
   return !["Sign-up booked","Sign-up completed","Registration submitted","Registration completed"].includes(o);
 });
+
+// 2026-08-05 per Bec: powers the new "New Opportunity" Manager Dashboard
+// tile — "logs any opportunities logged against all contact types -
+// including events and site visits". Reuses the SAME outcome values the
+// existing "Opportunities generated" badge already checks (Apprentice
+// vacancy identified / Student lead identified / Employer meeting booked
+// / Sign-up booked), now including "Future opportunity". These are all
+// values of the shared `activityOutcome` field, which every relevant
+// activity type (Employer Call's Activity Outcome, Site Visit, Event, Add
+// Employer/New Employer Met) already reads from the SAME ACTIVITY_OUTCOMES/
+// SITE_VISIT_OUTCOMES lists — so no type-gating is needed for this half of
+// the match, exactly like the existing badge.
+const OPPORTUNITY_OUTCOMES = [
+  "Apprentice vacancy identified","Student lead identified",
+  "Employer meeting booked","Sign-up booked","Future opportunity",
+];
+
+// ACAP contacts use a completely separate outcome vocabulary (see
+// ACAP_OUTCOMES inside the activity modal) with no literal overlap with
+// ACTIVITY_OUTCOMES — these 4 are the ones that represent a genuine
+// opportunity in that context. Confirmed with Bec (2026-08-05) to include
+// ACAP in the "all contact types" scope of the new tile. Matched WITH a
+// type check (a.type is acap_contact/acap_f2f) in the tile computation
+// below, unlike OPPORTUNITY_OUTCOMES above — "Meeting booked" here would
+// otherwise collide with the unrelated generic "Meeting booked" outcome
+// option on the close-followup modal (MEANINGFUL_OUTCOMES), which has
+// nothing to do with an ACAP partnership meeting.
+const ACAP_OPPORTUNITY_OUTCOMES = [
+  "Connected — discussed partnership opportunity","Connected — new referral pathway agreed",
+  "Meeting booked","Event collaboration agreed",
+];
 
 const REL_TYPES = [
   "Existing active employer","Existing inactive employer","Previous employer",
@@ -3179,6 +3219,21 @@ function renderDailyDashboard(){
     // count here regardless of what its origType resolves to.
     const leads                = acts.filter(a=>a.type==="lead").length; // ONLY genuinely new leads added to the database today — closed follow-ups never count here, even if their original activity was a "lead"
     const events                = acts.filter(a=>effContactType(a)==="event").length; // now including closed Event follow-ups
+    // 2026-08-05 per Bec: "New Opportunity" tile — any opportunity logged
+    // against ANY contact type (employer calls, site visits, events, new
+    // employers, ACAP). OPPORTUNITY_OUTCOMES matches on activityOutcome
+    // with no type-gating, same as the existing "Opportunities generated"
+    // badge (oppsGenerated below) always has; ACAP_OPPORTUNITY_OUTCOMES is
+    // gated to acap_contact/acap_f2f specifically to avoid colliding with
+    // the close-followup modal's own unrelated "Meeting booked" outcome
+    // option; and Employer Call's primary Outcome dropdown (callOutcome)
+    // is checked separately since "Future opportunity" lives there, not in
+    // activityOutcome, for that one type.
+    const newOpportunity = acts.filter(a=>
+      OPPORTUNITY_OUTCOMES.includes(a.activityOutcome)
+      || (["acap_contact","acap_f2f"].includes(a.type) && ACAP_OPPORTUNITY_OUTCOMES.includes(a.activityOutcome))
+      || (a.type==="employer_call" && a.callOutcome==="Future opportunity")
+    ).length;
     const pipelineProgressed = acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
     const followupsClosed = acts.filter(a=>a.type==="follow_up_closed").length;
     const oppsGenerated   = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
@@ -3211,8 +3266,9 @@ function renderDailyDashboard(){
           {lbl:"New Employers Added",        val:newEmployersAdded,      tgt:Math.round(paceTarget(tgt.new_employer_db[s]))},
           {lbl:"Total Contacts Attempted",   val:totalContactsAttempted, tgt:0},
           {lbl:"Meaningful Contacts",        val:callsMeaningful,        tgt:0},
-          {lbl:"Student Leads",              val:leads,                  tgt:Math.round(paceTarget(tgt.lead_generated[s]))},
+          {lbl:"New Student Leads",          val:leads,                  tgt:Math.round(paceTarget(tgt.lead_generated[s]))},
           {lbl:"Events",                     val:events,                 tgt:Math.round(paceTarget(tgt.event[s]))},
+          {lbl:"New Opportunity",            val:newOpportunity,         tgt:0},
         ].map(k=>{
           const onPace = k.tgt===0 || k.val>=k.tgt;
           const col = k.val===0?"var(--tm)":onPace?"var(--greent)":"var(--redt)";
@@ -4238,7 +4294,7 @@ function renderActivityModal(type,data){
       '<select id="ec_rel" data-orig="'+ecRelOrig.replace(/"/g,"&quot;")+'" required>'+
       [""].concat(REL_TYPES).map(function(o){return '<option value="'+o+'"'+(ecRelVal===o?" selected":"")+'>'+(o||"— Select —")+'</option>';}).join("")+
       '</select></div>';
-    fields+=fld("Outcome","ec_outcome","select",data.callOutcome||"",[""].concat(CALL_OUTCOMES),"true");
+    fields+=fld("Outcome","ec_outcome","select",data.callOutcome||"",[""].concat(EMPLOYER_CALL_OUTCOMES),"true");
     const meaningful=data.callOutcome==="Connected – meaningful conversation";
     const isDNC=data.callOutcome==="Do not contact — removed from list";
     fields+=`<div id="dnc_warning" style="display:${isDNC?"block":"none"};background:var(--red);color:var(--redt);padding:10px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
