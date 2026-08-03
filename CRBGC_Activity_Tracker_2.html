@@ -1224,6 +1224,30 @@ function getDayStatusLabel(status){
 }
 
 // Weekly KR totals for a coord over Mon-Fri
+//
+// FIXED 2026-08-06 per Bec: "update the KR totals in both the individual
+// weekly summaries and the management dashboard trends as per the updates
+// we did to count the totals in the management weekly dashboard." Before
+// this fix, weeklyTotals() checked a plain a.type for ACAP/Event/Employer
+// Call/Site Visit/New Employer Met/Pipeline records, so a closed follow-up
+// (type "follow_up_closed") never credited any of those KR rows — even
+// though the SAME closure correctly credits its original type's tile on
+// both the Daily Dashboard (renderDailyDashboard) and the Weekly Manager
+// Dashboard (weeklyTileMetrics, fixed the same way just above). That meant
+// the individual coordinator's own "Weekly KR detail" table (This Week
+// tab), the Weekly Notes/PDF export, and the Trend dashboard could all
+// under-count relative to what the manager's dashboards now show for the
+// exact same week — the same class of silent mismatch already fixed once
+// for ACAP/Pipeline/Existing Employer Calls on 2026-08-04. Now every
+// consumer of weeklyTotals() resolves a closure back to its original
+// activity's type (effContactType) — and, where relevant, relType
+// (effRelType) — via the same origType-first/_closedFromId-fallback logic
+// used everywhere else, so a closed follow-up always credits the same KR
+// row it would if it had been logged fresh that day. Metrics that are
+// deliberately fresh-only per Bec's separate instruction (commencements,
+// registrations, enrolments, and student leads — "student leads should
+// only count new leads added to database on that day") are NOT touched by
+// this fix, matching the Daily/Weekly Dashboard tiles' own carve-outs.
 function weeklyTotals(coord,ds){
   const days=weekDaysMF(ds);
   const T={
@@ -1241,6 +1265,29 @@ function weeklyTotals(coord,ds){
     followup_open:0,followup_overdue:0,
     days_complete:0,days_productive:0,days_partial:0,days_none:0,
   };
+  // 2026-08-06: same origType-first/_closedFromId-fallback resolution used
+  // by renderDailyDashboard()/weeklyTileMetrics() — see the fix note above
+  // this function. Built once per call (not per day) since it scans every
+  // locally-cached day for this coordinator, exactly like the other two.
+  const origActLookup = {};
+  allDays(coord).forEach(function(d){
+    const dd = loadDay(coord, d);
+    (dd.activities||[]).forEach(function(a){ if(a.id) origActLookup[a.id]=a; });
+  });
+  const resolveOrigAct = a => a._closedFromId ? origActLookup[a._closedFromId] : null;
+  const effContactType = a => {
+    if(a.type!=="follow_up_closed") return a.type;
+    if(a.origType) return a.origType;
+    const orig = resolveOrigAct(a);
+    return orig ? orig.type : "";
+  };
+  const effRelType = a => {
+    if(a.type!=="follow_up_closed") return a.relType;
+    if(a.relType) return a.relType;
+    const orig = resolveOrigAct(a);
+    return orig ? (orig.relType||"") : "";
+  };
+
   days.forEach(d=>{
     const day=loadDay(coord,d);
     const st=dayStatus(day);
@@ -1250,6 +1297,10 @@ function weeklyTotals(coord,ds){
     if(day.eodStatus==="complete") T.days_complete++;
     const realActs=realDayActivities(day); // shared with dayStatus() — see note above dayStatus()
     realActs.forEach(a=>{
+      const effType = effContactType(a);
+      // Deliberately fresh-only (a.type, not effType) — matches the Daily/
+      // Weekly Dashboard tiles: a closed follow-up is a RE-contact, not a
+      // brand-new commencement/registration/enrolment/lead.
       if(a.type==="commencement") T.commencement++;
       if(a.type==="registration") T.registration++;
       if(a.type==="registration" && a.contactOutcome==="Registered"){ T.reg_submitted++; }
@@ -1261,30 +1312,38 @@ function weeklyTotals(coord,ds){
         if(a.within24h==="Yes") T.intro_call_done++;
         if(a.within24h==="No" && isOverdue(d)) T.intro_call_overdue++;
       }
-      if(a.type==="acap_contact"||a.type==="acap_f2f"){
+      // FIXED 2026-08-06: now credits closed follow-ups via effType, same
+      // as the Daily/Weekly Dashboard tiles' ACAP Contacts.
+      if(effType==="acap_contact"||effType==="acap_f2f"){
         T.acap_contact_attempted++;
         if(a.activityOutcome && !["No opportunity identified"].includes(a.activityOutcome)) T.acap_contact_meaningful++;
       }
-      if(a.type==="acap_f2f") T.acap_f2f++;
-      if(a.type==="event") T.event++;
-      if(a.type==="employer_call"){
+      if(effType==="acap_f2f") T.acap_f2f++;
+      if(effType==="event") T.event++;
+      if(effType==="employer_call"){
         T.call_attempted++;
         if(a.callOutcome&&a.callOutcome.startsWith("Connected")) T.call_connected++;
         if(a.followUpDate) T.followup_booked++;
       }
       if(isMeaningfulCall(a)) T.call_meaningful++;
-      if(a.type==="site_visit"){
+      // Existing-Employer Site Visits and New-Employer-Met stay two
+      // separate KR rows here (unlike the Weekly Manager Dashboard's single
+      // combined "Site Visits" tile) — each now correctly credits a closed
+      // follow-up back to whichever one its original activity was.
+      if(effType==="site_visit"){
         if(a.suburb) T.site_locations.add(a.suburb);
         T.site_employers++;
         if(a.contactName) T.site_contacts++;
         if(a.activityOutcome&&["Apprentice vacancy identified","Student lead identified","Sign-up booked"].includes(a.activityOutcome)) T.site_opps++;
       }
-      if(a.type==="new_employer_met") T.new_employer_met++;
-      if(a.type==="new_employer_db") T.new_employer_db++;
-      if(a.relType==="New employer acquired") T.new_employer_acq++;
+      if(effType==="new_employer_met") T.new_employer_met++;
+      if(effType==="new_employer_db"||effType==="add_employer") T.new_employer_db++;
+      if((effRelType(a)||"")==="New employer acquired") T.new_employer_acq++;
+      // Fresh-only per Bec: "student leads should only count new leads
+      // added to database on that day" — same carve-out as the dashboards.
       if(a.type==="lead") T.lead++;
       if(a.activityOutcome&&["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)) T.opp_generated++;
-      if(["pipeline","enrolment_pipeline"].includes(a.type)){
+      if(["pipeline","enrolment_pipeline"].includes(effType)){
         T.pipeline_contacted++;
         if(a.newStage&&a.prevStage&&a.newStage!==a.prevStage) T.pipeline_progressed++;
         // 2026-07-28: "records with no movement" — contacted this week but
