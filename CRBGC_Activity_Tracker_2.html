@@ -2320,6 +2320,19 @@ function confirmUser(){
   }
   lsSet("user",S.user);
   render();
+  // FIXED 2026-08-03: loadFromCloud() was previously only ever called
+  // automatically once, at page-load time, gated on whatever S.user
+  // already was at that instant (`if(S.user) loadFromCloud();` at the
+  // bottom of the script). The very first time anyone confirms their
+  // identity in a session — including right after "Switch user" resets
+  // S.user to null — that init check already ran (with S.user still
+  // null), so it never fires again here. The person would land on a view
+  // built entirely from whatever was already sitting in this browser's
+  // local storage — stale or empty — and only a genuine hard refresh
+  // would re-run that init check with the newly chosen identity. Calling
+  // loadFromCloud() explicitly here closes that gap for every "who are
+  // you" confirmation, not just the very first page load.
+  loadFromCloud();
 }
 
 function openSettings(){
@@ -3679,7 +3692,11 @@ function renderSettingsModal(){
     ${S.user.isManager?`
     <div class="field">
       <label>View / edit as coordinator</label>
-      <select onchange="S.user.coord=this.value;lsSet('user',S.user);S.status={ok:true,msg:'Viewing as '+this.value+' (manager mode)'};closeModal()">
+      <!-- FIXED 2026-08-03: this used to set S.user.coord directly inline
+           and never called loadFromCloud() — same root cause and fix as
+           switchToCoord(), which this now delegates to instead of
+           duplicating the (previously incomplete) switch logic. -->
+      <select onchange="switchToCoord(this.value);closeModal()">
         ${COORDS.map(c=>`<option value="${c}"${S.user.coord===c?" selected":""}>${c} (${STATES[c]})</option>`).join("")}
       </select>
       <div style="font-size:11px;color:var(--o2t);margin-top:4px;background:var(--o2);padding:6px 8px;border-radius:var(--r)">
@@ -5114,8 +5131,18 @@ function switchToCoord(coord){
   S.user.coord = coord;
   lsSet("user", S.user);
   S.tab = "today";
-  S.status = {ok:true, msg:"Viewing as " + coord + " (manager mode)"};
+  S.status = {ok:true, msg:"Viewing as " + coord + " (manager mode) — loading…"};
   render();
+  // FIXED 2026-08-03: see matching note in confirmUser() — switching which
+  // coordinator's records the manager is viewing never actually pulled
+  // that coordinator's current cloud data; it just re-rendered whatever
+  // was already cached locally for them (which could be stale or, if this
+  // device had never viewed that coordinator before, effectively empty).
+  // Only a hard refresh re-ran the init-time loadFromCloud() with the
+  // newly-switched coordinator now persisted as S.user. This was almost
+  // certainly what "switching between users is glitching, need a hard
+  // reset" was describing.
+  loadFromCloud();
 }
 
 // Batch 8 item 1: rebuilds Step 2 (contact picker) whenever the business
