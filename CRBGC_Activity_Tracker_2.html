@@ -1157,22 +1157,30 @@ function weeklyTotals(coord,ds){
       }
     });
 
-    // Follow-up open/overdue counts must include ALL activities with a
-    // follow-up date — including auto-generated employer/ACAP/student
-    // reminders (auto_fu_/auto_acap_/sl_), which realActs deliberately
-    // excludes since they aren't "real" logged activities. But that
-    // exclusion was wrong for THIS count specifically: it made the KR
-    // panel's follow-up totals massively undercount versus the "X overdue"
-    // badges shown elsewhere (getAllOverdueFollowups), which correctly
-    // include auto-generated reminders since those make up the majority
-    // of actual open follow-ups.
-    (day.activities||[]).forEach(a=>{
-      if(a.followUpDate && a.status!=="Completed" && a.status!=="Closed"){
-        T.followup_open++;
-        if(isOverdue(a.followUpDate)) T.followup_overdue++;
-      }
-    });
   });
+
+  // FIXED 2026-08-03 — found via Bec spotting "60 open follow-ups · none
+  // overdue" directly above a "Follow-up health" card showing 27 overdue
+  // for the same coordinator on the same screen. Root cause: this used to
+  // scan only day.activities for the 5 day-buckets belonging to the
+  // SELECTED week (see the days.forEach above) — but a follow-up's
+  // underlying activity record lives under whatever day it was originally
+  // logged on, and anything actually overdue was, almost by definition,
+  // logged in an earlier week. So this count silently missed nearly every
+  // overdue follow-up while "Follow-up health" (via
+  // getAllOpenFollowupsForDash, an all-time scan across every local day)
+  // correctly found them — the two cards could never have agreed. Follow-up
+  // open/overdue is a live "how many are open right now" snapshot, not a
+  // "logged this week" count, so it now uses the same all-time source
+  // everywhere it's shown (this tab, Weekly Excel/PDF, Trend charts) —
+  // note this does mean the Trend view's "Overdue follow-ups" column will
+  // show today's live count for every past week rather than a distinct
+  // per-week value, since no historical snapshot of past open counts was
+  // ever captured to begin with.
+  const allOpenFu = getAllOpenFollowupsForDash(coord);
+  T.followup_open = allOpenFu.length;
+  T.followup_overdue = allOpenFu.filter(function(f){ return f.followUpDate && isOverdue(f.followUpDate); }).length;
+
   T.site_locations=T.site_locations.size;
   return T;
 }
@@ -3401,7 +3409,10 @@ function renderDashboard(){
         ✓ ${T.followup_open} open follow-ups · none overdue
       </div>`}
 
-      <!-- Follow-up health -->
+      <!-- Follow-up health — 2026-08-03: T.followup_overdue above now comes
+           from this same getAllOpenFollowupsForDash() source (see the fix
+           note in weeklyTotals()), so these two cards can no longer
+           disagree the way "60 open · none overdue" vs "27 overdue" did. -->
       ${(()=>{
         const allFu=getAllOpenFollowupsForDash(coord);
         const overdue=allFu.filter(f=>f.followUpDate&&isOverdue(f.followUpDate));
