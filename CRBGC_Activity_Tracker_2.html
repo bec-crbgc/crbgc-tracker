@@ -236,6 +236,14 @@ const ACAP_OPPORTUNITY_OUTCOMES = [
   "Meeting booked","Event collaboration agreed",
 ];
 
+// 2026-08-06: Risk section on the Daily Summary (renderDailyNotes) —
+// "Responsible Department" options per Bec's spec. "Client Relations"
+// covers the coordinator's own actions; "Other" lets them name a
+// department not on this list without blocking submission.
+const RISK_DEPARTMENTS = [
+  "Training","Student Engagement","Resources","Client Relations","Other",
+];
+
 const REL_TYPES = [
   "Existing active employer","Existing inactive employer","Previous employer",
   "New prospect","New employer acquired"
@@ -344,7 +352,11 @@ function loadDay(coord,date){
   return lsGet(dayKey(coord,date)) || {
     coord,date,focus:"",focusOther:"",
     eodResult:"",eodTomorrow:"",eodAllEntered:"",eodStatus:"draft",
-    activities:[]
+    activities:[],
+    // 2026-08-06: risks entered on the Daily Summary — each a structured
+    // {issue, department, action, outcome} record (see renderDailyNotes'
+    // Risk card), rolled up into the Weekly Summary's own Risk section.
+    risks:[]
   };
 }
 function saveDay(day){ lsSet(dayKey(day.coord,day.date),day); }
@@ -2894,6 +2906,51 @@ function renderDailyNotes(coord,state,day){
     </div>`).join("")}
   </div>`;
 
+  // 2026-08-06: Risk section — structured, multi-entry (unlike the plain
+  // textareas above, a day can have zero, one, or several distinct risks),
+  // rolled up into the Weekly Summary's own Risk section (renderWkNotes)
+  // and the Weekly Notes PDF export (downloadWeeklyNotes). Fields per
+  // Bec's spec: Issue Identified (Root Cause), Responsible Department,
+  // Action Taken, Outcome/Follow-up.
+  const risks=day.risks||[];
+  h+=`<div class="card">
+    <div class="card-title"><i class="ti ti-alert-octagon" style="color:#9c0006"></i> Risk
+      <span class="small muted" style="font-weight:400;margin-left:4px">— issues to own and drive to resolution</span>
+    </div>
+    ${!risks.length?'<div class="small muted" style="margin-bottom:10px">No risks logged for today.</div>':""}
+    ${risks.map((r,i)=>`
+    <div style="border:1px solid var(--bd);border-radius:var(--r2);padding:10px;margin-bottom:10px;background:#fcebeb1a">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:600;color:#9c0006">Risk ${i+1}</span>
+        <button onclick="deleteRisk(${i})" class="btn-ghost btn-sm" style="padding:2px 8px;font-size:11px" title="Remove this risk"><i class="ti ti-trash"></i></button>
+      </div>
+      <div class="field">
+        <label>Issue identified (root cause)</label>
+        <div class="hint" style="margin-bottom:4px">Don't just state the symptom — what's actually driving this problem?</div>
+        <textarea onchange="updateRisk(${i},'issue',this.value)" placeholder="What is the underlying cause?" style="min-height:60px">${r.issue||""}</textarea>
+      </div>
+      <div class="field">
+        <label>Responsible department</label>
+        <div class="hint" style="margin-bottom:4px">Which area is best placed to own the issue?</div>
+        <select onchange="updateRisk(${i},'department',this.value)">
+          <option value="">— Select —</option>
+          ${RISK_DEPARTMENTS.map(d=>`<option value="${d}"${r.department===d?" selected":""}>${d}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
+        <label>Action taken</label>
+        <div class="hint" style="margin-bottom:4px">What have you done so far? Include conversations, referrals, emails or actions completed.</div>
+        <textarea onchange="updateRisk(${i},'action',this.value)" placeholder="What's been done to begin resolving this?" style="min-height:60px">${r.action||""}</textarea>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Outcome / follow-up</label>
+        <div class="hint" style="margin-bottom:4px">What's the current status? If not resolved, who owns the next step and when will you follow up?</div>
+        <textarea onchange="updateRisk(${i},'outcome',this.value)" placeholder="Current status and next step" style="min-height:60px">${r.outcome||""}</textarea>
+      </div>
+    </div>`).join("")}
+    <button onclick="addRisk()" class="btn-ghost btn-sm"><i class="ti ti-plus"></i> Add risk</button>
+  </div>`;
+
   // End of day review
   const eodComplete=day.eodStatus==="complete";
   h+=`<div class="card" style="${eodComplete?"border-color:var(--greent);background:#f0fff8":""}">
@@ -3034,12 +3091,16 @@ function renderWkNotes(coord,state){
   const days=weekDaysMF(S.date);
   // Aggregate daily notes for the week
   const cats={wins:[],blockers:[],pipeline:[],campaign:[]};
+  // 2026-08-06: risk entries roll up here too — every risk logged on any
+  // day this week, tagged with which day it came from.
+  const weekRisks=[];
   days.forEach(d=>{
     const dy=loadDay(coord,d);
     if(dy.nwins&&dy.nwins.trim()) cats.wins.push({d,text:dy.nwins.trim()});
     if(dy.nblockers&&dy.nblockers.trim()) cats.blockers.push({d,text:dy.nblockers.trim()});
     if(dy.npipeline&&dy.npipeline.trim()) cats.pipeline.push({d,text:dy.npipeline.trim()});
     if(dy.ncampaign&&dy.ncampaign.trim()) cats.campaign.push({d,text:dy.ncampaign.trim()});
+    (dy.risks||[]).forEach(r=>{ if(r.issue&&r.issue.trim()) weekRisks.push({d,...r}); });
   });
 
   let h=`<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 0;">
@@ -3073,6 +3134,20 @@ function renderWkNotes(coord,state){
       </div>`).join("")}
     </div>`;
   });
+
+  // 2026-08-06: Risk section — every structured risk entry logged this
+  // week, most recent first, tagged with which day it was raised on.
+  if(weekRisks.length){
+    h+=`<div class="card" style="border-left:3px solid #9c0006;">
+      <div class="card-title" style="color:#9c0006"><i class="ti ti-alert-octagon"></i> Risk</div>
+      ${weekRisks.map(r=>`<div style="margin-bottom:10px;padding:10px;background:#fcebeb;border-radius:var(--r);font-size:12px;">
+        <div style="font-size:11px;font-weight:600;color:#9c0006;margin-bottom:4px">${fmtDate(r.d)}${r.department?" · "+r.department:""}</div>
+        <div style="margin-bottom:4px"><b>Issue (root cause):</b> ${r.issue||""}</div>
+        ${r.action?`<div style="margin-bottom:4px"><b>Action taken:</b> ${r.action}</div>`:""}
+        ${r.outcome?`<div><b>Outcome / follow-up:</b> ${r.outcome}</div>`:""}
+      </div>`).join("")}
+    </div>`;
+  }
 
   // Weekly reflection
   h+=`<div class="card">
@@ -4626,6 +4701,37 @@ function saveFocusOther(){
 function saveNote(field,val){
   const day=getDay(); day[field]=val; saveDay(day);
 }
+
+// 2026-08-06: Risk section (Daily Summary → rolls up into the Weekly
+// Summary's Risk section). Unlike saveNote above, these deliberately set
+// S.unsyncedChanges and call schedulePush() — a risk entry is exactly the
+// kind of record that needs to reach the cloud (and be visible to a
+// manager) reliably, not sit local-only until some unrelated action
+// happens to trigger a sync.
+function addRisk(){
+  const day=getDay();
+  day.risks=day.risks||[];
+  day.risks.push({issue:"",department:"",action:"",outcome:""});
+  saveDay(day);
+  S.unsyncedChanges=true; schedulePush();
+  render();
+}
+function updateRisk(idx,field,val){
+  const day=getDay();
+  day.risks=day.risks||[];
+  if(!day.risks[idx]) return;
+  day.risks[idx][field]=val;
+  saveDay(day);
+  S.unsyncedChanges=true; schedulePush();
+}
+function deleteRisk(idx){
+  const day=getDay();
+  day.risks=day.risks||[];
+  day.risks.splice(idx,1);
+  saveDay(day);
+  S.unsyncedChanges=true; schedulePush();
+  render();
+}
 function saveEOD(field,val){
   const day=getDay();
   if(field==="result") day.eodResult=val;
@@ -6052,6 +6158,7 @@ async function pushData() {
       eodTomorrow:day.eodTomorrow||"", eodAllEntered:day.eodAllEntered||"",
       nwins:day.nwins||"", nblockers:day.nblockers||"",
       npipeline:day.npipeline||"", ncampaign:day.ncampaign||"",
+      risks:day.risks||[],
     });
     const realActs=realDayActivities(day); // shared with dayStatus()/weeklyTotals() — see note above dayStatus()
     realActs.forEach(a=>{
@@ -6248,6 +6355,12 @@ function mergeCloudData(cloudData, coord) {
       day.nblockers=dm.nblockers||day.nblockers;
       day.npipeline=dm.npipeline||day.npipeline;
       day.ncampaign=dm.ncampaign||day.ncampaign;
+      // 2026-08-06: risks — an array, not a string, so the "||" fallback
+      // pattern above (falsy-string means untouched) doesn't apply; only
+      // adopt the cloud's version when it actually has entries, so a
+      // device that hasn't pushed its own local risk edits yet doesn't
+      // get them clobbered by an empty cloud array.
+      if(dm.risks&&dm.risks.length) day.risks=dm.risks;
     }
     saveDay(day);
   });
@@ -6490,12 +6603,14 @@ function downloadWeeklyNotes(){
   try{const r=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(r)ref=JSON.parse(r);}catch(e){}
 
   const cats={wins:[],blockers:[],pipeline:[],campaign:[]};
+  const weekRisks=[];
   days.forEach(d=>{
     const dy=loadDay(coord,d);
     if(dy.nwins?.trim()) cats.wins.push({d,text:dy.nwins.trim()});
     if(dy.nblockers?.trim()) cats.blockers.push({d,text:dy.nblockers.trim()});
     if(dy.npipeline?.trim()) cats.pipeline.push({d,text:dy.npipeline.trim()});
     if(dy.ncampaign?.trim()) cats.campaign.push({d,text:dy.ncampaign.trim()});
+    (dy.risks||[]).forEach(r=>{ if(r.issue&&r.issue.trim()) weekRisks.push({d,...r}); });
   });
 
   const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Weekly Notes — ${coord}</title>
@@ -6505,6 +6620,10 @@ function downloadWeeklyNotes(){
   .sec{margin-bottom:20px}.sec-title{font-size:14px;font-weight:700;color:#1C3C6B;border-bottom:2px solid #1C3C6B;padding-bottom:4px;margin-bottom:10px}
   .note{background:#f8f9fa;border-radius:6px;padding:10px;margin-bottom:8px}
   .note-day{font-size:11px;font-weight:700;color:#555;margin-bottom:4px}
+  .risk-sec-title{font-size:14px;font-weight:700;color:#9c0006;border-bottom:2px solid #9c0006;padding-bottom:4px;margin-bottom:10px}
+  .risk{background:#fcebeb;border-radius:6px;padding:10px;margin-bottom:8px}
+  .risk-day{font-size:11px;font-weight:700;color:#9c0006;margin-bottom:4px}
+  .risk div{margin-bottom:4px}
   .q{font-weight:700;margin-bottom:3px}.sub{font-size:11px;color:#888;margin-bottom:6px}
   .ans{background:#f8f9fa;border-left:3px solid #1C3C6B;padding:10px;border-radius:0 6px 6px 0;white-space:pre-wrap;line-height:1.6}
   .empty{color:#aaa;font-style:italic}
@@ -6518,6 +6637,13 @@ function downloadWeeklyNotes(){
   ].filter(c=>cats[c.key].length>0).map(c=>`<div class="sec"><div class="sec-title">${c.title}</div>
     ${cats[c.key].map(e=>`<div class="note"><div class="note-day">${fmtDate(e.d)}</div><div>${e.text}</div></div>`).join("")}
   </div>`).join("")}
+  ${weekRisks.length?`<div class="sec"><div class="risk-sec-title">Risk</div>
+    ${weekRisks.map(r=>`<div class="risk"><div class="risk-day">${fmtDate(r.d)}${r.department?" · "+r.department:""}</div>
+      <div><b>Issue (root cause):</b> ${r.issue||""}</div>
+      ${r.action?`<div><b>Action taken:</b> ${r.action}</div>`:""}
+      ${r.outcome?`<div><b>Outcome / follow-up:</b> ${r.outcome}</div>`:""}
+    </div>`).join("")}
+  </div>`:""}
   <div class="sec"><div class="sec-title">Weekly Reflection</div>
     <div style="margin-bottom:14px"><div class="q">1. What moved registrations forward this week?</div><div class="sub">Which decisions, conversations, or actions genuinely advanced BAA and CWBTS?</div><div class="ans ${!ref.wr1?"empty":""}">${ref.wr1||"No response recorded"}</div></div>
     <div style="margin-bottom:14px"><div class="q">2. What created friction?</div><div class="sub">Not to assign blame, but to remove obstacles.</div><div class="ans ${!ref.wr2?"empty":""}">${ref.wr2||"No response recorded"}</div></div>
