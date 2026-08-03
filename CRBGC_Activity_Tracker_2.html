@@ -4376,7 +4376,15 @@ function saveWeeklyReflection(){
     wr3:document.getElementById("wr3")?.value||"",
   };
   try{localStorage.setItem(PFX+"wkref:"+S.user.coord+":"+wkMon,JSON.stringify(obj));}catch(e){}
-  S.status={ok:true,msg:"Weekly reflection saved"};
+  // FIXED 2026-08-03: this never set S.unsyncedChanges, so a reflection
+  // saved with nothing else logged that session was invisible to BOTH the
+  // 3-second debounced push AND the 5-minute fallback timer (which only
+  // fires when S.unsyncedChanges is true) — it would sit local-only until
+  // some unrelated activity happened to trigger a push later, or the
+  // coordinator remembered to hit "Push to Sheets" themselves.
+  S.unsyncedChanges=true;
+  schedulePush();
+  S.status={ok:true,msg:"Weekly reflection saved — syncing…"};
   render();
 }
 
@@ -4706,7 +4714,14 @@ function closeFollowup(id, date, coord) {
     }
   } catch(e) {}
   S.unsyncedChanges = true;
-  S.status = {ok:true, msg:"Follow-up marked complete — push to sync"};
+  // FIXED 2026-08-03: this used to only set the unsynced flag and rely on
+  // the 5-minute fallback timer or a manual push — every other data-saving
+  // action (logging/editing/deleting an activity) schedules an immediate
+  // 3-second debounced push, but closing a follow-up didn't, so a closed
+  // follow-up could sit local-only for up to 5 minutes (or longer on
+  // mobile, where backgrounded tabs can suspend that timer entirely).
+  schedulePush();
+  S.status = {ok:true, msg:"Follow-up marked complete — syncing…"};
   render();
 }
 
@@ -4838,7 +4853,10 @@ function snoozeFollowup(id, date, coord) {
   }
 
   S.unsyncedChanges = true;
-  S.status = {ok:true, msg:"Snoozed to "+tomorrowStr+(bizName?" — "+bizName:"")+" — push to sync"};
+  // FIXED 2026-08-03: see matching note in closeFollowup() — snoozing
+  // previously never scheduled the 3-second debounced push either.
+  schedulePush();
+  S.status = {ok:true, msg:"Snoozed to "+tomorrowStr+(bizName?" — "+bizName:"")+" — syncing…"};
   render();
 }
 
@@ -4975,6 +4993,12 @@ function confirmCloseFollowup(id, date, coord) {
 
   S.modal = null;
   S.unsyncedChanges = true;
+  // FIXED 2026-08-03: see matching note in closeFollowup() — confirming a
+  // follow-up closure (with outcome/notes, the most detailed close path)
+  // previously never scheduled the 3-second debounced push either, despite
+  // being the action most likely to contain the "what happened" text Bec
+  // asked to have surfaced in the weekly reports.
+  schedulePush();
 
   // Update WIP database (Employer/ACAP next contact date, or Student
   // Lead/Enrolment Pipeline follow-up date) so this closure actually
@@ -5035,8 +5059,8 @@ function confirmCloseFollowup(id, date, coord) {
   } catch(e_){}
 
   const msg = isMeaningful
-    ? "✅ Follow-up closed — counted as today's activity. Push to sync."
-    : "Follow-up closed (no meaningful contact recorded). Push to sync.";
+    ? "✅ Follow-up closed — counted as today's activity. Syncing…"
+    : "Follow-up closed (no meaningful contact recorded). Syncing…";
   S.status = {ok:true, msg};
   render();
 }
@@ -6198,6 +6222,25 @@ window.addEventListener("beforeunload", function(e){
     e.returnValue="You have unsynced changes. Push to Sheets before closing?";
   }
 });
+
+// ADDED 2026-08-03: push immediately when the tab/app is backgrounded, not
+// just when it's actually closed. Mobile browsers routinely suspend or
+// heavily throttle JavaScript timers (including the 3-second debounce and
+// the 5-minute fallback above) once a tab is backgrounded or the phone is
+// locked — so on mobile specifically, a coordinator switching apps right
+// after logging something could otherwise leave it stuck local-only well
+// past 5 minutes, with no beforeunload warning either (that only fires on
+// an actual close, which backgrounding is not). visibilitychange fires
+// reliably in this situation across modern mobile and desktop browsers;
+// pagehide is added as a second signal for browsers/cases where
+// visibilitychange alone doesn't cover an actual navigation-away.
+function pushOnBackground(){
+  if(S.unsyncedChanges && !S.syncing && S.user) pushData();
+}
+document.addEventListener("visibilitychange", function(){
+  if(document.visibilityState==="hidden") pushOnBackground();
+});
+window.addEventListener("pagehide", pushOnBackground);
 </script>
 </body>
 </html>
