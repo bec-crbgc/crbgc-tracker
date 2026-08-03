@@ -1307,7 +1307,21 @@ function weeklyTotals(coord,ds){
       // Weekly Dashboard tiles: a closed follow-up is a RE-contact, not a
       // brand-new commencement/registration/enrolment/lead.
       if(a.type==="commencement") T.commencement++;
-      if(a.type==="registration") T.registration++;
+      // FIXED 2026-08-06 per Bec: "registrations should only pull new
+      // registrations logged for the day, not existing registration
+      // activities." Was every Registration Pipeline touch (a.type===
+      // "registration", unconditional) — including a coordinator simply
+      // progressing a student who was ALREADY in the pipeline from an
+      // earlier day. Bec's clarification: "new" specifically means a
+      // brand-new person, not an existing lead/contact — i.e. the
+      // Registration form's "+ new student" capture block was used
+      // (act.newContactDetails is only ever set when the typed name
+      // didn't match any existing lead — see onRegNameInput/saveActivity),
+      // as opposed to picking an already-known student off the list. A
+      // returning/existing student progressing through the pipeline is
+      // now correctly excluded — that activity instead counts toward
+      // Pipeline Progressed below if it moved a stage.
+      if(a.type==="registration" && a.newContactDetails) T.registration++;
       if(a.type==="registration" && a.contactOutcome==="Registered"){ T.reg_submitted++; }
       if(a.type==="registration" && a.newStage==="Sign-up booked") T.signup_booked++;
       if(a.type==="enrolment") T.enrolment++;
@@ -1348,9 +1362,26 @@ function weeklyTotals(coord,ds){
       // added to database on that day" — same carve-out as the dashboards.
       if(a.type==="lead") T.lead++;
       if(a.activityOutcome&&["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)) T.opp_generated++;
+      // FIXED 2026-08-06 per Bec: "Pipeline progressed should show any
+      // pipeline (enrolment/registrations) that have had movement and are
+      // marked as progressed as per the pipeline tab." Was scoped to
+      // pipeline+enrolment_pipeline only (effType-based, i.e. crediting
+      // closed follow-ups) — silently excluding "registration" entirely,
+      // even though the Pipeline tab itself (renderPipeline's `pipes`/
+      // `progressed`) has always treated Registration Pipeline as one of
+      // the three pipeline types whose stage movement counts. Matches that
+      // tab's own definition exactly: raw a.type (no effType/closed-
+      // follow-up resolution — the Pipeline tab doesn't do that either),
+      // any of the three types, moved when prevStage/newStage are both set
+      // and differ. Deliberately a standalone check, NOT nested inside the
+      // pipeline_contacted block below — pipeline_contacted intentionally
+      // stays pipeline+enrolment_pipeline-only (unchanged; Registrations
+      // above already tracks new registration entries separately).
+      if(["pipeline","registration","enrolment_pipeline"].includes(a.type) && a.newStage && a.prevStage && a.newStage!==a.prevStage){
+        T.pipeline_progressed++;
+      }
       if(["pipeline","enrolment_pipeline"].includes(effType)){
         T.pipeline_contacted++;
-        if(a.newStage&&a.prevStage&&a.newStage!==a.prevStage) T.pipeline_progressed++;
         // 2026-07-28: "records with no movement" — contacted this week but
         // the stage didn't change (distinct from records never contacted).
         if(a.newStage&&a.prevStage&&a.newStage===a.prevStage) T.pipeline_no_movement++;
@@ -1521,7 +1552,9 @@ function downloadDailyExcel() {
 
       const metrics = [
         {label:"Commencements",         val:acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(tgt.commencement[s])),  obj:"o1"},
-        {label:"Registrations",          val:acts.filter(function(a){return a.type==="registration";}).length,       tgt:Math.round(paceTarget(tgt.registration[s])),  obj:"o1"},
+        // 2026-08-06: only a brand-new person (newContactDetails set) counts
+        // as a new registration — see weeklyTotals()'s matching fix.
+        {label:"Registrations",          val:acts.filter(function(a){return a.type==="registration"&&a.newContactDetails;}).length,       tgt:Math.round(paceTarget(tgt.registration[s])),  obj:"o1"},
         {label:"ACAP contacts",          val:acts.filter(function(a){return a.type==="acap_contact"||a.type==="acap_f2f";}).length, tgt:Math.round(paceTarget(tgt.acap_contact[s])), obj:"o2"},
         {label:"ACAP F2F visits",        val:acts.filter(function(a){return a.type==="acap_f2f";}).length,            tgt:Math.round(paceTarget(tgt.acap_f2f[s])),      obj:"o2"},
         {label:"Events",                 val:acts.filter(function(a){return a.type==="event";}).length,               tgt:Math.round(paceTarget(tgt.event[s])),          obj:"o2"},
@@ -1531,7 +1564,9 @@ function downloadDailyExcel() {
         {label:"New employers met",      val:acts.filter(function(a){return a.type==="new_employer_met";}).length,    tgt:Math.round(paceTarget(tgt.new_employer_met[s])),obj:"o3"},
         {label:"Student leads",          val:acts.filter(function(a){return a.type==="lead";}).length,                tgt:Math.round(paceTarget(tgt.lead_generated[s])),obj:"o3"},
         {label:"Pipeline contacted",     val:acts.filter(function(a){return a.type==="pipeline";}).length,            tgt:0,                                             obj:"o3"},
-        {label:"Pipeline progressed",    val:acts.filter(function(a){return a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage;}).length,tgt:0,    obj:"o3"},
+        // 2026-08-06: widened to match renderPipeline()'s own definition —
+        // pipeline + registration + enrolment_pipeline, see weeklyTotals().
+        {label:"Pipeline progressed",    val:acts.filter(function(a){return ["pipeline","registration","enrolment_pipeline"].includes(a.type)&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage;}).length,tgt:0,    obj:"o3"},
         {label:"Follow-ups closed",      val:acts.filter(function(a){return a.type==="follow_up_closed";}).length,   tgt:0,                                             obj:"o3"},
         {label:"Opportunities generated",val:acts.filter(function(a){return ["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome);}).length,tgt:0,obj:"o3"},
       ];
@@ -2207,7 +2242,9 @@ function downloadDashboardPDF() {
       const statusLabel = status==="productive"?"✅ Productive day":status==="partial"?"◐ Partial activity":"○ No meaningful activity";
 
       const commencements    = acts.filter(a=>a.type==="commencement").length;
-      const registrations    = acts.filter(a=>a.type==="registration").length;
+      // 2026-08-06: only a brand-new person (newContactDetails set) counts
+      // as a new registration — see weeklyTotals()'s matching fix.
+      const registrations    = acts.filter(a=>a.type==="registration"&&a.newContactDetails).length;
       const acapContacts     = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
       const callsAttempted   = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))).length;
       const callsMeaningful  = acts.filter(isMeaningfulCall).length;
@@ -2215,7 +2252,9 @@ function downloadDashboardPDF() {
       const newEmployers     = acts.filter(a=>a.type==="new_employer_met"||a.type==="new_employer_db").length;
       const leads            = acts.filter(a=>a.type==="lead").length;
       const pipelineContacted= acts.filter(a=>a.type==="pipeline").length;
-      const pipelineProgressed=acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
+      // 2026-08-06: widened to match renderPipeline()'s own definition —
+      // pipeline + registration + enrolment_pipeline, see weeklyTotals().
+      const pipelineProgressed=acts.filter(a=>["pipeline","registration","enrolment_pipeline"].includes(a.type)&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
       const followupsClosed  = acts.filter(a=>a.type==="follow_up_closed").length;
       const opps             = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
 
@@ -3404,7 +3443,12 @@ function weeklyTileMetrics(coord, targetDate){
 
   return {
     commencements:       acts.filter(a=>a.type==="commencement").length,
-    registrations:       acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length,
+    // FIXED 2026-08-06 per Bec: only a brand-new person (Registration
+    // form's "+ new student" capture used, i.e. act.newContactDetails set)
+    // counts as a new registration — see weeklyTotals()'s matching fix for
+    // the full rationale. An existing lead being progressed through the
+    // pipeline no longer inflates this tile.
+    registrations:       acts.filter(a=>a.type==="registration"&&a.newContactDetails).length,
     enrolments:          acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length,
     pipelineContacted:   acts.filter(a=>["pipeline","enrolment_pipeline"].includes(effContactType(a))).length,
     acapContacts:        acts.filter(a=>effContactType(a)==="acap_contact"||effContactType(a)==="acap_f2f").length,
@@ -3489,7 +3533,16 @@ function renderDailyDashboard(){
     };
 
     const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced (commencements can never have a follow-up, so no closure ever attributes here)
-    const registrations       = acts.filter(a=>a.type==="registration"&&a.contactOutcome==="Registered").length; // logged as registered (not every registration touch — see Total Contacts Attempted for that)
+    // FIXED 2026-08-06 per Bec: "registrations should only pull new
+    // registrations logged for the day, not existing registration
+    // activities" — only a brand-new person (Registration form's "+ new
+    // student" capture used, act.newContactDetails set) counts; an
+    // existing lead being progressed through the pipeline no longer
+    // inflates this tile (see weeklyTotals()'s matching fix for the full
+    // rationale, including why contactOutcome==="Registered" was the
+    // wrong signal — that's the outcome of TODAY's contact, not whether
+    // this was a brand-new person).
+    const registrations       = acts.filter(a=>a.type==="registration"&&a.newContactDetails).length;
     const enrolments          = acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length; // marked as enrolled, or a standalone Enrolment record added
     // FIXED 2026-08-05 per Bec: "Pipeline Progression Attempts" only ever
     // counted the "pipeline" activity type (Registration Pipeline, i.e.
@@ -3559,7 +3612,12 @@ function renderDailyDashboard(){
       || (["acap_contact","acap_f2f"].includes(a.type) && ACAP_OPPORTUNITY_OUTCOMES.includes(a.activityOutcome))
       || (a.type==="employer_call" && a.callOutcome==="Future opportunity")
     ).length;
-    const pipelineProgressed = acts.filter(a=>a.type==="pipeline"&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
+    // FIXED 2026-08-06 per Bec: "Pipeline progressed should show any
+    // pipeline (enrolment/registrations) that have had movement and are
+    // marked as progressed as per the pipeline tab" — widened from
+    // pipeline-only to match renderPipeline()'s own `pipes`/`progressed`
+    // definition exactly (pipeline + registration + enrolment_pipeline).
+    const pipelineProgressed = acts.filter(a=>["pipeline","registration","enrolment_pipeline"].includes(a.type)&&a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
     const followupsClosed = acts.filter(a=>a.type==="follow_up_closed").length;
     const oppsGenerated   = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
 
