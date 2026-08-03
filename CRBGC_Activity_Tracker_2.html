@@ -1200,6 +1200,9 @@ function downloadDailyExcel() {
       ws.getColumn(2).width = 12;
       ws.getColumn(3).width = 16;
       ws.getColumn(4).width = 16;
+      ws.getColumn(5).width = 22;
+      ws.getColumn(6).width = 20;
+      ws.getColumn(7).width = 26;
 
       let r = 1;
 
@@ -1281,14 +1284,14 @@ function downloadDailyExcel() {
       r++; // blank
 
       // Activity log
-      ws.mergeCells(r,1,r,4);
+      ws.mergeCells(r,1,r,7);
       const actHdr = ws.getCell(r,1);
       actHdr.value = "Activity Log ("+acts.length+" entries)";
       actHdr.fill = HDR2; actHdr.font = {bold:true,color:{argb:"FFFFFFFF"}};
       ws.getRow(r).height = 16; r++;
 
       // Activity log headers
-      ["Type","Name / Contact","Outcome","Next Action / Follow-up"].forEach(function(h,c){
+      ["Type","Name / Contact","Outcome","Next Action / Follow-up","Action Completed Today","Barrier","What Happened"].forEach(function(h,c){
         hdrCell(ws,r,c+1,h,HDR);
       });
       ws.getRow(r).height = 15; r++;
@@ -1299,6 +1302,9 @@ function downloadDailyExcel() {
         dataCell(ws,r,2,a.bizName||a.acapOrg||a.leadName||a.studentName||a.eventName||"",false,fill);
         dataCell(ws,r,3,a.activityOutcome||a.callOutcome||"",false,fill);
         dataCell(ws,r,4,(a.nextAction||"")+(a.followUpDate?" · "+fmtDateShort(a.followUpDate):""),false,fill);
+        dataCell(ws,r,5,a.actionToday||"",false,fill);
+        dataCell(ws,r,6,a.barrier||"",false,fill);
+        dataCell(ws,r,7,a.closeNotes||(a.type==="follow_up_closed"?a.notes:"")||"",false,fill);
         ws.getRow(r).height = 15; r++;
       });
     });
@@ -1363,6 +1369,9 @@ function downloadWeeklyExcel() {
       ws.getColumn(3).width = 12;
       ws.getColumn(4).width = 12;
       ws.getColumn(5).width = 14;
+      ws.getColumn(6).width = 22;
+      ws.getColumn(7).width = 20;
+      ws.getColumn(8).width = 26;
 
       let r = 1;
 
@@ -1481,6 +1490,56 @@ function downloadWeeklyExcel() {
           ws.getRow(r).height=15; r++;
         });
         r++; // blank between sections
+      });
+
+      // 2026-08-03: itemized weekly Activity Log (per Bec's request that
+      // Next Action, Action Completed Today, Barrier and "What Happened"
+      // show in the weekly log records — this table was previously KPI
+      // totals only, with no per-activity detail).
+      const weekDates = weekDaysMF(S.date);
+      const weekActs = [];
+      weekDates.forEach(function(d){
+        const day = loadDay(coord, d);
+        realDayActivities(day).forEach(function(a){
+          const withDate = Object.assign({}, a);
+          withDate._date = d;
+          weekActs.push(withDate);
+        });
+      });
+
+      ws.mergeCells(r,1,r,8);
+      const wActHdr = ws.getCell(r,1);
+      wActHdr.value = "Activity Log ("+weekActs.length+" entries)";
+      wActHdr.fill = HDR2; wActHdr.font = {bold:true,color:{argb:"FFFFFFFF"}};
+      wActHdr.alignment = {horizontal:"left",vertical:"middle"};
+      ws.getRow(r).height = 16; r++;
+
+      ["Date","Type","Name / Contact","Outcome","Next Action / Follow-up","Action Completed Today","Barrier","What Happened"].forEach(function(h,c){
+        const cell = ws.getCell(r,c+1);
+        cell.value = h; cell.fill = HDR;
+        cell.font = {bold:true,color:{argb:"FFFFFFFF"}};
+        cell.alignment = {horizontal:c===0?"left":"center",vertical:"middle"};
+      });
+      ws.getRow(r).height = 15; r++;
+
+      weekActs.forEach(function(a, ai) {
+        const fill = ai%2===0?ALT:WHT;
+        function wCell(c,v,align){
+          const cell = ws.getCell(r,c);
+          cell.value = v; cell.fill = fill;
+          cell.font = {color:{argb:"FF1a1a1a"}};
+          cell.alignment = {horizontal:align||"left",vertical:"middle"};
+          cell.border = {bottom:{style:"hair",color:{argb:"FFE0E0E0"}}};
+        }
+        wCell(1, fmtDateShort(a._date));
+        wCell(2, activityLabel(a.type), "center");
+        wCell(3, a.bizName||a.acapOrg||a.leadName||a.studentName||a.eventName||"");
+        wCell(4, a.activityOutcome||a.callOutcome||"");
+        wCell(5, (a.nextAction||"")+(a.followUpDate?" · "+fmtDateShort(a.followUpDate):""));
+        wCell(6, a.actionToday||"");
+        wCell(7, a.barrier||"");
+        wCell(8, a.closeNotes||(a.type==="follow_up_closed"?a.notes:"")||"");
+        ws.getRow(r).height = 15; r++;
       });
     });
 
@@ -1920,6 +1979,9 @@ function downloadDashboardPDF() {
                 ${a.callOutcome?`<span class="muted"> · ${a.callOutcome}</span>`:""}
                 ${a.activityOutcome?`<span class="muted"> · ${a.activityOutcome}</span>`:""}
                 ${a.nextAction?`<div class="next-action">→ ${a.nextAction}${a.followUpDate?" · due "+fmtDateShort(a.followUpDate):""}</div>`:""}
+                ${a.actionToday?`<div class="next-action">✓ Action completed today: ${a.actionToday}</div>`:""}
+                ${a.barrier?`<div class="next-action">🔒 Barrier: ${a.barrier}</div>`:""}
+                ${(a.closeNotes||(a.type==="follow_up_closed"&&a.notes))?`<div class="next-action">💬 What happened: ${a.closeNotes||a.notes}</div>`:""}
               </div>`;
             }).join("")}
           </div>`:""}
@@ -1928,6 +1990,18 @@ function downloadDashboardPDF() {
       // Weekly view
       const T = weeklyTotals(coord, date);
       const fnl = computeStrictLeadFunnel(coord);
+      // 2026-08-03: itemized weekly activity log — see matching note in
+      // downloadWeeklyExcel(); this view was previously KPI totals only.
+      const weekDates = weekDaysMF(date);
+      const weekActs = [];
+      weekDates.forEach(function(d){
+        const wDay = loadDay(coord, d);
+        realDayActivities(wDay).forEach(function(a){
+          const withDate = Object.assign({}, a);
+          withDate._date = d;
+          weekActs.push(withDate);
+        });
+      });
       const statusCounts = `${T.days_productive} productive · ${T.days_partial} partial · ${T.days_none} no activity · ${T.days_complete} complete`;
       const metrics = [
         ["Commencements",        T.commencement,         tgt.commencement[s]],
@@ -1972,6 +2046,23 @@ function downloadDashboardPDF() {
             }).join("")}
           </table>
           ${T.followup_overdue>0?`<div class="warn-block">⚠ ${T.followup_overdue} overdue follow-up${T.followup_overdue>1?"s":""} require attention</div>`:""}
+          ${weekActs.length>0?`
+          <div class="act-log"><strong>Activity log (${weekActs.length} entries)</strong>
+            ${weekActs.map(function(a){
+              return `<div class="act-row">
+                <span class="muted">${fmtDateShort(a._date)}</span>
+                <span class="act-tag">${activityLabel(a.type)}</span>
+                <span>${a.bizName||a.acapOrg||a.leadName||a.studentName||a.eventName||""}</span>
+                ${a.contactName?`<span class="muted"> · ${a.contactName}</span>`:""}
+                ${a.callOutcome?`<span class="muted"> · ${a.callOutcome}</span>`:""}
+                ${a.activityOutcome?`<span class="muted"> · ${a.activityOutcome}</span>`:""}
+                ${a.nextAction?`<div class="next-action">→ ${a.nextAction}${a.followUpDate?" · due "+fmtDateShort(a.followUpDate):""}</div>`:""}
+                ${a.actionToday?`<div class="next-action">✓ Action completed today: ${a.actionToday}</div>`:""}
+                ${a.barrier?`<div class="next-action">🔒 Barrier: ${a.barrier}</div>`:""}
+                ${(a.closeNotes||(a.type==="follow_up_closed"&&a.notes))?`<div class="next-action">💬 What happened: ${a.closeNotes||a.notes}</div>`:""}
+              </div>`;
+            }).join("")}
+          </div>`:""}
         </div>`;
     }
   });
@@ -2391,6 +2482,9 @@ function renderActItem(a, viewCoord){
     ${a.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${a.relType}</div>`:""}
     ${(a.callOutcome||a.contactOutcome||a.activityOutcome)?`<div style="font-size:12px;margin-top:2px;${meaningful?"color:var(--greent);font-weight:600":"color:var(--ts)"}">${a.callOutcome||a.contactOutcome||a.activityOutcome}</div>`:""}
     ${a.nextAction?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-arrow-right"></i> ${a.nextAction}${a.followUpDate?" · Follow-up booked: "+fmtDateShort(a.followUpDate):""}</div>`:""}
+    ${a.actionToday?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-checkbox"></i> Action completed today: ${a.actionToday}</div>`:""}
+    ${a.barrier?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-lock"></i> Barrier: ${a.barrier}</div>`:""}
+    ${(a.closeNotes||(a.type==="follow_up_closed"&&a.notes))?`<div style="font-size:11px;color:var(--tm);margin-top:3px"><i class="ti ti-message-circle"></i> What happened: ${a.closeNotes||a.notes}</div>`:""}
   </div>`;
 }
 
@@ -3749,7 +3843,7 @@ function renderActivityModal(type,data){
     ]);
     fields+=fld("Outcome","reg_contact","select",data.contactOutcome||"",["",...REGISTRATION_CONTACT_OUTCOMES],"true");
     fields+=fld("Barrier to registration","reg_barrier","text",data.barrier||"");
-    fields+=fld("Action completed today","reg_action","textarea",data.actionToday||"");
+    fields+=fld("Action completed today","reg_action","textarea",data.actionToday||"",null,"true");
     // New-list item 5: optional link to an existing/new employer.
     fields+=employerLinkHtml("reg",data.linkedEmployer||"",data.linkedEmployerContact||"");
   }
@@ -4047,7 +4141,7 @@ function renderActivityModal(type,data){
     ]);
     fields+=fld("Outcome","ep_contact","select",data.contactOutcome||"",["",...ENROLMENT_CONTACT_OUTCOMES],"true");
     fields+=fld("Barrier to enrolment","ep_barrier","text",data.barrier||"");
-    fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"");
+    fields+=fld("Action completed today","ep_action","textarea",data.actionToday||"",null,"true");
   }
 
   if(type==="pipeline"){
@@ -4063,7 +4157,7 @@ function renderActivityModal(type,data){
     fields+=fld("Outcome","pl_contact","select",data.contactOutcome||"",[""].concat(CALL_OUTCOMES));
     fields+=fld("Pipeline type","pl_pipeline_type","select",data.pipelineType||"",["","Student Lead","Enrolment Pipeline"],"true");
     fields+=fld("Barrier to registration","pl_barrier","text",data.barrier||"");
-    fields+=fld("Action completed today","pl_action","textarea",data.actionToday||"");
+    fields+=fld("Action completed today","pl_action","textarea",data.actionToday||"",null,"true");
     fields+=fld("Expected registration date","pl_expreg","date",data.expectedReg||"");
   }
 
@@ -4071,7 +4165,7 @@ function renderActivityModal(type,data){
   // Next action & follow-up (for most types)
   if(needsFollowup){
     fields+=`<hr class="divider">`;
-    fields+=fld("Next action","cm_next","text",data.nextAction||"");
+    fields+=fld("Next action","cm_next","text",data.nextAction||"",null,"true");
     fields+=fldRow([
       fld("Follow-up date","cm_fudate","date",data.followUpDate||""),
       fld("Responsible","cm_resp","select",data.responsible||S.user.coord,COORDS),
@@ -4374,7 +4468,16 @@ function saveActivityFromModal(type){
   if(type==="pipeline" && !act.pipelineType) errors.push("Pipeline type is required");
   if(type==="enrolment_pipeline" && !act.newStage) errors.push("New stage is required");
   if(type==="enrolment_pipeline" && !act.contactOutcome) errors.push("Outcome is required");
-  if(ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.nextAction) errors.push("Next action is required for this outcome");
+  // 2026-08-03: Next Action is now mandatory across every activity type
+  // with a follow-up section (everything except Commencement, Enrolment,
+  // and Intro Call — those have no next-action concept) — previously only
+  // required when the chosen outcome happened to be in
+  // ACT_OUTCOME_NEEDS_FOLLOWUP, which left it optional for most entries.
+  if(!["commencement","enrolment","intro_call"].includes(type) && !act.nextAction) errors.push("Next action is required");
+  // Action Completed Today — mandatory on the 3 forms that already have
+  // this field (Registration, Pipeline, Enrolment Pipeline). Not added to
+  // other types, which don't have this field on their form at all.
+  if(["registration","pipeline","enrolment_pipeline"].includes(type) && !act.actionToday) errors.push("Action completed today is required");
   if(ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
   // 2026-07-28: basic format checks — none of these existed before.
   if(!isValidEmail_(act.email)) errors.push("Email address doesn't look valid");
