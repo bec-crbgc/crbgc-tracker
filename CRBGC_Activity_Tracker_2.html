@@ -378,6 +378,23 @@ function paceNeeded(actual, weeklyTarget, dayNum){
   return Math.max(0, paceRound-actual);
 }
 
+// The day's own prorated pace target, WITHOUT subtracting actual — used
+// only for a focus's own "add-on" in computeFocusThresholdMet (see
+// focusNeeded there). FIXED 2026-08 per Bec: Wayne logged 4 ACAP contacts
+// on a Monday, which already exceeded that day's ACAP-specific pace of 3
+// — so paceNeeded(4,15,1) correctly returns 0 (nothing further "needed"
+// for ACAP specifically), but that silently zeroed out the focus's own
+// "+3" add-on too, when Bec's intent (confirmed: "it's also not add[ing]
+// on the 3 ACAP as the minimum extra for that field") was for the
+// selected focus's own contribution to the combined minimum to always be
+// its full day's pace amount, regardless of how much of it is already
+// done — only the OTHER 6 (non-focus) metrics in the combined total use
+// the clipped/already-caught-up paceNeeded.
+function paceTargetFlat(weeklyTarget, dayNum){
+  const pace = Math.round((weeklyTarget*dayNum/5)*10)/10;
+  return Math.ceil(pace);
+}
+
 const WEEKLY_TARGETS = {
   commencement:{VIC:6,NSW:6,QLD:2},
   registration:{VIC:6,NSW:6,QLD:6},
@@ -1447,23 +1464,27 @@ function computeFocusThresholdMet(day){
 
     // The selected focus's own add-on, counted again on top of whatever it
     // already contributed to combinedNeeded above (deliberate — see Bec's
-    // 15+3=18 example).
+    // 15+3=18 example). UPDATED 2026-08 per Bec: this add-on is always the
+    // focus's full day's pace amount (paceTargetFlat), NOT reduced by
+    // actual — otherwise a coordinator who already logged enough of their
+    // focus's own metric to clear that one sub-target would see the add-on
+    // silently drop to 0 (Wayne's case: 4 ACAP contacts on a Monday already
+    // exceeded that day's ACAP pace of 3, zeroing the "+3" Bec expected to
+    // still be added).
     let focusNeeded=0;
     if(paceCfg.standardLabels){
       paceCfg.standardLabels.forEach(label=>{
         const m = STANDARD_PACE_METRICS.find(sm=>sm.label===label);
         if(!m) return;
         const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
-        if(weekly>0) focusNeeded += paceNeeded(T[m.actualField]||0, weekly, dayNum);
+        if(weekly>0) focusNeeded += paceTargetFlat(weekly, dayNum);
       });
     } else if(paceCfg.targetKeys){
       // Events — not one of the 7 standard Daily Pace metrics, so nothing
       // to double-count; computed as its own small pace figure.
       let weeklySum=0;
       paceCfg.targetKeys.forEach(k=>{ weeklySum += (WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0; });
-      let actualSum=0;
-      paceCfg.actualFields.forEach(f=>{ actualSum += T[f]||0; });
-      focusNeeded = paceNeeded(actualSum, weeklySum, dayNum);
+      focusNeeded = paceTargetFlat(weeklySum, dayNum);
     }
 
     // What counts toward MEETING the combined minimum stays focus-specific
