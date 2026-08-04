@@ -6063,7 +6063,18 @@ function snoozeFollowup(id, date, coord) {
     postBestEffort({type:"update_acap_followup",coord,org:acapOrg_,id,
       nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze",snoozeCount:newSnoozeCount});
   } else if (isStudentSnooze && studentName_) {
-    postBestEffort({type:"update_student_followup",coord,name:studentName_,type:snoozeActType,
+    // 2026-08-07 FIX: this object literal had TWO "type" keys — the
+    // dispatch-routing value ("update_student_followup") and the
+    // lead-vs-pipeline discriminator (snoozeActType) — and in JS, the
+    // LATER key silently wins. So every student/pipeline snooze was
+    // actually sent with type:"lead" or type:"enrolment_pipeline", which
+    // doPost's dispatcher (appscript.js) doesn't recognise as any known
+    // push type — it was rejected with "Unknown push type" on EVERY call,
+    // 100% of the time, completely invisibly (postBestEffort only checks
+    // the HTTP status, not this app-level ok:false). Renamed the
+    // discriminator to leadType so both keys survive; handleUpdateStudentFollowup
+    // now reads payload.leadType instead of payload.type for this reason.
+    postBestEffort({type:"update_student_followup",coord,name:studentName_,leadType:snoozeActType,
       nextContactDate:tomorrowStr,lastContactDate:S.date||TODAY,action:"snooze"});
   } else if (!isAcapSnooze && !isStudentSnooze && bizName) {
     postBestEffort({
@@ -6281,7 +6292,16 @@ function confirmCloseFollowup(id, date, coord) {
         nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
         notes:notes,justification:justification||""});
     } else if (isStudentClose && studentName2) {
-      postBestEffort({type:"update_student_followup",coord,name:studentName2,type:origAct2.type,
+      // 2026-08-07 FIX — same duplicate-"type"-key bug as the snooze
+      // function above: renamed the lead-vs-pipeline discriminator to
+      // leadType so it can't clobber the dispatch-routing "type" value.
+      // This is very likely THE root cause of "closed follow-ups still
+      // showing as overdue" for Student Leads/Enrolment Pipeline — every
+      // close via this path was silently rejected by doPost's dispatcher
+      // ("Unknown push type: lead"/"...enrolment_pipeline"), invisibly,
+      // every single time, so the WIP sheet's Follow-Up Date was NEVER
+      // actually cleared no matter how many times a coordinator closed it.
+      postBestEffort({type:"update_student_followup",coord,name:studentName2,leadType:origAct2.type,
         nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
         notes:notes,justification:justification||""});
     } else if (bizName2) {
@@ -7265,6 +7285,49 @@ async function loadFromCloud() {
   S.loading=false; if(!S.modal) render();
 }
 
+// Re-fires the WIP write for a follow-up that's Completed locally but that
+// the server still reports as open — i.e. confirmCloseFollowup's original
+// postBestEffort call for it was lost. Rebuilds the same payload
+// confirmCloseFollowup sends, from the fields it already stored on the
+// closed activity record (closeOutcome/closeNotes/justification/
+// closedDate/meaningful) — same branching (ACAP org / student name /
+// employer bizName) as confirmCloseFollowup itself, just sourced from the
+// saved record instead of the close modal's form fields. Best-effort, same
+// as the original call: if this retry is also lost, the next pull tries
+// again, and the local UI never regresses back to "open" in the meantime.
+function retryFollowupClose_(coord, act) {
+  if (!act || !act.id) return;
+  const isAcapClose = act.type==="acap_contact"||act.type==="acap_f2f";
+  const isStudentClose = act.type==="lead"||act.type==="enrolment_pipeline";
+  const acapOrgClose = isAcapClose ? (act.acapOrg||act.bizName||"") : "";
+  const studentName2 = isStudentClose ? (act.studentName||act.leadName||"") : "";
+  const bizName2 = (!isAcapClose && !isStudentClose) ? (act.bizName||"") : "";
+  const isMeaningful = !!act.meaningful;
+  const today_ = act.closedDate || TODAY;
+  let nextDate = "";
+  if (!isMeaningful) {
+    const n = new Date(today_+"T12:00:00"); n.setDate(n.getDate()+42);
+    nextDate = n.toISOString().substring(0,10);
+  }
+  const fuAction = act.closeOutcome==="Do not contact — removed from list"
+    ? "do_not_contact"
+    : isMeaningful ? "closed_meaningful" : "closed_no_contact";
+
+  if (isAcapClose && acapOrgClose) {
+    postBestEffort({type:"update_acap_followup",coord,org:acapOrgClose,id:act.id,
+      nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
+      notes:act.closeNotes||"",justification:act.justification||""});
+  } else if (isStudentClose && studentName2) {
+    postBestEffort({type:"update_student_followup",coord,name:studentName2,leadType:act.type,
+      nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
+      notes:act.closeNotes||"",justification:act.justification||""});
+  } else if (bizName2) {
+    postBestEffort({type:"update_employer_followup",coord,bizName:bizName2,id:act.id,
+      nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
+      notes:act.closeNotes||"",justification:act.justification||""});
+  }
+}
+
 async function pullFollowups(coord, state) {
   try {
     const url=WEBAPP_URL+"?action=get_followups&coord="+encodeURIComponent(coord)+"&state="+state;
@@ -7272,17 +7335,50 @@ async function pullFollowups(coord, state) {
     if(!data.ok) return;
     // Merge follow-up activities into their respective days in localStorage
     // Always update existing entries so phone/name changes come through
+    //
+    // 2026-08-07 fix for Bec's report ("closed follow-ups still showing as
+    // overdue the next day"): closing a follow-up (confirmCloseFollowup)
+    // marks it Completed locally straight away, then fires the actual WIP
+    // write via postBestEffort — a fire-and-forget background call with no
+    // retry. If that single request is ever dropped (network blip, a cold
+    // Apps Script start, anything), the WIP sheet's Follow-Up Date is never
+    // actually cleared, even though the coordinator saw a success message.
+    // get_followups only ever returns still-OPEN items (see appscript.js
+    // getOpenFollowups) — so if THIS pull, at every next load, still
+    // reports an id we've already marked Completed locally, that's exactly
+    // this situation: the close never reached the backend. Blindly
+    // overwriting the local record with the server's stale "still open"
+    // version (the old behaviour) is what made a closed follow-up
+    // reappear as overdue. Now: keep showing it as closed (never regress
+    // the UI), and retry the close in the background so the WIP sheet
+    // eventually catches up instead of staying silently out of sync.
+    const locallyClosedIds = new Set();
     (data.followups||[]).forEach(a=>{
       if(!a.date) return;
       const day=loadDay(coord, a.date);
       if(!day.activities) day.activities=[];
       const idx=day.activities.findIndex(x=>x.id===a.id);
-      if(idx>=0) day.activities[idx]=a; // update existing
-      else day.activities.push(a);      // add new
+      if(idx>=0) {
+        const existing=day.activities[idx];
+        const locallyClosed = existing.status==="Completed"||existing.status==="Closed";
+        if (locallyClosed) {
+          locallyClosedIds.add(a.id);
+          retryFollowupClose_(coord, existing);
+          // don't overwrite — the local Completed record is the correct
+          // one; the server just hasn't caught up yet.
+        } else {
+          day.activities[idx]=a; // update existing
+        }
+      } else {
+        day.activities.push(a);      // add new
+      }
       saveDay(day);
     });
-    // Cache the full followups list for due-today and overdue checks
-    try{localStorage.setItem(PFX+"followups:"+coord,JSON.stringify(data.followups||[]));}catch(e_){}
+    // Cache the full followups list for due-today and overdue checks —
+    // excluding anything we just determined is actually already closed
+    // locally (see above), so getAllDueToday's followups-cache fallback
+    // can't resurrect it either.
+    try{localStorage.setItem(PFX+"followups:"+coord,JSON.stringify((data.followups||[]).filter(a=>!locallyClosedIds.has(a.id))));}catch(e_){}
     if(!S.modal) render();
   } catch(e){
     // silent
