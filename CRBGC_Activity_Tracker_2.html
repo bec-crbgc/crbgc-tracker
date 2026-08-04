@@ -4755,15 +4755,22 @@ function renderSettingsModal(){
     </div>`:""}
     <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
       <button onclick="closeModal()" class="btn-primary btn-sm">Done</button>
-      <button onclick="confirmClearLocalData()" class="btn-danger btn-sm">Clear local data</button>
       <button onclick="S.user=null;lsDel('user');closeModal();render()" class="btn-ghost btn-sm">Switch user</button>
+      ${S.user.isManager?`
+      <!-- 2026-08-07 per Bec: "Clear local data" is an irreversible data-loss
+           risk with no routine coordinator use case, and the debug/cache
+           inspection buttons below it are only meaningful for troubleshooting
+           (which is a manager-led activity in practice) — so all of these are
+           now manager-only, same gating pattern as the coord-switch dropdown
+           and Web App URL above. Coordinators only see Done / Switch user. -->
+      <button onclick="confirmClearLocalData()" class="btn-danger btn-sm">Clear local data</button>
       <button onclick="debugFollowups()" class="btn-ghost btn-sm">Debug follow-ups</button>
       <button onclick="debugDueToday()" class="btn-ghost btn-sm">Debug due today</button>
       <button onclick="debugMergeFollowups()" class="btn-ghost btn-sm">Debug merge (fix + diagnose)</button>
       <button onclick="debugEnrolmentPipeline()" class="btn-ghost btn-sm">Debug enrolment pipeline cache</button>
       <button onclick="debugStudentLeads()" class="btn-ghost btn-sm">Debug student leads cache</button>
       <button onclick="showErrorLog()" class="btn-ghost btn-sm">Show error log</button>
-      <button onclick="clearErrorLog()" class="btn-ghost btn-sm">Clear error log</button>
+      <button onclick="clearErrorLog()" class="btn-ghost btn-sm">Clear error log</button>`:""}
     </div>
   </div></div>`;
 }
