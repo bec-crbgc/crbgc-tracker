@@ -2885,13 +2885,8 @@ function renderApp(){
   const coord=S.user.coord, isManager=S.user.isManager;
   const day=getDay();
   const state=STATES[coord];
-  // 2026-08-07 per Bec: manager view gets its own tab order (Dashboard
-  // first, then Today, Wk Notes, Daily Notes, Pipeline, Employer Calls,
-  // Site Visits, This Week, History) — deliberately different from the
-  // coordinator order below, which is untouched.
-  const tabs = isManager
-    ? ["dashboard","today","wknotes","notes","pipeline","calls","visits","thisweek","history"]
-    : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"];
+  const tabs=["today","calls","visits","pipeline","notes","thisweek","wknotes","history"];
+  if(isManager) tabs.push("dashboard");
   const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard"};
 
   let h=`<div class="hdr">
