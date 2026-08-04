@@ -527,6 +527,39 @@ function findEmployer(coord, bizName) {
   })||null;
 }
 
+// ADDED 2026-08-07 per Bec ("duplication of contacts, creating a new
+// contact when an activity is logged rather than merging with the
+// existing" — recurring report). Mirrors normalizeNameForMatch_ in
+// appscript.js (see its comment there for the full rationale) — every
+// place below that decides "does this typed business/org name match an
+// existing one, or is this brand new" was doing a raw exact
+// trim/lowercase compare, so a coordinator typing a business name with a
+// double space, a trailing full stop, "&" instead of "and", or "Pty Ltd"
+// vs "Pty. Ltd." would silently NOT see the existing contact picker at
+// all and would end up creating a duplicate. This is the client-side half
+// of that fix — the backend's matching (which is what actually decides
+// whether a new row gets created) got the equivalent fix independently,
+// but fixing this side too means the coordinator actually SEES the
+// existing contact and picks it, rather than relying on the backend to
+// quietly reconcile a mismatch after the fact.
+function normalizeNameForMatch_(v) {
+  var t = String(v||"").trim().toLowerCase();
+  if (!t) return "";
+  t = t.replace(/[‘’ʼ]/g, "'");
+  t = t.replace(/[“”]/g, '"');
+  t = t.replace(/[–—]/g, "-");
+  t = t.replace(/\s+/g, " ");
+  t = t.replace(/\s*&\s*/g, " and ");
+  t = t.replace(/\bpty\.?\s*ltd\.?\b/g, "pty ltd");
+  t = t.replace(/\bp\s*\/\s*l\b/g, "pty ltd");
+  t = t.replace(/[.,]/g, "");
+  t = t.replace(/\s+/g, " ").trim();
+  return t;
+}
+function sameOrgName_(a, b) {
+  return normalizeNameForMatch_(a) === normalizeNameForMatch_(b);
+}
+
 // ── Batch 8 item 1: two-step Organisation → Contact selection ──────────────
 // The Employer/ACAP Database is now one row per CONTACT, with rows sharing
 // the same orgId grouped under one organisation. groupByOrg turns the flat
@@ -829,7 +862,7 @@ function readNewContactFields(prefix) {
 function employerLinkHtml(prefix, currentBiz, currentContactName) {
   const cache=getEmployerCache(S.user.coord);
   const groups=groupByOrg(cache,"bizName");
-  const group=currentBiz ? groups.find(function(g){ return g.name.trim().toLowerCase()===currentBiz.trim().toLowerCase(); }) : null;
+  const group=currentBiz ? groups.find(function(g){ return sameOrgName_(g.name, currentBiz); }) : null;
   const contactBlock = (currentBiz && group)
     ? contactPickerHtml(prefix+"_emp_contact_picker",prefix+"_emp_contact_newname",group,"contactName",currentContactName||"",null,"employer")
     : "";
@@ -859,7 +892,7 @@ function onEmpLinkInput(prefix) {
   const val=(input.value||"").trim();
   const cache=getEmployerCache(S.user.coord);
   const groups=groupByOrg(cache,"bizName");
-  const group=val ? groups.find(function(g){ return g.name.trim().toLowerCase()===val.toLowerCase(); }) : null;
+  const group=val ? groups.find(function(g){ return sameOrgName_(g.name, val); }) : null;
   if(hint) hint.innerHTML = group ? '<div><i class="ti ti-circle-check"></i> Linked to existing employer</div>'+orgHintLinesHtml(group) : "";
   if(container){
     container.innerHTML = group
@@ -880,7 +913,7 @@ function readEmployerLink(prefix) {
   if(!name) return null;
   const cache=getEmployerCache(S.user.coord);
   const groups=groupByOrg(cache,"bizName");
-  const group=groups.find(function(g){ return g.name.trim().toLowerCase()===name.toLowerCase(); });
+  const group=groups.find(function(g){ return sameOrgName_(g.name, name); });
   if(group){
     const pickerId=prefix+"_emp_contact_picker";
     const contactName=document.getElementById(pickerId) ? resolveContactName(pickerId,prefix+"_emp_contact_newname") : "";
@@ -5093,7 +5126,7 @@ function renderActivityModal(type,data){
     // the underlying column bug (Business Name vs State) is fixed.
     const icCache=getEmployerCache(S.user.coord);
     const icGroupsForBiz=groupByOrg(icCache,"bizName");
-    const icInitialGroupForHint=icGroupsForBiz.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+    const icInitialGroupForHint=icGroupsForBiz.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
     fields+='<div class="field"><label>Employer / business name<span class="req">*</span></label>'+
       '<input id="ic_biz" list="ic_biz_list" value="'+(data.bizName||"").replace(/"/g,"&quot;")+'"'+
       ' oninput="onIcBizInput(this.value)" placeholder="Type or select business..." required>'+
@@ -5104,7 +5137,7 @@ function renderActivityModal(type,data){
     // a plain free-text contact field with no way to pick an existing
     // contact or capture a full record for a genuinely new one.
     const icGroups=groupByOrg(icCache,"bizName");
-    const icInitialGroup=icGroups.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+    const icInitialGroup=icGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
     fields+='<div id="ic_contact_container">'+
       (icInitialGroup
         ? contactPickerHtml("ic_contact_picker","ic_contact_newname",icInitialGroup,"contactName",data.contactName||"",null,"employer_sv",null,"ic_rel")
@@ -5167,7 +5200,7 @@ function renderActivityModal(type,data){
     // Batch 8 item 1: same two-step Org → Contact selection as Employer Call.
     const acapCache=getAcapCache(S.user.coord);
     const acapGroups=groupByOrg(acapCache,"org");
-    const acapInitialGroup=acapGroups.find(function(g){return g.name.trim().toLowerCase()===(data.acapOrg||"").trim().toLowerCase();});
+    const acapInitialGroup=acapGroups.find(function(g){return sameOrgName_(g.name, data.acapOrg||"");});
     const acapOpts=acapGroups.map(orgDatalistOptionHtml).join("");
     const acapHint = acapCache.length===0
       ? '<div style="font-size:11px;color:var(--ambert);margin-top:4px">⚠ ACAP list not loaded — type manually or refresh tracker</div>'
@@ -5209,7 +5242,7 @@ function renderActivityModal(type,data){
     // where every contact at the same employer looked like a duplicate).
     const empCache=getEmployerCache(S.user.coord);
     const empGroups=groupByOrg(empCache,"bizName");
-    const ecInitialGroupForHint=empGroups.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+    const ecInitialGroupForHint=empGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
     fields+='<div class="field"><label>Business name<span class="req">*</span></label>'+
       '<input id="ec_biz" list="ec_biz_list" '+
       'value="'+( data.bizName||"").replace(/"/g,"&quot;")+'"'+
@@ -5221,7 +5254,7 @@ function renderActivityModal(type,data){
     // Step 2: contact picker (rebuilt live by onEcBizInput as the business
     // name changes) — starts pre-rendered for whatever business name this
     // form already has (e.g. reopening a draft).
-    const ecInitialGroup=empGroups.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+    const ecInitialGroup=empGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
     fields+='<div id="ec_contact_container">'+
       (ecInitialGroup
         ? contactPickerHtml("ec_contact_picker","ec_contact_newname",ecInitialGroup,"contactName",data.contactName||"",null,"employer",null,"ec_rel")
@@ -5260,7 +5293,7 @@ function renderActivityModal(type,data){
     // Batch 8 item 1: same two-step Org → Contact selection as Employer Call.
     const svCache=getEmployerCache(S.user.coord);
     const svGroups=groupByOrg(svCache,"bizName");
-    const svInitialGroupForHint=svGroups.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+    const svInitialGroupForHint=svGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
     fields+='<div class="field"><label>Business name<span class="req">*</span></label>'+
       '<input id="sv_biz" list="sv_biz_list" value="'+(data.bizName||"").replace(/"/g,"&quot;")+'"'+
       ' oninput="onSvBizInput(this.value)" placeholder="Type or select business..." required>'+
@@ -5269,7 +5302,7 @@ function renderActivityModal(type,data){
       '</datalist>'+
       '<div id="sv_emp_hint" style="font-size:11px;color:var(--o2t);margin-top:4px">'+orgHintLinesHtml(svInitialGroupForHint)+'</div></div>';
     fields+=fld("Site location / suburb","sv_suburb","text",data.suburb||"",null,"true");
-    const svInitialGroup=svGroups.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+    const svInitialGroup=svGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
     fields+=fldRow([
       '<div id="sv_contact_container">'+
         (svInitialGroup
@@ -5312,7 +5345,7 @@ function renderActivityModal(type,data){
         return NEW_EMPLOYER_STAGE_RELS.includes((e.empRelationship||"").trim());
       });
       const neGroups=groupByOrg(neCache,"bizName");
-      const neInitialGroup=neGroups.find(function(g){return g.name.trim().toLowerCase()===(data.bizName||"").trim().toLowerCase();});
+      const neInitialGroup=neGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
       fields+='<div class="field"><label>Business name<span class="req">*</span></label>'+
         '<input id="ne_biz" list="ne_biz_list" value="'+(data.bizName||"").replace(/"/g,"&quot;")+'"'+
         ' oninput="onNeBizInput(this.value)" placeholder="Type or select a new-prospect employer..." required>'+
@@ -5323,7 +5356,29 @@ function renderActivityModal(type,data){
       fields+='<div id="ne_contact_container">'+neContactFieldHtml(neInitialGroup,data.contactName||"")+'</div>';
       fields+='<input type="hidden" id="ne_contact" value="'+(data.contactName||"").replace(/"/g,"&quot;")+'">';
     } else {
-      fields+=fld("Business name","ne_biz","text",data.bizName||"",null,"true");
+      // FIXED 2026-08-07 per Bec (recurring "duplicate contacts" report):
+      // unlike every other business-name field in the tracker (Employer
+      // Call, Site Visit, Intro Call, Site Visit - New Employer), this tile
+      // was a bare text input with NO datalist and NO lookup against the
+      // existing Employer Database at all — a coordinator using "Add
+      // Employer" to log/re-confirm an org that's already on file got zero
+      // signal steering them toward the existing record. Kept as a plain
+      // text field (this tile is deliberately a quick DB-entry form, not
+      // the full two-step org→contact picker used elsewhere) but now backed
+      // by a datalist of every existing business name, plus a live
+      // "possible existing employer" warning so the coordinator can at
+      // least see and react to a likely duplicate before submitting.
+      const aeGroups=groupByOrg(getEmployerCache(S.user.coord),"bizName");
+      const aeInitialGroup=aeGroups.find(function(g){return sameOrgName_(g.name, data.bizName||"");});
+      fields+='<div class="field"><label>Business name<span class="req">*</span></label>'+
+        '<input id="ne_biz" list="ne_biz_dup_check_list" value="'+(data.bizName||"").replace(/"/g,"&quot;")+'"'+
+        ' oninput="onAddEmployerBizInput(this.value)" required>'+
+        '<datalist id="ne_biz_dup_check_list">'+
+        aeGroups.map(orgDatalistOptionHtml).join("")+
+        '</datalist>'+
+        '<div id="ne_biz_dup_hint" style="font-size:11px;color:var(--o2t);margin-top:4px">'+
+        (aeInitialGroup?'<div style="color:var(--amber-t,#7D6608)"><i class="ti ti-alert-triangle"></i> Possible existing employer — check before adding a new one.</div>'+orgHintLinesHtml(aeInitialGroup):"")+
+        '</div></div>';
       fields+=fld("Contact person","ne_contact","text",data.contactName||"",null,"true");
     }
     fields+=fld("Position","ne_position","text",data.position||"");
@@ -6458,7 +6513,7 @@ function onEcBizInput(val){
   const emp=findEmployer(S.user.coord,val);
   const hint=document.getElementById("ec_emp_hint");
   const empGroups=groupByOrg(getEmployerCache(S.user.coord),"bizName");
-  const group=empGroups.find(function(g){return g.name.trim().toLowerCase()===(val||"").trim().toLowerCase();});
+  const group=empGroups.find(function(g){return sameOrgName_(g.name, val||"");});
   if(emp&&hint){
     hint.innerHTML='<div><i class="ti ti-info-circle"></i> Last contact: '+(emp.lastContact||"—")+" · Next: "+(emp.nextContact||"—")+'</div>'+orgHintLinesHtml(group);
   } else if(hint){ hint.innerHTML=""; }
@@ -6676,7 +6731,7 @@ function onAcapOrgInput(val){
   const acap=findAcap(S.user.coord,val);
   const hint=document.getElementById("acap_org_hint");
   const acapGroups=groupByOrg(getAcapCache(S.user.coord),"org");
-  const group=acapGroups.find(function(g){return g.name.trim().toLowerCase()===(val||"").trim().toLowerCase();});
+  const group=acapGroups.find(function(g){return sameOrgName_(g.name, val||"");});
   if(acap&&hint) hint.innerHTML='<div><i class="ti ti-info-circle"></i> Last contact: '+(acap.lastContact||"—")+" · Next due: "+(acap.nextContact||"—")+'</div>'+orgHintLinesHtml(group);
   else if(hint) hint.innerHTML="";
   const container=document.getElementById("acap_contact_container");
@@ -6702,7 +6757,7 @@ function onSvBizInput(val){
   const emp=findEmployer(S.user.coord,val);
   const hint=document.getElementById("sv_emp_hint");
   const svGroups=groupByOrg(getEmployerCache(S.user.coord),"bizName");
-  const group=svGroups.find(function(g){return g.name.trim().toLowerCase()===(val||"").trim().toLowerCase();});
+  const group=svGroups.find(function(g){return sameOrgName_(g.name, val||"");});
   if(emp){
     if(hint) hint.innerHTML='<div><i class="ti ti-info-circle"></i> Last contact: '+(emp.lastContact||"—")+" · Next due: "+(emp.nextContact||"—")+'</div>'+orgHintLinesHtml(group);
     // New-list item 1: Mobile/Email must NOT auto-pull from the org record —
@@ -6766,7 +6821,7 @@ function onNeBizInput(val){
     return NEW_EMPLOYER_STAGE_RELS.includes((e.empRelationship||"").trim());
   });
   const neGroups=groupByOrg(neCache,"bizName");
-  const group=neGroups.find(function(g){return g.name.trim().toLowerCase()===(val||"").trim().toLowerCase();});
+  const group=neGroups.find(function(g){return sameOrgName_(g.name, val||"");});
   const hint=document.getElementById("ne_emp_hint");
   if(hint) hint.innerHTML = group ? '<div><i class="ti ti-circle-check"></i> Matched existing employer</div>'+orgHintLinesHtml(group) : "";
   const container=document.getElementById("ne_contact_container");
@@ -6774,6 +6829,19 @@ function onNeBizInput(val){
     container.innerHTML = neContactFieldHtml(group,"");
     syncNeContact();
   }
+}
+
+// ADDED 2026-08-07 — advisory-only duplicate check for the "Add Employer"
+// tile's plain Business Name field (see the fields+= block above for why
+// this tile doesn't get the full org→contact picker). Purely informational:
+// never blocks or changes what gets submitted, just warns.
+function onAddEmployerBizInput(val){
+  const aeGroups=groupByOrg(getEmployerCache(S.user.coord),"bizName");
+  const group=aeGroups.find(function(g){return sameOrgName_(g.name, val||"");});
+  const hint=document.getElementById("ne_biz_dup_hint");
+  if(hint) hint.innerHTML = group
+    ? '<div style="color:var(--amber-t,#7D6608)"><i class="ti ti-alert-triangle"></i> Possible existing employer — check before adding a new one.</div>'+orgHintLinesHtml(group)
+    : "";
 }
 
 function onNeContactSelect(){
@@ -6793,7 +6861,7 @@ function onNeContactSelect(){
       return NEW_EMPLOYER_STAGE_RELS.includes((e.empRelationship||"").trim());
     }),"bizName");
     const bizVal=(document.getElementById("ne_biz")||{}).value||"";
-    const group=neGroups.find(function(g){return g.name.trim().toLowerCase()===bizVal.trim().toLowerCase();});
+    const group=neGroups.find(function(g){return sameOrgName_(g.name, bizVal);});
     const contact=group ? group.contacts.find(function(c){return c.contactName===sel.value;}) : null;
     if(contact){
       const posEl=document.getElementById("ne_position"); if(posEl) posEl.placeholder=contact.position||"";
@@ -6825,7 +6893,7 @@ function onIcBizInput(val){
   const emp=findEmployer(S.user.coord,val);
   const hint=document.getElementById("ic_emp_hint");
   const icGroups=groupByOrg(getEmployerCache(S.user.coord),"bizName");
-  const group=icGroups.find(function(g){return g.name.trim().toLowerCase()===(val||"").trim().toLowerCase();});
+  const group=icGroups.find(function(g){return sameOrgName_(g.name, val||"");});
   if(emp&&hint){
     hint.innerHTML='<div><i class="ti ti-info-circle"></i> Last contact: '+(emp.lastContact||"—")+" · Next due: "+(emp.nextContact||"—")+'</div>'+orgHintLinesHtml(group);
   } else if(hint){ hint.innerHTML=""; }
@@ -7009,16 +7077,40 @@ function friendlyError_(e){
 }
 async function post(type, payload) {
   const body = JSON.stringify({...payload, type});
+  let res = null;
   try {
     // Try with CORS first (works when hosted on server)
-    const res = await fetch(WEBAPP_URL, {
+    res = await fetch(WEBAPP_URL, {
       method:"POST",
       headers:{"Content-Type":"text/plain"},
       body
     });
-    if(res.ok) return await res.json();
-  } catch(e) {}
-  // Fallback: no-cors for local file (can't read response but data gets written)
+  } catch(e) {
+    res = null; // genuine network/CORS failure — safe to retry via no-cors below
+  }
+  if (res && res.ok) {
+    // FIXED 2026-08-07 per Bec (recurring "duplicate contacts"/"notes
+    // duplicating" reports): previously, if this fetch SUCCEEDED
+    // (res.ok===true — meaning the server already received and fully
+    // processed this exact push) but `await res.json()` then threw for any
+    // reason (a truncated body, a transient parse hiccup), that throw was
+    // caught by a blanket catch(e){} wrapped around the whole first
+    // attempt, and execution fell through to fire a SECOND, near-identical
+    // POST via the no-cors fallback below — silently double-submitting a
+    // push (or a follow-up close) that had already landed a moment
+    // earlier. That's a direct, easy way to get a genuine duplicate
+    // contact/note: the same activities processed twice in quick
+    // succession. A response-parse failure AFTER a successful HTTP
+    // response now means "it went through, we just can't read the reply"
+    // — not retried, since retrying here risks writing twice, which is
+    // worse than an occasionally-uncertain success message.
+    try {
+      return await res.json();
+    } catch(parseErr) {
+      return {ok:true, msg:"Pushed (response unreadable, but the server accepted it)"};
+    }
+  }
+  // Fallback: no-cors for local file, or a genuine fetch failure/HTTP error above
   await fetch(WEBAPP_URL, {
     method:"POST",
     mode:"no-cors",
