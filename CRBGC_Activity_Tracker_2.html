@@ -442,6 +442,12 @@ let S = {
   dashView: "weekly",
   trendFrom: "",  // trend date range start
   trendTo:   "",  // trend date range end
+  // 2026-08-07: manager-only "who's active" panel (Settings modal). Not
+  // persisted to localStorage — always refetched, since a stale cached
+  // presence reading would be actively misleading (the whole point is
+  // "right now"). null = not fetched yet this session.
+  presence: null,
+  presenceLoading: false,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -2964,6 +2970,7 @@ function confirmUser(){
 function openSettings(){
   S.modal={type:"settings"};
   render();
+  if (S.user && S.user.isManager) refreshPresence_();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4730,6 +4737,61 @@ function onFuOutcomeChange() {
   if (nmWrap) nmWrap.classList.toggle("hidden", !(val && !isMeaningful));
 }
 
+// 2026-08-07: manager-only "who's currently in the tracker" panel. Backed
+// by appscript.js's get_presence/heartbeat doGet actions (PropertiesService-
+// based — see appscript.js comment for why this is doGet, not doPost).
+function formatAgo_(ms){
+  const mins = Math.floor(ms/60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins+"m ago";
+  const hrs = Math.floor(mins/60);
+  const remMins = mins%60;
+  if (hrs < 24) return hrs+"h "+remMins+"m ago";
+  const days = Math.floor(hrs/24);
+  return days+"d ago";
+}
+function renderPresencePanel_(){
+  if (S.presenceLoading && !S.presence) {
+    return `<div style="font-size:12px;color:var(--ts)">Loading…</div>`;
+  }
+  if (!S.presence) {
+    return `<div style="font-size:12px;color:var(--ts)">
+      Not loaded. <a href="#" onclick="event.preventDefault();refreshPresence_()">Refresh</a>
+    </div>`;
+  }
+  const rows = COORDS.map(c=>{
+    const p = S.presence[c] || {lastSeen:null, active:false};
+    const dotColor = p.active ? "#2ecc71" : "#9aa0a6";
+    const label = p.active ? "Active now"
+      : p.lastSeen ? "Away — last active "+formatAgo_(Date.now()-p.lastSeen)
+      : "No activity seen this session";
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+      <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+      <span style="font-weight:600;min-width:70px">${c}</span>
+      <span style="font-size:12px;color:var(--ts)">${label}</span>
+    </div>`;
+  }).join("");
+  return `<div>${rows}</div>
+    <div style="font-size:11px;color:var(--o2t);margin-top:4px;background:var(--o2);padding:6px 8px;border-radius:var(--r)">
+      "Active" means the tracker was open and in the foreground on their device within the last 5 minutes. Auto-refreshes while this panel is open.
+      <a href="#" onclick="event.preventDefault();refreshPresence_()">Refresh now</a>
+    </div>`;
+}
+async function refreshPresence_(){
+  if (!S.user || !S.user.isManager) return;
+  S.presenceLoading = true;
+  if (S.modal && S.modal.type==="settings") render();
+  try {
+    const url = WEBAPP_URL+"?action=get_presence";
+    const data = await jsonpFetch(url);
+    if (data && data.ok) S.presence = data.presence;
+  } catch(e) {
+    // Silent — presence is a nice-to-have, not worth surfacing an error banner for.
+  }
+  S.presenceLoading = false;
+  if (S.modal && S.modal.type==="settings") render();
+}
+
 function renderSettingsModal(){
   return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
   <div class="modal">
@@ -4747,6 +4809,10 @@ function renderSettingsModal(){
       <div style="font-size:11px;color:var(--o2t);margin-top:4px;background:var(--o2);padding:6px 8px;border-radius:var(--r)">
         As manager you can view and edit any coordinator's records. Use the dropdown above to switch.
       </div>
+    </div><hr class="divider">
+    <div class="field">
+      <label>Team status <span style="font-weight:400;color:var(--ts);font-size:11px">(manager view only)</span></label>
+      ${renderPresencePanel_()}
     </div><hr class="divider">`:""}
     ${S.user.isManager?`
     <div class="field">
@@ -7714,8 +7780,38 @@ function pushOnBackground(){
 }
 document.addEventListener("visibilitychange", function(){
   if(document.visibilityState==="hidden") pushOnBackground();
+  // 2026-08-07: send an immediate heartbeat the moment a coordinator's tab
+  // comes back to the foreground, rather than waiting for the next 90s
+  // interval tick — keeps the manager's "active now" reading responsive
+  // right when it matters (someone switching back into the tracker).
+  if(document.visibilityState==="visible") sendHeartbeat_();
 });
 window.addEventListener("pagehide", pushOnBackground);
+
+// ── Presence heartbeat (coordinator side) ───────────────────────────────
+// 2026-08-07 per Bec: lets the manager's Settings > Team status panel show
+// who currently has the tracker open. Deliberately gated to real
+// coordinator logins only (S.user && !S.user.isManager) — if Bec is
+// viewing/editing AS a coordinator via the manager dropdown, that must NOT
+// register as that coordinator being "active"; it would misrepresent her
+// browsing their data as them being in the tracker. Only skips sending
+// while the tab is hidden/backgrounded, so an idle-but-open tab in the
+// background correctly ages out to "away" server-side rather than reading
+// as active forever.
+function sendHeartbeat_(){
+  if (!S.user || S.user.isManager || !S.user.coord) return;
+  if (document.visibilityState !== "visible") return;
+  const url = WEBAPP_URL+"?action=heartbeat&coord="+encodeURIComponent(S.user.coord);
+  jsonpFetch(url).catch(function(){}); // best-effort — a missed heartbeat just means the next one (≤90s later) catches up
+}
+setInterval(sendHeartbeat_, 90*1000);
+if (S.user) sendHeartbeat_(); // fire one immediately on load rather than waiting up to 90s
+
+// Auto-refresh the manager's Team status panel every 15s while it's the
+// open modal, so it feels live without polling when nobody's looking at it.
+setInterval(function(){
+  if (S.modal && S.modal.type==="settings" && S.user && S.user.isManager && !S.presenceLoading) refreshPresence_();
+}, 15*1000);
 </script>
 </body>
 </html>
