@@ -141,6 +141,47 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 <div id="app"></div>
 <script>
 // ═══════════════════════════════════════════════════════════
+// ⚠ REGRESSION WATCH-LIST — READ BEFORE EDITING ⚠
+// No persistent memory tool is available for this project, so this index
+// is how fixes stay remembered across sessions/edits. If you (a future
+// session, or Bec re-briefing one) are about to touch anything in this
+// list, or something Bec reports sounds like one of these come back,
+// jump to the guardrail comment at the cited location FIRST — each one
+// explains the exact failure mechanism and has a regression test.
+// Re-run the full `_test_*.js` suite before shipping any change to this
+// file, not just tests you think are related — several of these bugs
+// were reintroduced by edits that looked unrelated at the time.
+//
+//  - Closed follow-ups not appearing in their type's tab (Employer Calls/
+//    Site Visits/Pipeline) despite correct Dashboard tile counts — see
+//    renderClosedFollowupSection_ below and _test_closed_followups_show_in_tabs.js.
+//  - Student Lead/Enrolment Pipeline follow-up close or snooze silently
+//    not reaching the server (duplicate `type` key in the postBestEffort
+//    payload clobbering the dispatch-routing value) — see the `leadType`
+//    comments in snoozeFollowup/confirmCloseFollowup/retryFollowupClose_
+//    and _test_followup_close_retry.js. Any postBestEffort/post() call
+//    with more than one field carrying "type"-like meaning must use
+//    distinct key names — never reuse `type`.
+//  - A locally-closed follow-up reverting to "open" on the next cloud pull
+//    (dropped background sync, no retry) — see retryFollowupClose_ and
+//    pullFollowups's locallyClosedIds handling.
+//  - Duplicate contact/org rows created instead of matching an existing
+//    one (name-matching too strict against real typing variance) — see
+//    sameOrgName_/normalizeNameForMatch_ and every `.find(g=>sameOrgName_(...))`
+//    call site. Never replace one of these with a raw `.toLowerCase()===`
+//    exact-match again.
+//  - Notes/Profile Builder text duplicating for one logged activity — see
+//    appscript.js's isSameAsTopEntry_/isAlreadyLoggedEntry_ comments and
+//    _test_notes_profile_builder_dedup.js /
+//    _test_root_cause_duplicate_contacts_and_notes_20260807.js. Any new
+//    site that appends a dated note/profile-builder entry MUST call both
+//    guards before writing — appendNote_-style unconditional appends are
+//    exactly what caused this.
+//  - post()'s no-cors fallback firing a SECOND POST after a response that
+//    already succeeded (res.ok===true) but failed to parse — silently
+//    double-submits whatever the call was doing. See post()'s comment.
+//
+// ═══════════════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════
 const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwhsxmi0drQCntbqjjveKG4RwK9UrVveSRAH6iZQ0J4RFFE5y1QW2aUlyI1AIbpNty-5w/exec";
@@ -3266,8 +3307,51 @@ function renderActItem(a, viewCoord){
 // ═══════════════════════════════════════════════════════════
 // EMPLOYER CALLS TAB
 // ═══════════════════════════════════════════════════════════
+// ADDED 2026-08-07 per Bec — a REGRESSION GUARDRAIL, read this before
+// touching renderCalls/renderVisits/renderPipeline's activity filters:
+//
+// Every tab's day-log list (calls/visits/pipeline below) filters
+// day.activities on the LITERAL a.type. A closed follow-up is stored as
+// type:"follow_up_closed" with the original activity's type preserved
+// separately on a.origType (see confirmCloseFollowup in tracker.html and
+// the origType column comment in appscript.js) — added 2026-08-04 so the
+// Manager Dashboard's tiles (via effContactType()) can credit a closure
+// back to the right count. That fix made the COUNTS correct everywhere,
+// but nobody ever extended the three tab list filters themselves to also
+// recognize a.origType — so a closed follow-up was correctly counted, but
+// never actually appeared as an item in the tab matching its original
+// type. Reported by Bec, fixed by adding renderClosedFollowupSection_
+// below and calling it from all three tabs.
+//
+// IF YOU CHANGE HOW CLOSED FOLLOW-UPS ARE FILTERED/DISPLAYED: this exact
+// gap is what breaks — "counts are right, but the item itself doesn't show
+// up in its tab." Any future change to a.type/a.origType handling, the
+// follow-up close flow (confirmCloseFollowup), or these three render
+// functions should re-run _test_closed_followups_show_in_tabs.js before
+// shipping — it exists specifically to catch this regression class.
+function renderClosedFollowupSection_(closedFollowups, sectTitle){
+  if (!closedFollowups.length) return "";
+  return `<div class="sect-hdr">${sectTitle}</div><div style="padding:0 12px;">
+    ${closedFollowups.map(a=>`<div class="act-item">
+      <div class="act-item-hdr" style="padding-right:44px">
+        <span class="tag" style="background:var(--s2);color:var(--o2t);font-size:10px">Follow-up closed</span>
+        <span class="bold small">${a.bizName||"—"}</span>
+        <span class="muted small">${a.contactName||""}</span>
+      </div>
+      <div class="act-btns">
+        <button class="act-del" onclick="deleteActivity('${a.id}')" title="Delete"><i class="ti ti-trash"></i></button>
+      </div>
+      ${a.relType?`<div class="small" style="color:var(--ts);margin-bottom:2px">${a.relType}</div>`:""}
+      ${a.activityOutcome?`<div class="small mt8"><strong>Outcome:</strong> ${a.activityOutcome}</div>`:""}
+      ${(a.closeNotes||a.notes)?`<div class="small muted mt8"><i class="ti ti-message-circle"></i> ${a.closeNotes||a.notes}</div>`:""}
+    </div>`).join("")}
+    </div>`;
+}
+
 function renderCalls(coord,state,day){
   const calls=(day.activities||[]).filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_")));
+  // See renderClosedFollowupSection_'s comment above — this is the fix.
+  const closedFollowups=(day.activities||[]).filter(a=>a.type==="follow_up_closed"&&a.origType==="employer_call");
   const attempted=calls.length;
   const connected=calls.filter(a=>a.callOutcome&&a.callOutcome.startsWith("Connected")).length;
   const meaningful=calls.filter(isMeaningfulCall).length;
@@ -3309,6 +3393,7 @@ function renderCalls(coord,state,day){
     }).join("")}
     </div>`;
   }
+  h+=renderClosedFollowupSection_(closedFollowups, "Follow-ups closed today");
   return h;
 }
 
@@ -3320,6 +3405,9 @@ function renderVisits(coord,state,day){
   // now shows up here too, alongside Existing Employer site visits — it
   // previously had no home in any tab's activity list at all.
   const visits=(day.activities||[]).filter(a=>a.type==="site_visit"||a.type==="new_employer_met");
+  // See renderClosedFollowupSection_'s comment (above renderCalls) — this
+  // is the same fix, applied here.
+  const closedFollowups=(day.activities||[]).filter(a=>a.type==="follow_up_closed"&&(a.origType==="site_visit"||a.origType==="new_employer_met"));
   const locations=new Set(visits.map(a=>a.suburb).filter(Boolean)).size;
   const opps=visits.filter(a=>["Apprentice vacancy identified","Student lead identified","Sign-up booked"].includes(a.activityOutcome)).length;
 
@@ -3362,6 +3450,7 @@ function renderVisits(coord,state,day){
     });
     h+=`</div>`;
   }
+  h+=renderClosedFollowupSection_(closedFollowups, "Follow-ups closed today");
   return h;
 }
 
@@ -3374,6 +3463,12 @@ function renderPipeline(coord,state,day){
   // existed as raw synced rows. They now show up here alongside the general
   // Pipeline Contact log.
   const pipes=(day.activities||[]).filter(a=>["pipeline","registration","enrolment_pipeline"].includes(a.type));
+  // See renderClosedFollowupSection_'s comment (above renderCalls) — this
+  // is the same fix, applied here. a.bizName on a follow_up_closed record
+  // already falls back to leadName/studentName (see confirmCloseFollowup),
+  // so it displays correctly here even though this tab's live items use
+  // leadName/studentName directly rather than bizName.
+  const closedFollowups=(day.activities||[]).filter(a=>a.type==="follow_up_closed"&&["pipeline","registration","enrolment_pipeline"].includes(a.origType));
   const progressed=pipes.filter(a=>a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
 
   let h=`<div class="card">
@@ -3413,6 +3508,7 @@ function renderPipeline(coord,state,day){
     }).join("")}
     </div>`;
   }
+  h+=renderClosedFollowupSection_(closedFollowups, "Follow-ups closed today");
   return h;
 }
 
