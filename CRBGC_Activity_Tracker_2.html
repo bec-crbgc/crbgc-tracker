@@ -7070,6 +7070,35 @@ async function pushData() {
     lsSet("lastSynced:"+coord,S.lastSynced);
   }
   S.syncing=false; if(!S.modal) render();
+
+  // FIXED 2026-08: root cause of "logging an activity creates a brand new
+  // contact/duplicate instead of matching the existing one." The Employer/
+  // ACAP/Student Lead org+contact pickers are built entirely from LOCAL
+  // caches (getEmployerCache/getAcapCache/etc, set only by pullEmployers()/
+  // pullAcaps()/pullStudentLeads()/pullEnrolmentPipeline()/
+  // pullCommencements()) — never updated optimistically when an activity
+  // adds a new contact. Those caches were previously only ever refreshed by
+  // loadFromCloud(), which itself is only called at page load/login/manual
+  // refresh, AND skips refreshing them entirely for 90s after any push (see
+  // recentlyPushed() below — that guard exists to protect this WEEK's
+  // unsynced activity data, not these reference lists, but it was blocking
+  // both). Net effect: a coordinator who added a brand-new contact, then
+  // logged ANY further activity for that same person without a full page
+  // reload — an extremely common same-session flow, e.g. "add the contact,
+  // then immediately log a call/visit with them" — would find them absent
+  // from the picker every time, so the tracker fell back to "+ Add new
+  // contact" and minted a fresh Contact ID on every single subsequent
+  // activity. Refreshing these caches right after every successful push
+  // (not gated by recentlyPushed(), and not dependent on the coordinator
+  // ever reloading the page) closes that gap directly at the source —
+  // nothing further for a coordinator to do differently.
+  if(errors.length===0){
+    pullEmployers(coord);
+    pullAcaps(coord);
+    pullStudentLeads(coord);
+    pullEnrolmentPipeline(coord);
+    pullCommencements(coord);
+  }
 }
 
 // ── JSONP fetch — works from local file:// and SharePoint ────────────────
@@ -7187,11 +7216,27 @@ function mergeCloudData(cloudData, coord) {
 async function loadFromCloud() {
   if(!S.user||!WEBAPP_URL) return;
   // If we pushed recently, cloud may not have rebuilt yet — skip week pull
-  // to avoid overwriting locally-saved activities with stale cloud data
+  // to avoid overwriting locally-saved activities with stale cloud data.
+  // FIXED 2026-08: this comment always said "still refresh followups/
+  // employers in background" but the code only ever actually called
+  // pullFollowups() — the Employer/ACAP/Student Lead/Enrolment
+  // Pipeline/Commencements caches were silently skipped for the full 90s
+  // guard window on every call made during that window (not just this one
+  // — every loadFromCloud() call, e.g. from a manual refresh-icon tap or a
+  // page reload shortly after any push, hit this same branch). Those
+  // caches are independent read-only reference lists, not this week's
+  // activity data — nothing about refreshing them risks the
+  // overwrite-unsynced-activities problem this guard exists to prevent, so
+  // there was never a reason to skip them. See pushData()'s matching note
+  // for the main fix this closes the same gap for.
   if(recentlyPushed()) {
-    // Still refresh followups/employers in background (they update immediately)
     const coord=S.user.coord, state=STATES[coord];
     pullFollowups(coord, state);
+    pullEmployers(coord);
+    pullAcaps(coord);
+    pullStudentLeads(coord);
+    pullEnrolmentPipeline(coord);
+    pullCommencements(coord);
     return;
   }
   S.loading=true; if(!S.modal) render();
