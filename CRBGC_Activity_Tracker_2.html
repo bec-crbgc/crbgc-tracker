@@ -243,6 +243,32 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    pullFollowups and _test_pullfollowups_no_clobber_unsynced_edit.js.
 //    Do not remove that guard to "simplify" the merge — it's the fix for
 //    a real, previously-silent, data-loss bug.
+//  - getAllDueToday's TODAY-vs-S.date behaviour has changed TWICE (2026-
+//    07-30, then reverted 2026-08-07) — same pattern as Registrations
+//    above, do not "fix" it back without re-confirming with Bec first.
+//    Current (2026-08-07, CONFIRMED): Due Today follows S.date, the day
+//    selected on the calendar — "follow-ups due on the date selected on
+//    the Calendar." It does NOT duplicate with Overdue (which stays real-
+//    TODAY-based, unaffected by S.date) because it explicitly excludes
+//    anything isOverdue() or snoozeCount>=3 — see getAllDueToday/
+//    getAllOverdueFollowups and _test_today_due_overdue_calendar_date.js.
+//    A follow-up snoozed 3 times moves into Overdue even before its due
+//    date technically arrives — snoozing is capped at 3, no exceptions.
+//  - The Today tab's Overdue card has NO Snooze button (Done only) — this
+//    is deliberate, not an oversight. Only Due Today can still be
+//    snoozed. Do not re-add a Snooze button to the Overdue card. See
+//    _test_overdue_snooze_removed_and_tab_counts.js.
+//  - Employer Calls/Site Visits/Pipeline's own tile NUMBERS (Attempted/
+//    Connected/Meaningful/Follow-ups, Locations/Employers/Opportunities,
+//    Contacted) now include legacy closed-follow-up records — they used
+//    to only count fresh same-type activities, which undercounted
+//    relative to what each tab's own "Follow-ups closed today" section
+//    displayed right below. Pipeline's "Progressed" is the ONE exception
+//    — it deliberately still excludes them, to stay consistent with
+//    weeklyTotals' own T.pipeline_progressed (a raw a.type check per the
+//    2026-08-06 fix). If Progressed's definition ever needs to include
+//    closed follow-ups too, change it in BOTH places together. See
+//    _test_overdue_snooze_removed_and_tab_counts.js.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -3273,15 +3299,17 @@ function renderToday(coord,state,day){
           <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
             <span style="font-size:10px;background:var(--redt);color:#fff;padding:1px 6px;border-radius:20px;font-weight:600">Due ${fmtDateShort(f.followUpDate)}</span>
             <button onclick="openCloseFollowupModal('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}','${jsAttrEscape_((f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||""))}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
-            ${(f.snoozeCount||0)>=3
-              ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
-              : `<button onclick="snoozeFollowup('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
         ${(f.mobile||f.phone||"")?`<div style="margin-top:4px"><a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a></div>`:""}
         ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
       </div>`).join(""):""}
+      <!-- 2026-08-07 per Bec: Snooze removed from Overdue entirely — an
+           overdue follow-up carries forward automatically (it's always
+           real-TODAY-based, see getAllOverdueFollowups) until it's closed
+           out with ✓ Done and a real outcome; no way to defer it further
+           from here. -->
     </div>`;
   }
 
@@ -3303,16 +3331,20 @@ function renderToday(coord,state,day){
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
           <div style="margin-left:auto;display:flex;gap:6px">
             <button onclick="openCloseFollowupModal('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}','${jsAttrEscape_((f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||""))}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
-            ${(f.snoozeCount||0)>=3
-              ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
-              : `<button onclick="snoozeFollowup('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
+            <button onclick="snoozeFollowup('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>
           </div>
         </div>
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
         ${(f.mobile||f.phone||"")?`<div style="margin-top:4px"><a href="tel:${(f.mobile||f.phone||"").replace(/\s/g,"")}" style="font-size:11px;color:#1a73e8;text-decoration:none;display:inline-flex;align-items:center;gap:3px"><i class="ti ti-phone" style="font-size:12px"></i>${f.mobile||f.phone}</a></div>`:""}
         ${f.nextAction?`<div style="font-size:12px;color:var(--ts);margin-top:4px"><i class="ti ti-arrow-right" style="font-size:11px"></i> ${f.nextAction}</div>`:""}
       </div>`).join(""):""}
-      ${dueTodayOpen?`<div style="font-size:11px;color:#1a73e8;margin-top:8px">✓ Done marks it complete · Snooze moves follow-up date to tomorrow</div>`:""}
+      <!-- 2026-08-07: the "Snooze limit reached" disabled variant that used
+           to live here is unreachable now — getAllDueToday itself excludes
+           anything with snoozeCount>=3 (it's moved to Overdue instead, see
+           getAllOverdueFollowups), so nothing rendered from THIS list can
+           ever have snoozeCount>=3. Every follow-up shown here can still be
+           snoozed normally, up to the cap. -->
+      ${dueTodayOpen?`<div style="font-size:11px;color:#1a73e8;margin-top:8px">✓ Done marks it complete · Snooze moves follow-up date to tomorrow (max 3x, then it moves to Overdue)</div>`:""}
     </div>`;
   }
 
@@ -3447,10 +3479,22 @@ function renderCalls(coord,state,day){
   const calls=(day.activities||[]).filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_")));
   // See renderClosedFollowupSection_'s comment above — this is the fix.
   const closedFollowups=(day.activities||[]).filter(a=>a.type==="follow_up_closed"&&a.origType==="employer_call");
-  const attempted=calls.length;
-  const connected=calls.filter(a=>a.callOutcome&&a.callOutcome.startsWith("Connected")).length;
-  const meaningful=calls.filter(isMeaningfulCall).length;
-  const followups=calls.filter(a=>a.followUpDate).length;
+  // 2026-08-07 per Bec's review: "Should log all activities logged against
+  // this type for the selected date — including follow-ups due and
+  // overdue follow-ups that have been marked as done." The list below
+  // already showed closedFollowups in their own "Follow-ups closed today"
+  // section (these are only LEGACY records — since the third-pass rewrite,
+  // closing a follow-up creates a genuine employer_call-typed activity
+  // that's already included in `calls` above), but the Attempted/
+  // Connected/Meaningful/Follow-ups tile NUMBERS at the top of this tab
+  // never counted them, so the totals didn't match what the list below
+  // actually showed. Folded in for the counts only — the two lists
+  // themselves are unchanged.
+  const callsForCounts = calls.concat(closedFollowups);
+  const attempted=callsForCounts.length;
+  const connected=callsForCounts.filter(a=>a.callOutcome&&a.callOutcome.startsWith("Connected")).length;
+  const meaningful=callsForCounts.filter(isMeaningfulCall).length;
+  const followups=callsForCounts.filter(a=>a.followUpDate).length;
 
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-phone"></i> Employer Calls — ${fmtDate(S.date)}</div>
@@ -3503,14 +3547,19 @@ function renderVisits(coord,state,day){
   // See renderClosedFollowupSection_'s comment (above renderCalls) — this
   // is the same fix, applied here.
   const closedFollowups=(day.activities||[]).filter(a=>a.type==="follow_up_closed"&&(a.origType==="site_visit"||a.origType==="new_employer_met"));
-  const locations=new Set(visits.map(a=>a.suburb).filter(Boolean)).size;
-  const opps=visits.filter(a=>["Apprentice vacancy identified","Student lead identified","Sign-up booked"].includes(a.activityOutcome)).length;
+  // 2026-08-07 per Bec's review: same fix as renderCalls above — the tile
+  // NUMBERS (Locations/Employers/Opportunities) now include legacy
+  // closedFollowups too, matching what the "Follow-ups closed today"
+  // section below already shows. The `visits` list itself is unchanged.
+  const visitsForCounts = visits.concat(closedFollowups);
+  const locations=new Set(visitsForCounts.map(a=>a.suburb).filter(Boolean)).size;
+  const opps=visitsForCounts.filter(a=>["Apprentice vacancy identified","Student lead identified","Sign-up booked"].includes(a.activityOutcome)).length;
 
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-building"></i> Site Visits — ${fmtDate(S.date)}</div>
     <div class="field-row" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:12px;">
       <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--hdr)">${locations}</div><div class="small muted">Locations</div></div>
-      <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--hdr)">${visits.length}</div><div class="small muted">Employers</div></div>
+      <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--hdr)">${visitsForCounts.length}</div><div class="small muted">Employers</div></div>
       <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--greent)">${opps}</div><div class="small muted">Opportunities</div></div>
     </div>
     <div class="hint" style="margin-bottom:10px">Log each employer separately even if at the same location.</div>
@@ -3564,12 +3613,23 @@ function renderPipeline(coord,state,day){
   // so it displays correctly here even though this tab's live items use
   // leadName/studentName directly rather than bizName.
   const closedFollowups=(day.activities||[]).filter(a=>a.type==="follow_up_closed"&&["pipeline","registration","enrolment_pipeline"].includes(a.origType));
+  // 2026-08-07 per Bec's review: "Contacted" now includes legacy
+  // closedFollowups too, matching what the "Follow-ups closed today"
+  // section below already shows (same fix as renderCalls/renderVisits).
+  // "Progressed" deliberately does NOT — it's kept as pure `pipes` so it
+  // stays consistent with weeklyTotals' T.pipeline_progressed, which per
+  // the 2026-08-06 fix is intentionally a raw a.type check (see the
+  // comment above weeklyTotals' pipeline_progressed line and
+  // _test_registrations_new_only_and_pipeline_progressed.js) — if this
+  // ever needs to change, it must change in both places together so the
+  // daily tab and the weekly rollup don't drift apart again.
+  const pipesForCounts = pipes.concat(closedFollowups);
   const progressed=pipes.filter(a=>a.newStage&&a.prevStage&&a.newStage!==a.prevStage).length;
 
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-git-branch"></i> Pipeline Conversion — ${fmtDate(S.date)}</div>
     <div class="field-row" style="grid-template-columns:1fr 1fr;margin-bottom:12px;">
-      <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--hdr)">${pipes.length}</div><div class="small muted">Contacted</div></div>
+      <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--hdr)">${pipesForCounts.length}</div><div class="small muted">Contacted</div></div>
       <div style="text-align:center"><div style="font-size:22px;font-weight:700;color:var(--greent)">${progressed}</div><div class="small muted">Progressed</div></div>
     </div>
     <div class="field-row" style="grid-template-columns:1fr 1fr;">
@@ -6454,20 +6514,28 @@ function snoozeFollowup(id, date, coord) {
 }
 
 function getAllDueToday(coord){
-  // 2026-07-30 bugfix: this used to compare against S.date||TODAY — S.date
-  // is the currently-VIEWED day (changed by the date picker in the header,
-  // reachable from any tab), not the real calendar date. Navigating to a
-  // past day made every follow-up due that day show up here AND in
-  // getAllOverdueFollowups (which correctly always uses real TODAY via
-  // isOverdue()) — duplicated on screen, and mislabeled "due today" when it
-  // wasn't. Navigating to a future day mislabeled not-yet-due follow-ups as
-  // "due today" too. "Due Today" should always mean the real today,
-  // regardless of which day's log the coordinator happens to be viewing.
+  // 2026-07-30 bugfix (SUPERSEDED 2026-08-07, see below): originally
+  // compared against S.date||TODAY, which duplicated/mislabeled follow-ups
+  // when navigating to a different day, so it was switched to always mean
+  // the real calendar today.
+  //
+  // 2026-08-07, per Bec's explicit review: "Follow-ups due today = follow-
+  // ups due on the date selected on the Calendar... Follow-ups should only
+  // ever appear once (on the actual date they are due) as you select
+  // different days of the week." Switched back to S.date (the day
+  // currently selected in the header date picker) — but this time WITHOUT
+  // reintroducing the 2026-07-30 duplication bug: any follow-up that's
+  // actually overdue (isOverdue, always real-TODAY-based) or has hit the
+  // 3x snooze cap is explicitly excluded here, because those belong in
+  // getAllOverdueFollowups instead (see its own comment just below) — so a
+  // follow-up can never appear in both lists at once, and browsing to a
+  // past due-date shows it under Overdue, not here.
+  const viewDate = S.date||TODAY;
   const result=[];
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
     (day.activities||[]).forEach(a=>{
-      if(a.followUpDate===TODAY && a.status!=="Completed" && a.status!=="Closed"){
+      if(a.followUpDate===viewDate && a.status!=="Completed" && a.status!=="Closed" && !isOverdue(a.followUpDate) && (a.snoozeCount||0)<3){
         result.push({...a,_date:d});
       }
     });
@@ -6475,7 +6543,7 @@ function getAllDueToday(coord){
   try{
     const _cf=localStorage.getItem(PFX+"followups:"+coord);
     if(_cf) JSON.parse(_cf).forEach(function(a){
-      if(a.followUpDate===TODAY && a.status!=="Completed" && a.status!=="Closed"){
+      if(a.followUpDate===viewDate && a.status!=="Completed" && a.status!=="Closed" && !isOverdue(a.followUpDate) && (a.snoozeCount||0)<3){
         if(!result.find(function(r){return r.id===a.id;})) result.push(a);
       }
     });
@@ -6484,11 +6552,22 @@ function getAllDueToday(coord){
 }
 
 function getAllOverdueFollowups(coord){
+  // 2026-08-07, per Bec's review: overdue is always real-TODAY-based
+  // (unaffected by whichever day is selected on the calendar — so it
+  // "only ever appears once... moves with the current day until closed"),
+  // PLUS a follow-up that's hit the 3x snooze cap moves here even if its
+  // (repeatedly pushed-forward) followUpDate technically hasn't arrived
+  // yet — snoozing is capped at 3, "after that they should move to the
+  // overdue follow-ups list and follow the same rules until marked done."
+  // Snoozing itself is no longer offered from this list at all (Done-only
+  // — see renderToday) so once something lands here, closing it out with
+  // a real outcome is the only way forward.
   const result=[];
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
     (day.activities||[]).forEach(a=>{
-      if(a.followUpDate && isOverdue(a.followUpDate) && a.status!=="Completed" && a.status!=="Closed") result.push({...a,_date:d});
+      if(!a.followUpDate || a.status==="Completed" || a.status==="Closed") return;
+      if(isOverdue(a.followUpDate) || (a.snoozeCount||0)>=3) result.push({...a,_date:d});
     });
   });
   return result.sort((a,b)=>a.followUpDate>b.followUpDate?1:-1);
