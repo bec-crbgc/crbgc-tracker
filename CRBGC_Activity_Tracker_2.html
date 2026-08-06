@@ -180,6 +180,16 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //  - post()'s no-cors fallback firing a SECOND POST after a response that
 //    already succeeded (res.ok===true) but failed to parse — silently
 //    double-submits whatever the call was doing. See post()'s comment.
+//  - A follow-up closed via any path OTHER than this device's own close
+//    flow (a different device, or a manager viewing "as" a coordinator)
+//    never clearing locally — it stays "Open" in that device's cached
+//    days forever, so getAllDueToday/getAllOverdueFollowups (which are
+//    100% local-storage scans, no network call) keep counting it, and a
+//    normal refresh (current week only) can never fix it if the stale
+//    entry is in an older day bucket. See pullFollowups's reconciliation
+//    block (searches for "serverIds") and _test_pullfollowups_reconcile.js.
+//    Any change to pullFollowups/getOpenFollowups/getAllDueToday/
+//    getAllOverdueFollowups must re-run that test.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -7645,6 +7655,56 @@ async function pullFollowups(coord, state) {
     // locally (see above), so getAllDueToday's followups-cache fallback
     // can't resurrect it either.
     try{localStorage.setItem(PFX+"followups:"+coord,JSON.stringify((data.followups||[]).filter(a=>!locallyClosedIds.has(a.id))));}catch(e_){}
+    //
+    // 2026-08-07 fix for Bec's report ("James's overdue follow-ups keep
+    // re-appearing after being closed"): everything above only ever ADDS a
+    // brand-new follow-up or UPDATES one that's still in the server's
+    // response. There was no case at all for "this device has a follow-up
+    // cached as Open, but the server's current open-list (data.followups —
+    // see getOpenFollowups in appscript.js, which is unconditional/
+    // unscoped) no longer contains it." That happens whenever a follow-up
+    // is closed by any path other than THIS device's own close flow — e.g.
+    // a different device, or Bec viewing "as" that coordinator — and the
+    // stale local "Open" copy then sat there forever, because
+    // getAllDueToday/getAllOverdueFollowups scan every locally-cached day
+    // directly off localStorage and never call the server. A normal
+    // "refresh" only re-pulls the current week (pullWeek), so it could
+    // never fix an older cached day. This reconciles any such stale entry
+    // by marking it Completed locally so it drops out of both scans.
+    //
+    // Guarded on !S.unsyncedChanges: get_followups is authoritative for
+    // what the server considers open, but a follow-up logged on THIS
+    // device moments ago and not yet pushed also won't be in that
+    // response — reconciling while there are unsynced local changes could
+    // wrongly close a brand-new, still-open follow-up. Skipping the pass
+    // entirely until everything is pushed is the safe trade-off; the next
+    // pull after a successful sync will reconcile normally.
+    //
+    // THIS IS A REGRESSION GUARDRAIL — see _test_pullfollowups_reconcile.js.
+    // Re-run that test before changing pullFollowups, getOpenFollowups, or
+    // getAllDueToday/getAllOverdueFollowups.
+    if (!S.unsyncedChanges) {
+      const serverIds = new Set((data.followups||[]).map(a=>a.id));
+      allDays(coord).forEach(d=>{
+        const day=loadDay(coord, d);
+        if(!day.activities || !day.activities.length) return;
+        let changed=false;
+        day.activities.forEach(a=>{
+          if(!a.followUpDate) return;
+          if(a.status==="Completed"||a.status==="Closed") return;
+          if(serverIds.has(a.id)) return; // still open server-side
+          if(locallyClosedIds.has(a.id)) return; // handled above already
+          // Locally still "open" with a follow-up date, but the server's
+          // current open-list no longer contains it — it was closed via
+          // some other path. Reconcile it away.
+          a.status="Completed";
+          a.closeOutcome=a.closeOutcome||"Closed elsewhere (reconciled)";
+          a.closedDate=a.closedDate||(S.date||TODAY);
+          changed=true;
+        });
+        if(changed) saveDay(day);
+      });
+    }
     if(!S.modal) render();
   } catch(e){
     // silent
