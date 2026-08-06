@@ -219,6 +219,30 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    student/org name (or any other free-text field) MUST run it through
 //    jsAttrEscape_ first — never interpolate one raw into a single-quoted
 //    JS attribute.
+//  - The "Registrations" tile's definition has changed TWICE — do not
+//    "fix" it back to an earlier version without re-confirming with Bec
+//    first. Current (2026-08-07, CONFIRMED): counts ANY registration
+//    activity that reaches "Registered" this week, whether the student is
+//    brand-new or already existing in the pipeline — see
+//    isRegistrationReached_() and _test_registrations_tile_definition.js.
+//    (Briefly, 2026-08-06, it required a.newContactDetails — brand-new
+//    people only — which is why an existing student like Hayden Micallef
+//    reaching "Registered" silently stopped counting anywhere. That was
+//    superseded the very next day once Bec confirmed the opposite is what
+//    she actually wants.) Every site that computes this KR must use
+//    isRegistrationReached_(a), not a hand-rolled a.type==="registration"
+//    check.
+//  - pullFollowups silently overwriting a local record you JUST edited on
+//    this device with the server's stale pre-edit version, if a pull
+//    happens to land inside schedulePush()'s 3-second debounce window
+//    before the edit's push has reached the server — no error, the edit
+//    just vanishes from every count as if it never happened. Fixed by
+//    skipping the overwrite whenever S.unsyncedChanges is true (a genuine
+//    server-side update, e.g. a corrected phone/name, will still land on
+//    the very next pull once the push completes). See the merge loop in
+//    pullFollowups and _test_pullfollowups_no_clobber_unsynced_edit.js.
+//    Do not remove that guard to "simplify" the merge — it's the fix for
+//    a real, previously-silent, data-loss bug.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -1392,6 +1416,22 @@ function dayOfWeek(ds){
 // so all of those stay consistent with the Daily Dashboard tile rather
 // than silently drifting apart the way the follow-up open/overdue counts
 // did earlier.
+// 2026-08-07: per Bec's explicit correction — the "Registrations" tile
+// (weekly pace target + every Dashboard/weekly-summary occurrence of that
+// label) was gated on a.newContactDetails ("was a brand-new contact
+// created alongside this"), NOT on whether the student actually reached
+// Registered. That meant an EXISTING student being progressed through the
+// pipeline to Registered (the normal case — most students in the pipeline
+// aren't brand new that same week) never counted as a Registration at
+// all, regardless of outcome. Confirmed with Bec: "Registrations" should
+// mean "reached Registered this week," full stop — new or existing
+// contact makes no difference. Every site that counted a.newContactDetails
+// for this label now uses this shared predicate instead.
+// THIS IS A REGRESSION GUARDRAIL — see _test_registrations_tile_definition.js.
+// Do not revert this back to a.newContactDetails.
+function isRegistrationReached_(a){
+  return a.type==="registration" && (a.contactOutcome==="Registered" || a.newStage==="Registered");
+}
 function isMeaningfulCall(act){
   // UPDATED 2026-08-03: a follow_up_closed record only counts as a
   // meaningful contact when the CR member actually selected a meaningful
@@ -1497,7 +1537,7 @@ function weeklyPaceActuals(coord, ds){
     realActs.forEach(a=>{
       const effType = effContactType(a);
       if(a.type==="commencement") T.commencement++;
-      if(a.type==="registration" && a.newContactDetails) T.registration++;
+      if(isRegistrationReached_(a)) T.registration++;
       if(a.type==="enrolment") T.enrolment++;
       if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled") T.enrolment++;
       if(effType==="acap_contact"||effType==="acap_f2f") T.acap_contact_attempted++;
@@ -1835,7 +1875,7 @@ function weeklyTotals(coord,ds){
       // returning/existing student progressing through the pipeline is
       // now correctly excluded — that activity instead counts toward
       // Pipeline Progressed below if it moved a stage.
-      if(a.type==="registration" && a.newContactDetails) T.registration++;
+      if(isRegistrationReached_(a)) T.registration++;
       if(a.type==="registration" && a.contactOutcome==="Registered"){ T.reg_submitted++; }
       if(a.type==="registration" && a.newStage==="Sign-up booked") T.signup_booked++;
       if(a.type==="enrolment") T.enrolment++;
@@ -2068,7 +2108,7 @@ function downloadDailyExcel() {
         {label:"Commencements",         val:acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(tgt.commencement[s])),  obj:"o1"},
         // 2026-08-06: only a brand-new person (newContactDetails set) counts
         // as a new registration — see weeklyTotals()'s matching fix.
-        {label:"Registrations",          val:acts.filter(function(a){return a.type==="registration"&&a.newContactDetails;}).length,       tgt:Math.round(paceTarget(tgt.registration[s])),  obj:"o1"},
+        {label:"Registrations",          val:acts.filter(isRegistrationReached_).length,       tgt:Math.round(paceTarget(tgt.registration[s])),  obj:"o1"},
         {label:"ACAP contacts",          val:acts.filter(function(a){return a.type==="acap_contact"||a.type==="acap_f2f";}).length, tgt:Math.round(paceTarget(tgt.acap_contact[s])), obj:"o2"},
         {label:"ACAP F2F visits",        val:acts.filter(function(a){return a.type==="acap_f2f";}).length,            tgt:Math.round(paceTarget(tgt.acap_f2f[s])),      obj:"o2"},
         {label:"Events",                 val:acts.filter(function(a){return a.type==="event";}).length,               tgt:Math.round(paceTarget(tgt.event[s])),          obj:"o2"},
@@ -2758,7 +2798,7 @@ function downloadDashboardPDF() {
       const commencements    = acts.filter(a=>a.type==="commencement").length;
       // 2026-08-06: only a brand-new person (newContactDetails set) counts
       // as a new registration — see weeklyTotals()'s matching fix.
-      const registrations    = acts.filter(a=>a.type==="registration"&&a.newContactDetails).length;
+      const registrations    = acts.filter(isRegistrationReached_).length;
       const acapContacts     = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
       const callsAttempted   = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))).length;
       const callsMeaningful  = acts.filter(isMeaningfulCall).length;
@@ -4069,7 +4109,7 @@ function weeklyTileMetrics(coord, targetDate){
     // counts as a new registration — see weeklyTotals()'s matching fix for
     // the full rationale. An existing lead being progressed through the
     // pipeline no longer inflates this tile.
-    registrations:       acts.filter(a=>a.type==="registration"&&a.newContactDetails).length,
+    registrations:       acts.filter(isRegistrationReached_).length,
     enrolments:          acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length,
     // FIXED 2026-08-06 per Bec: "Pipeline progression attempts should show
     // any pipeline (enrolment/registrations) that have been logged in the
@@ -4174,7 +4214,7 @@ function renderDailyDashboard(){
     // rationale, including why contactOutcome==="Registered" was the
     // wrong signal — that's the outcome of TODAY's contact, not whether
     // this was a brand-new person).
-    const registrations       = acts.filter(a=>a.type==="registration"&&a.newContactDetails).length;
+    const registrations       = acts.filter(isRegistrationReached_).length;
     const enrolments          = acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length; // marked as enrolled, or a standalone Enrolment record added
     // FIXED 2026-08-05 per Bec: "Pipeline Progression Attempts" only ever
     // counted the "pipeline" activity type (Registration Pipeline, i.e.
@@ -7536,6 +7576,23 @@ async function pullFollowups(coord, state) {
           retryFollowupClose_(coord, existing);
           // don't overwrite — the local Completed record is the correct
           // one; the server just hasn't caught up yet.
+        } else if (S.unsyncedChanges) {
+          // 2026-08-07 fix for Bec's report ("edited a Registration to
+          // Registered — the edit isn't counting anywhere"): this branch
+          // used to overwrite ANY still-open local record unconditionally
+          // with whatever the server last had, "so phone/name changes come
+          // through." But that's exactly wrong for an activity the
+          // coordinator just edited on THIS device and hasn't pushed yet
+          // (schedulePush's 3-second debounce, or a slow/dropped push) —
+          // if this pull lands in that window, it silently overwrote the
+          // fresh local edit with the server's stale pre-edit version, and
+          // the coordinator never saw any error; the edit just silently
+          // vanished from every count. Skip the overwrite while there are
+          // ANY unsynced local changes — safer to briefly miss a server-
+          // side phone/name update (it'll come through on the next pull
+          // once synced) than to silently clobber a real, unsynced edit.
+          // THIS IS A REGRESSION GUARDRAIL — see
+          // _test_pullfollowups_no_clobber_unsynced_edit.js.
         } else {
           day.activities[idx]=a; // update existing
         }
