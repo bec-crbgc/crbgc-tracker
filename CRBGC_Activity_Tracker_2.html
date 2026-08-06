@@ -158,10 +158,10 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //  - Student Lead/Enrolment Pipeline follow-up close or snooze silently
 //    not reaching the server (duplicate `type` key in the postBestEffort
 //    payload clobbering the dispatch-routing value) — see the `leadType`
-//    comments in snoozeFollowup/confirmCloseFollowup/retryFollowupClose_
-//    and _test_followup_close_retry.js. Any postBestEffort/post() call
-//    with more than one field carrying "type"-like meaning must use
-//    distinct key names — never reuse `type`.
+//    comments in snoozeFollowup/saveActivityFromModal_'s closingFollowup
+//    block/retryFollowupClose_ and _test_followup_close_retry.js. Any
+//    postBestEffort/post() call with more than one field carrying
+//    "type"-like meaning must use distinct key names — never reuse `type`.
 //  - A locally-closed follow-up reverting to "open" on the next cloud pull
 //    (dropped background sync, no retry) — see retryFollowupClose_ and
 //    pullFollowups's locallyClosedIds handling.
@@ -190,6 +190,17 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    block (searches for "serverIds") and _test_pullfollowups_reconcile.js.
 //    Any change to pullFollowups/getOpenFollowups/getAllDueToday/
 //    getAllOverdueFollowups must re-run that test.
+//  - Closing a follow-up now reopens the ORIGINAL activity type's own
+//    logging form (renderActivityModal), not a separate generic
+//    single-outcome "close follow-up" form — the old confirmCloseFollowup/
+//    renderCloseFollowupModal/closeFollowup functions are GONE, do not
+//    recreate them. See openCloseFollowupModal and the closingFollowup
+//    block in saveActivityFromModal_, and
+//    _test_followup_close_via_type_modal.js. If you add a new activity
+//    type, it automatically gets this for free as long as it goes through
+//    renderActivityModal/saveActivityFromModal_ — no separate wiring
+//    needed. Do not reintroduce a synthetic "follow_up_closed" a.type —
+//    closing a follow-up must always create an activity of its REAL type.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -4757,8 +4768,11 @@ function renderFilteredActivityLog(coordsToShow, dates){
 function renderModal(){
   const m=S.modal;
   if(m.type==="settings")      return renderSettingsModal();
+  // 2026-08-07: "close_followup" modal type removed — closing a follow-up
+  // now opens the type "activity" modal (see openCloseFollowupModal), with
+  // S.modal.closingFollowup carrying the linkage back to the original
+  // follow-up. Do not reintroduce a separate close_followup modal type.
   if(m.type==="activity")      return renderActivityModal(m.actType,m.data||{});
-  if(m.type==="close_followup") return renderCloseFollowupModal(m);
   return "";
 }
 
@@ -4802,84 +4816,6 @@ const CONTACT_OUTCOMES_ALL = [
   "Do not contact — removed from list",
   "Other",
 ];
-
-function renderCloseFollowupModal(m) {
-  return `<div class="modal-bg">
-  <div class="modal">
-    <div class="modal-title" style="color:#085041"><i class="ti ti-checkbox"></i> Close follow-up</div>
-    <div id="modal_errors"></div>
-    <div style="background:var(--o1);padding:10px 12px;border-radius:var(--r);margin-bottom:16px;font-size:13px">
-      <strong>${m.name||"Follow-up"}</strong>
-    </div>
-    <div class="field">
-      <label>What was the outcome?<span class="req">*</span></label>
-      <select id="fu_outcome" onchange="onFuOutcomeChange()">
-        <option value="">\u2014 Select outcome \u2014</option>
-        <optgroup label="\u2705 Meaningful contact">
-          <option>Connected \u2014 discussed and resolved</option>
-          <option>Connected \u2014 next steps agreed</option>
-          <option>Meeting booked</option>
-          <option>Sign-up confirmed</option>
-          <option>Registration submitted</option>
-        </optgroup>
-        <optgroup label="\u25cb No meaningful contact">
-          <option>No longer pursuing \u2014 not suitable</option>
-          <option>No longer pursuing \u2014 withdrew</option>
-          <option>No longer pursuing \u2014 uncontactable</option>
-          <option>Handed to another team member</option>
-          <option>Do not contact — removed from list</option>
-          <option>Other</option>
-        </optgroup>
-      </select>
-    </div>
-    <div id="fu_meaningful_wrap" class="hidden">
-      <div style="background:var(--green);color:var(--greent);padding:8px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:12px">
-        \u2705 This counts as a productive activity for today's log
-      </div>
-    </div>
-    <div id="fu_nonmeaningful_wrap" class="hidden">
-      <div style="background:var(--amber);color:var(--ambert);padding:8px 12px;border-radius:var(--r);font-size:12px;font-weight:600;margin-bottom:8px">
-        \u26a0 This will NOT count as productive activity \u2014 justification required
-      </div>
-      <div class="field">
-        <label>Why are you closing without meaningful contact?<span class="req">*</span></label>
-        <textarea id="fu_justification" placeholder="e.g. Student confirmed no longer eligible \u2014 employer notified" style="min-height:72px"></textarea>
-      </div>
-    </div>
-    <div class="field">
-      <label>What specifically happened?<span class="req">*</span></label>
-      <textarea id="fu_notes" placeholder="Describe what was done and the result" style="min-height:90px"></textarea>
-    </div>
-    <div class="field">
-      <label>Did this create a new follow-up?</label>
-      <select id="fu_new_followup" onchange="toggleNewFollowup()">
-        <option value="no">No \u2014 fully resolved</option>
-        <option value="yes">Yes \u2014 log a new follow-up</option>
-      </select>
-    </div>
-    <div id="fu_new_date_wrap" class="field hidden">
-      <label>New follow-up date</label>
-      <input id="fu_new_date" type="date" value="">
-      <div class="field mt8">
-        <label>New follow-up action</label>
-        <input id="fu_new_action" placeholder="What needs to happen next?">
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:16px">
-      <button onclick="confirmCloseFollowup('${m.id}','${m.date}','${m.coord}')" class="btn-success" style="flex:1">\u2713 Confirm &amp; close</button>
-      <button onclick="closeModal()" class="btn-ghost">Cancel</button>
-    </div>
-  </div></div>`;
-}
-
-function onFuOutcomeChange() {
-  const val = document.getElementById("fu_outcome")?.value||"";
-  const isMeaningful = MEANINGFUL_OUTCOMES.indexOf(val) !== -1;
-  const mWrap = document.getElementById("fu_meaningful_wrap");
-  const nmWrap = document.getElementById("fu_nonmeaningful_wrap");
-  if (mWrap)  mWrap.classList.toggle("hidden", !isMeaningful);
-  if (nmWrap) nmWrap.classList.toggle("hidden", !(val && !isMeaningful));
-}
 
 // 2026-08-07: manager-only "who's currently in the tracker" panel. Backed
 // by appscript.js's get_presence/heartbeat doGet actions (PropertiesService-
@@ -5149,6 +5085,12 @@ async function debugFollowups(){
 
 function renderActivityModal(type,data){
   const isEdit=!!data.id;
+  // 2026-08-07: set when this modal was opened via openCloseFollowupModal
+  // (closing a follow-up now reuses this exact form — see that function's
+  // comment) — used only to adjust the title/button copy and show a small
+  // context banner; the field list and save logic are otherwise identical
+  // to a fresh log.
+  const closingFollowup = S.modal?.closingFollowup;
   const baseTitles={
     commencement:"Log Commencement",registration:"Log Registration Pipeline",enrolment:"Log Enrolment",
     intro_call:"Log Employer Introduction Call",acap_contact:"Log ACAP Call",acap_f2f:"Log ACAP F2F Visit",add_acap:"Add ACAP Contact",
@@ -5588,11 +5530,14 @@ function renderActivityModal(type,data){
 
   return `<div class="modal-bg">
   <div class="modal">
-    <div class="modal-title"><i class="ti ti-plus"></i> ${titles[type]||type}</div>
+    <div class="modal-title"><i class="ti ${closingFollowup?"ti-checkbox":"ti-plus"}"></i> ${closingFollowup?"Close follow-up — "+(titles[type]||type):(titles[type]||type)}</div>
+    ${closingFollowup?`<div style="background:var(--o1);padding:8px 12px;border-radius:var(--r);margin-bottom:16px;font-size:12px;color:var(--ts)">
+      Closing this follow-up. Fill this in exactly as if logging a fresh ${(titles[type]||type).replace(/^Log /,"").replace(/^Add /,"")} — it'll count as today's activity and be written to the WIP database. Leave Follow-up date blank if this is fully resolved, or set a new one to reschedule instead of closing.
+    </div>`:""}
     <div id="modal_errors"></div>
     ${fields}
     <div style="display:flex;gap:8px;margin-top:16px">
-      <button onclick="saveActivityFromModal('${type}')" class="btn-primary" style="flex:1" ${S.savingActivity?"disabled":""}>${S.savingActivity?"Saving…":"Save"}</button>
+      <button onclick="saveActivityFromModal('${type}')" class="btn-primary" style="flex:1" ${S.savingActivity?"disabled":""}>${S.savingActivity?"Saving…":(closingFollowup?"✓ Confirm & close":"Save")}</button>
       <button onclick="closeModal()" class="btn-ghost">Cancel</button>
     </div>
   </div></div>`;
@@ -5863,6 +5808,17 @@ function saveActivityFromModal_(type){
   const editCoord = S.modal?.editCoord || null;
   const editDate = S.modal?.editDate || null;
   const isEdit = !!editId;
+  // 2026-08-07: Bec's request — closing a follow-up now reuses this exact
+  // same fresh-logging form (see openCloseFollowupModal), so the outcome
+  // options match the original activity type and the closure lands as a
+  // genuine WIP activity via the normal push below, instead of a separate
+  // generic one-outcome "close follow-up" form. Captured up front (S.modal
+  // gets nulled further down) — see the closingFollowup block below for
+  // what this triggers. Deliberately NOT treated as an edit (isEdit stays
+  // false): the original follow-up may be from a past week that
+  // pushData() no longer re-sends, so this must create a brand-new,
+  // TODAY-dated activity that the standard weekly push will pick up.
+  const closingFollowup = S.modal?.closingFollowup || null;
   const day = isEdit ? loadDay(editCoord||S.user.coord, editDate||S.date) : getDay();
   const existingAct = isEdit ? (day.activities||[]).find(a=>a.id===editId) : null;
   const act = isEdit && existingAct
@@ -6105,9 +6061,78 @@ function saveActivityFromModal_(type){
     } catch(e_){}
   }
 
+  // 2026-08-07: the remaining follow-up-specific bookkeeping for a
+  // closingFollowup save — the activity itself is already saved/queued for
+  // push above via the completely normal path. This block only handles
+  // what's specific to CLOSING: marking the ORIGINAL follow-up entry
+  // closed (or rescheduled, if this save set a new follow-up date), and
+  // clearing/updating the master Employer/ACAP/Student-Lead row's
+  // Follow-Up Date via the existing update_*_followup endpoint.
+  // push_activities (the normal path above) only ever SETS a Follow-Up
+  // Date when the new activity has one — it never CLEARS a stale one when
+  // a closure leaves it blank (see updateEmployerDatabase in
+  // appscript.js), so this side-channel call is still required for that
+  // one case; it's also the only thing that clears the underlying hidden
+  // "auto follow-up" row (see syncFollowupRowByAction in appscript.js).
+  // THIS IS A REGRESSION GUARDRAIL — see openCloseFollowupModal above and
+  // _test_followup_close_via_type_modal.js. Re-run that test before
+  // touching this block, openCloseFollowupModal, or saveActivityFromModal_.
+  if (closingFollowup) {
+    const rescheduled = !!act.followUpDate;
+    const origDay = loadDay(closingFollowup.coord, closingFollowup.date);
+    const origAct = (origDay.activities||[]).find(a=>a.id===closingFollowup.id);
+    if (origAct) {
+      if (rescheduled) {
+        origAct.status = "Open";
+        origAct.followUpDate = act.followUpDate;
+        origAct.nextAction = act.nextAction||origAct.nextAction;
+        origAct.snoozeCount = 0;
+      } else {
+        origAct.status = "Completed";
+        origAct.closedDate = S.date||TODAY;
+      }
+      saveDay(origDay);
+    }
+    try {
+      const cacheKey = PFX+"followups:"+closingFollowup.coord;
+      const cf_ = localStorage.getItem(cacheKey);
+      let followups = cf_ ? JSON.parse(cf_) : [];
+      followups = followups.filter(a=>a.id!==closingFollowup.id);
+      if (rescheduled && origAct) followups.push({...origAct});
+      localStorage.setItem(cacheKey, JSON.stringify(followups));
+    } catch(e_) {}
+
+    try {
+      const isAcapClose = type==="acap_contact"||type==="acap_f2f";
+      const isStudentClose = type==="lead"||type==="enrolment_pipeline";
+      // "Was this meaningful" now uses the SAME rule the Dashboard already
+      // applies to a fresh log of this type (Bec: "reuse each type's own
+      // meaningful rule") — purely to phrase the WIP note action; the real
+      // detail of what happened now lives on the genuine activity row
+      // itself, not in this side-channel call.
+      const isMeaningfulClose = isMeaningfulCall(act);
+      const today_ = S.date||TODAY;
+      const fuAction = rescheduled ? "snooze"
+        : (act.callOutcome==="Do not contact — removed from list") ? "do_not_contact"
+        : isMeaningfulClose ? "closed_meaningful" : "closed_no_contact";
+      if (isAcapClose && act.acapOrg) {
+        postBestEffort({type:"update_acap_followup",coord:closingFollowup.coord,org:act.acapOrg,id:closingFollowup.id,
+          nextContactDate:act.followUpDate||"",lastContactDate:today_,action:fuAction});
+      } else if (isStudentClose && act.studentName) {
+        postBestEffort({type:"update_student_followup",coord:closingFollowup.coord,name:act.studentName,leadType:type,
+          nextContactDate:act.followUpDate||"",lastContactDate:today_,action:fuAction});
+      } else if (!isAcapClose && !isStudentClose && act.bizName) {
+        postBestEffort({type:"update_employer_followup",coord:closingFollowup.coord,bizName:act.bizName,id:closingFollowup.id,
+          nextContactDate:act.followUpDate||"",lastContactDate:today_,action:fuAction});
+      }
+    } catch(e_) {}
+  }
+
   S.modal=null;
   S.unsyncedChanges=true;
-  S.status={ok:true,msg:`${activityLabel(type)} ${isEdit?"updated":"logged"} — syncing…`};
+  S.status={ok:true,msg: closingFollowup
+    ? `Follow-up closed — logged as ${activityLabel(type)} — syncing…`
+    : `${activityLabel(type)} ${isEdit?"updated":"logged"} — syncing…`};
   schedulePush();
   render();
 }
@@ -6154,37 +6179,44 @@ function deleteActivity(id, coord){
 // ═══════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════
+// 2026-08-07: Bec's request — closing a follow-up should use the EXACT
+// same interface as freshly logging an activity of that original type
+// (not the old generic single-outcome "close follow-up" form), with
+// outcomes mapped per that type's own outcome taxonomy, and the closure
+// should log as a genuine WIP-database activity — not just a side-channel
+// note. Reopens renderActivityModal(origType, prefill) exactly as if the
+// coordinator were logging fresh, pre-filled with everything already on
+// file for this contact/student. See saveActivityFromModal_'s
+// closingFollowup block for what happens on Save.
+// THIS IS A REGRESSION GUARDRAIL — see _test_followup_close_via_type_modal.js.
+// Re-run that test before changing this function, saveActivityFromModal_'s
+// closingFollowup block, or renderActivityModal's per-type field list.
 function openCloseFollowupModal(id, date, coord, name) {
-  S.modal = {type:"close_followup", id:id, date:date, coord:coord, name:name};
-  render();
-}
-
-function closeFollowup(id, date, coord) {
-  // Update local day record
   const day = loadDay(coord, date);
-  const act = (day.activities||[]).find(a=>a.id===id);
-  if (act) {
-    act.status = "Completed";
-    saveDay(day);
+  let act = (day.activities||[]).find(a=>a.id===id);
+  if (!act) {
+    try {
+      const cf = localStorage.getItem(PFX+"followups:"+coord);
+      if (cf) act = JSON.parse(cf).find(a=>a.id===id);
+    } catch(e) {}
   }
-  // Always update cache so it disappears from all views immediately
-  try {
-    const cacheKey = PFX+"followups:"+coord;
-    const cf = localStorage.getItem(cacheKey);
-    if (cf) {
-      const followups = JSON.parse(cf).filter(a=>a.id!==id);
-      localStorage.setItem(cacheKey, JSON.stringify(followups));
-    }
-  } catch(e) {}
-  S.unsyncedChanges = true;
-  // FIXED 2026-08-03: this used to only set the unsynced flag and rely on
-  // the 5-minute fallback timer or a manual push — every other data-saving
-  // action (logging/editing/deleting an activity) schedules an immediate
-  // 3-second debounced push, but closing a follow-up didn't, so a closed
-  // follow-up could sit local-only for up to 5 minutes (or longer on
-  // mobile, where backgrounded tabs can suspend that timer entirely).
-  schedulePush();
-  S.status = {ok:true, msg:"Follow-up marked complete — syncing…"};
+  if (!act) { alert("Couldn't find that follow-up — try refreshing."); return; }
+  const origType = act.type;
+  // Pre-fill exactly the fields that type's own logging form reads back
+  // out of `data` (see renderActivityModal) — deliberately NOT act.id, so
+  // this is captured as a brand-new activity dated today, not an in-place
+  // edit of the original (which may be from a past week that pushData()
+  // no longer re-sends).
+  const prefill = {
+    bizName: act.bizName||"", contactName: act.contactName||"", relType: act.relType||"",
+    acapOrg: act.acapOrg||"", studentName: act.studentName||act.leadName||"", leadName: act.leadName||"",
+    studentState: act.studentState||"", trade: act.trade||"",
+    mobile: act.mobile||"", email: act.email||"", suburb: act.suburb||"",
+    postcode: act.postcode||"", prevStage: act.prevStage||"", newStage: act.newStage||"",
+    position: act.position||"", address: act.address||"", website: act.website||"",
+  };
+  S.modal = {type:"activity", actType:origType, data:prefill,
+    closingFollowup:{id, date, coord}};
   render();
 }
 
@@ -6384,191 +6416,6 @@ function getAllWeeks(coord){
   return Array.from(weeks).sort().reverse();
 }
 
-function confirmCloseFollowup(id, date, coord) {
-  const outcome       = document.getElementById("fu_outcome")?.value||"";
-  const notes         = document.getElementById("fu_notes")?.value?.trim()||"";
-  const justification = document.getElementById("fu_justification")?.value?.trim()||"";
-  const newFu         = document.getElementById("fu_new_followup")?.value||"no";
-  const newDate       = document.getElementById("fu_new_date")?.value||"";
-  const newAction     = document.getElementById("fu_new_action")?.value?.trim()||"";
-
-  // Validation — 2026-07-28: inline instead of blocking alert() popups.
-  const closeErrors = [];
-  if (!outcome) closeErrors.push("Please select an outcome");
-  if (!notes)   closeErrors.push("Please describe what happened");
-  const isMeaningful = MEANINGFUL_OUTCOMES.indexOf(outcome) !== -1;
-  if (!isMeaningful && outcome && !justification) {
-    closeErrors.push("Please provide justification for closing without meaningful contact");
-  }
-  if (closeErrors.length) { showModalErrors(closeErrors); return; }
-  showModalErrors([]);
-
-  const closeDate = S.date||TODAY;
-
-  // Update original activity record
-  const day = loadDay(coord, date);
-  const act = (day.activities||[]).find(a=>a.id===id);
-  if (act) {
-    act.status        = "Completed";
-    act.closeOutcome  = outcome;
-    act.closeNotes    = notes;
-    act.justification = justification||"";
-    act.closedDate    = closeDate;
-    act.meaningful    = isMeaningful;
-    saveDay(day);
-  }
-
-  // Remove from followup cache
-  try {
-    const cacheKey = PFX+"followups:"+coord;
-    const cf = localStorage.getItem(cacheKey);
-    if (cf) localStorage.setItem(cacheKey, JSON.stringify(JSON.parse(cf).filter(a=>a.id!==id)));
-  } catch(e) {}
-
-  // If meaningful — log as a new activity on TODAY (counts toward day's log)
-  if (isMeaningful) {
-    const todayRec = loadDay(coord, closeDate);
-    if (!todayRec.activities) todayRec.activities=[];
-    todayRec.activities.push({
-      id: uuid(),
-      type: "follow_up_closed",
-      timestamp: new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}),
-      date: closeDate,
-      bizName: act?.bizName||act?.acapOrg||act?.leadName||act?.studentName||"",
-      contactName: act?.contactName||"",
-      activityOutcome: outcome,
-      notes: notes,
-      status: "Completed",
-      closeOutcome: outcome,
-      _closedFromId: id,
-      // ADDED 2026-08-03: preserve the ORIGINAL activity's type (and, for
-      // employer calls, its Existing/New relType) so the Manager
-      // Dashboard's contact-count tiles can credit this closure back to
-      // the right tile "as per the type" — per Bec's explicit request —
-      // instead of only ever showing up in the separate "follow-ups
-      // closed" badge, disconnected from the type-specific tiles. See
-      // effContactType() in renderDailyDashboard() and isMeaningfulCall().
-      // Deliberately NOT carrying forward the original contactOutcome/
-      // newStage/prevStage — those reflect whatever was true when the
-      // follow-up was first logged, not anything this closure itself
-      // achieved, so outcome-gated tiles (Registrations needing
-      // "Registered", Enrolments needing "Enrolled") correctly do not
-      // get credit from a closure alone.
-      origType: act?.type||"",
-      relType: act?.relType||"",
-    });
-    saveDay(todayRec);
-  }
-
-  // If new follow-up needed
-  if (newFu==="yes" && newDate) {
-    const origDay = loadDay(coord, date);
-    const origAct = (origDay.activities||[]).find(a=>a.id===id);
-    if (origAct) {
-      origAct.followUpDate = newDate;
-      origAct.nextAction   = newAction||origAct.nextAction;
-      origAct.status       = "Open";
-      origAct.snoozeCount  = 0;
-      saveDay(origDay);
-      try {
-        const cacheKey = PFX+"followups:"+coord;
-        const cf = localStorage.getItem(cacheKey);
-        const fus = cf ? JSON.parse(cf) : [];
-        fus.push({...origAct});
-        localStorage.setItem(cacheKey, JSON.stringify(fus));
-      } catch(e) {}
-    }
-  }
-
-  S.modal = null;
-  S.unsyncedChanges = true;
-  // FIXED 2026-08-03: see matching note in closeFollowup() — confirming a
-  // follow-up closure (with outcome/notes, the most detailed close path)
-  // previously never scheduled the 3-second debounced push either, despite
-  // being the action most likely to contain the "what happened" text Bec
-  // asked to have surfaced in the weekly reports.
-  schedulePush();
-
-  // Update WIP database (Employer/ACAP next contact date, or Student
-  // Lead/Enrolment Pipeline follow-up date) so this closure actually
-  // persists server-side, not just in this device's local cache.
-  try {
-    // Try local day record first, then cloud cache
-    const origDay2 = loadDay(coord, date);
-    let origAct2 = (origDay2.activities||[]).find(a=>a.id===id);
-    if (!origAct2) {
-      const cf2 = localStorage.getItem(PFX+"followups:"+coord);
-      if (cf2) origAct2 = JSON.parse(cf2).find(a=>a.id===id);
-    }
-    // Also check the act variable already retrieved above
-    if (!origAct2 && act) origAct2 = act;
-
-    const today_ = S.date||TODAY;
-    let nextDate = "";
-    if (!isMeaningful) {
-      const n = new Date(today_+"T12:00:00"); n.setDate(n.getDate()+42);
-      nextDate = n.toISOString().substring(0,10);
-    }
-    const fuAction = outcome==="Do not contact — removed from list"
-      ? "do_not_contact"
-      : isMeaningful ? "closed_meaningful" : "closed_no_contact";
-
-    const isAcapClose = origAct2 && (origAct2.type==="acap_contact"||origAct2.type==="acap_f2f");
-    const isStudentClose = origAct2 && (origAct2.type==="lead"||origAct2.type==="enrolment_pipeline");
-    const acapOrgClose = isAcapClose ? (origAct2.acapOrg||origAct2.bizName||"") : "";
-    const bizName2 = (!isAcapClose && !isStudentClose && origAct2) ? (origAct2.bizName||"") : "";
-    const studentName2 = isStudentClose ? (origAct2.studentName||origAct2.leadName||"") : "";
-
-    // FIXED 2026-07-31: these payloads previously never included the
-    // coordinator's "What specifically happened?" / justification text —
-    // it was required and captured client-side, then silently dropped, so
-    // closed follow-ups (especially non-meaningful ones, which never get a
-    // separate today-activity row either) left no trace of what actually
-    // happened anywhere in the WIP sheet. Now included so the backend can
-    // write the real details instead of a generic placeholder.
-    if (isAcapClose && acapOrgClose) {
-      postBestEffort({type:"update_acap_followup",coord,org:acapOrgClose,id,
-        nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
-        notes:notes,justification:justification||""});
-    } else if (isStudentClose && studentName2) {
-      // 2026-08-07 FIX — same duplicate-"type"-key bug as the snooze
-      // function above: renamed the lead-vs-pipeline discriminator to
-      // leadType so it can't clobber the dispatch-routing "type" value.
-      // This is very likely THE root cause of "closed follow-ups still
-      // showing as overdue" for Student Leads/Enrolment Pipeline — every
-      // close via this path was silently rejected by doPost's dispatcher
-      // ("Unknown push type: lead"/"...enrolment_pipeline"), invisibly,
-      // every single time, so the WIP sheet's Follow-Up Date was NEVER
-      // actually cleared no matter how many times a coordinator closed it.
-      postBestEffort({type:"update_student_followup",coord,name:studentName2,leadType:origAct2.type,
-        nextContactDate:nextDate,lastContactDate:today_,action:fuAction,
-        notes:notes,justification:justification||""});
-    } else if (bizName2) {
-      postBestEffort({
-        type:"update_employer_followup",
-        coord, bizName:bizName2, id,
-        nextContactDate:nextDate,
-        lastContactDate:today_,
-        action: fuAction,
-        notes: notes,
-        justification: justification||""
-      });
-    }
-  } catch(e_){}
-
-  const msg = isMeaningful
-    ? "✅ Follow-up closed — counted as today's activity. Syncing…"
-    : "Follow-up closed (no meaningful contact recorded). Syncing…";
-  S.status = {ok:true, msg};
-  render();
-}
-
-// Toggle new follow-up date field
-function toggleNewFollowup() {
-  const val = document.getElementById("fu_new_followup")?.value;
-  const wrap = document.getElementById("fu_new_date_wrap");
-  if (wrap) wrap.classList.toggle("hidden", val!=="yes");
-}
 
 function getAllOpenFollowupsForDash(coord) {
   // For manager dashboard — reads from local cache for this coord
