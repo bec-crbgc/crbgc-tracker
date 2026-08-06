@@ -201,6 +201,13 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    renderActivityModal/saveActivityFromModal_ — no separate wiring
 //    needed. Do not reintroduce a synthetic "follow_up_closed" a.type —
 //    closing a follow-up must always create an activity of its REAL type.
+//  - Every place a follow-up is listed with an action (✓ Done / Snooze)
+//    must wire BOTH buttons to openCloseFollowupModal/snoozeFollowup — the
+//    History tab's own separate overdue-follow-ups card used to be
+//    read-only, which is exactly the kind of "same thing behaves
+//    differently depending on which tab you're in" gap Bec keeps catching.
+//    See _test_history_overdue_actions.js. If a new tab/section lists open
+//    or overdue follow-ups with actions, wire it the same way.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -3928,6 +3935,13 @@ function renderHistory(coord,state){
   </div>`;
 
   // Overdue followups first
+  // 2026-08-07: per Bec ("I want the overdue follow-ups to work the same
+  // way") — this History-tab list was read-only, with no way to act on an
+  // overdue follow-up from here at all, unlike the Today tab's overdue
+  // section. Added the same ✓ Done / Snooze buttons, wired to the exact
+  // same openCloseFollowupModal/snoozeFollowup functions Today uses — so
+  // Done here opens the same original-activity-type form and logs a real
+  // WIP activity, identically regardless of which tab it's actioned from.
   const overdue=getAllOverdueFollowups(coord);
   if(overdue.length>0){
     h+=`<div class="card" style="border-color:var(--redt)">
@@ -3937,6 +3951,12 @@ function renderHistory(coord,state){
           <span class="tag" style="background:var(--red);color:var(--redt)">${activityLabel(a.type)}</span>
           <span class="bold small">${a.bizName||a.acapOrg||a.leadName||a.studentName||""}</span>
           <span class="overdue-badge">Due ${fmtDateShort(a.followUpDate)}</span>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+            <button onclick="openCloseFollowupModal('${a.id}','${a._date||a.date}','${coord}','${(a.contactName?a.contactName+" — ":"")+(a.bizName||a.acapOrg||a.leadName||a.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+            ${(a.snoozeCount||0)>=3
+              ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
+              : `<button onclick="snoozeFollowup('${a.id}','${a._date||a.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(a.snoozeCount||0)>0?" ("+a.snoozeCount+"x)":""}</button>`}
+          </div>
         </div>
         <div class="small muted">${a.nextAction||""}</div>
       </div>`).join("")}
