@@ -208,6 +208,17 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    differently depending on which tab you're in" gap Bec keeps catching.
 //    See _test_history_overdue_actions.js. If a new tab/section lists open
 //    or overdue follow-ups with actions, wire it the same way.
+//  - A follow-up's ✓ Done / Snooze button throwing "SyntaxError: missing )
+//    after argument list" the instant it renders, for any follow-up whose
+//    business/contact/student name contains an apostrophe (a completely
+//    routine name — "O'Brien's Electrical" broke it every time) — the raw
+//    name was interpolated straight into a single-quoted inline onclick
+//    attribute with no escaping. Fixed with the shared jsAttrEscape_()
+//    helper — see its comment and _test_followup_button_name_escaping.js.
+//    ANY new onclick="someFn('${...}')" built from a business/contact/
+//    student/org name (or any other free-text field) MUST run it through
+//    jsAttrEscape_ first — never interpolate one raw into a single-quoted
+//    JS attribute.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -1397,6 +1408,22 @@ function isMeaningfulCall(act){
   if(act.type==="registration" && act.contactOutcome==="Registered") return true;
   if((act.type==="registration"||act.type==="enrolment_pipeline") && act.newStage && act.prevStage && act.newStage!==act.prevStage) return true;
   return false;
+}
+// 2026-08-07: shared helper for embedding a string inside a SINGLE-quoted
+// inline onclick="fn('...')" argument. Reported by Bec: clicking a
+// follow-up whose business/contact name contained an apostrophe (e.g. an
+// auto-generated "6-week check-in call" — see createEmployerCheckinRow_ in
+// appscript.js) broke out of the quoted argument and threw "SyntaxError:
+// missing ) after argument list" the moment the button rendered. Escapes
+// both backslash and single-quote (backslash first, so an already-escaped
+// quote doesn't get double-escaped) — every openCloseFollowupModal(...)/
+// snoozeFollowup(...) button below now runs every interpolated argument
+// through this before embedding it.
+// THIS IS A REGRESSION GUARDRAIL — see _test_followup_button_name_escaping.js.
+// Any NEW inline onclick="...('${...}')" built from a business/contact/
+// student name must use this too — never interpolate one raw.
+function jsAttrEscape_(v){
+  return String(v==null?"":v).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
 }
 function activityLabel(type){
   const labels={
@@ -3205,10 +3232,10 @@ function renderToday(coord,state,day){
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
           <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
             <span style="font-size:10px;background:var(--redt);color:#fff;padding:1px 6px;border-radius:20px;font-weight:600">Due ${fmtDateShort(f.followUpDate)}</span>
-            <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+            <button onclick="openCloseFollowupModal('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}','${jsAttrEscape_((f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||""))}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
             ${(f.snoozeCount||0)>=3
               ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
-              : `<button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
+              : `<button onclick="snoozeFollowup('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
@@ -3235,10 +3262,10 @@ function renderToday(coord,state,day){
           ${(f.snoozeCount||0)>=3?`<span style="background:var(--red);color:var(--redt);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">🔴 Snoozed ${f.snoozeCount}x</span>`:
             (f.snoozeCount||0)>=2?`<span style="background:var(--amber);color:var(--ambert);font-size:10px;padding:1px 6px;border-radius:20px;font-weight:600">⚠ Snoozed ${f.snoozeCount}x</span>`:""}
           <div style="margin-left:auto;display:flex;gap:6px">
-            <button onclick="openCloseFollowupModal('${f.id}','${f._date||f.date}','${coord}','${(f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+            <button onclick="openCloseFollowupModal('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}','${jsAttrEscape_((f.contactName?f.contactName+" — ":"")+(f.bizName||f.acapOrg||f.leadName||f.studentName||""))}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
             ${(f.snoozeCount||0)>=3
               ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
-              : `<button onclick="snoozeFollowup('${f.id}','${f._date||f.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
+              : `<button onclick="snoozeFollowup('${jsAttrEscape_(f.id)}','${jsAttrEscape_(f._date||f.date)}','${jsAttrEscape_(coord)}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid #1a73e8;color:#1a73e8;border-radius:var(--r);cursor:pointer">Snooze${(f.snoozeCount||0)>0?" ("+f.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
         ${f.relType?`<div style="font-size:11px;color:var(--ts);margin-top:2px">${f.relType}</div>`:""}
@@ -3952,10 +3979,10 @@ function renderHistory(coord,state){
           <span class="bold small">${a.bizName||a.acapOrg||a.leadName||a.studentName||""}</span>
           <span class="overdue-badge">Due ${fmtDateShort(a.followUpDate)}</span>
           <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
-            <button onclick="openCloseFollowupModal('${a.id}','${a._date||a.date}','${coord}','${(a.contactName?a.contactName+" — ":"")+(a.bizName||a.acapOrg||a.leadName||a.studentName||"")}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
+            <button onclick="openCloseFollowupModal('${jsAttrEscape_(a.id)}','${jsAttrEscape_(a._date||a.date)}','${jsAttrEscape_(coord)}','${jsAttrEscape_((a.contactName?a.contactName+" — ":"")+(a.bizName||a.acapOrg||a.leadName||a.studentName||""))}')" style="font-size:11px;padding:3px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">✓ Done</button>
             ${(a.snoozeCount||0)>=3
               ? `<button disabled title="Snooze limit reached — take real action and mark Done" style="font-size:11px;padding:3px 10px;background:#eee;color:#999;border:1px solid #ccc;border-radius:var(--r);cursor:not-allowed">Snooze limit reached</button>`
-              : `<button onclick="snoozeFollowup('${a.id}','${a._date||a.date}','${coord}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(a.snoozeCount||0)>0?" ("+a.snoozeCount+"x)":""}</button>`}
+              : `<button onclick="snoozeFollowup('${jsAttrEscape_(a.id)}','${jsAttrEscape_(a._date||a.date)}','${jsAttrEscape_(coord)}')" style="font-size:11px;padding:3px 10px;background:none;border:1px solid var(--redt);color:var(--redt);border-radius:var(--r);cursor:pointer">Snooze${(a.snoozeCount||0)>0?" ("+a.snoozeCount+"x)":""}</button>`}
           </div>
         </div>
         <div class="small muted">${a.nextAction||""}</div>
