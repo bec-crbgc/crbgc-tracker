@@ -269,10 +269,157 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    2026-08-06 fix). If Progressed's definition ever needs to include
 //    closed follow-ups too, change it in BOTH places together. See
 //    _test_overdue_snooze_removed_and_tab_counts.js.
+//  - SANDBOX (2026-08-07, updated same day after Bec's follow-up "Build
+//    across all"): Leave management. weeklyTargetFor_() only reduces a
+//    target for SINGLE-DAY leave (l.kind==="Single day") — never for
+//    extended leave, which is handled entirely on the backend
+//    (redistributeFollowupsForExtendedLeave_ moves the affected follow-ups
+//    out of the window instead). Don't "fix" weekLeaveDaysCount_ to also
+//    count extended leave — that would double-discount the same lost time.
+//      weeklyTargetFor_ is now wired into EVERY WEEKLY_TARGETS call site in
+//    this file — Weekly Dashboard tiles, Daily Dashboard pace bars, the
+//    Focus system (dailyPaceBehindCount/computeFocusThresholdMet), and all
+//    Excel/PDF exports (downloadDailyExcel/downloadWeeklyExcel/
+//    downloadTrendExcel/downloadDashboardPDF/downloadTrendPDF/
+//    computeDailyPaceDetails/renderThisWeek/renderDailyDashboard/
+//    renderTrendDashboard). If you add a NEW place that reads
+//    WEEKLY_TARGETS directly, wrap it in weeklyTargetFor_(rawTarget, coord,
+//    date) too — _test_leave_target_reduction_coverage.js asserts every
+//    listed function has zero unwrapped lookups left, so a new bare
+//    WEEKLY_TARGETS[...] read elsewhere won't be caught by that test unless
+//    the function name is added to its FUNCTIONS list.
+//      Leave servicing/reassignment and original-date-revert-on-cancel are
+//    implemented entirely on the backend — see appscript.js's own
+//    REGRESSION WATCH-LIST entry for the leave feature for the full
+//    mechanism. See _test_leave_management_frontend.js,
+//    _test_leave_target_reduction_coverage.js, and their appscript.js
+//    siblings _test_leave_management_backend.js /
+//    _test_leave_servicing_runtime.js.
+//  - SANDBOX (2026-08-07, Bec's tab-reorder request — TWO rounds same day,
+//    this describes the CURRENT/2nd round; the 1st round nested Weekly/
+//    Daily/Trend inside the Management Dashboard card behind a coordinator
+//    picker, which Bec's follow-up screenshots overturned): the manager's
+//    top-level tab bar (renderApp()'s `tabs` array) is now just Dashboard,
+//    Weekly, Daily, Trend — see CR_DETAIL_TABS/inCoordDetailMode in
+//    renderApp() for how the OLD full 9-tab set (Today/Wk Notes/Daily
+//    Notes/Pipeline/Employer Calls/Site Visits/This Week/History) still
+//    surfaces, but ONLY while S.tab is one of those coordinator-detail
+//    tabs — i.e. after switchToCoord()'s "View & Edit →" button, which is
+//    unaffected by this change and must keep working exactly as before.
+//    The Management Dashboard tab itself (renderDashboard()) now shows
+//    ONLY Registration and Starters — no nested Weekly/Daily/Trend
+//    buttons, no coordinator selector (both national views ignore
+//    S.dashFilter.coord entirely, always did). Weekly/Daily/Trend are each
+//    a full top-level tab with their own "View / edit as" coordinator
+//    selector + PDF/Excel export, via the shared renderCRTabControls_()
+//    header (renderManagerWeeklyTab_/renderManagerDailyTab_/
+//    renderManagerTrendTab_) — "All coordinators" is a valid choice there
+//    again (the 1st round's gating that hid these tabs behind picking one
+//    CR is gone). If you touch renderApp()'s tabs array or renderDashboard()
+//    again: don't reintroduce Weekly/Daily/Trend as nested dashView buttons
+//    inside the Dashboard card — Bec explicitly asked for them to be their
+//    own top-level tabs. See _test_manager_tab_order.js and
+//    _test_dashboard_tab_reorder_and_exports.js.
+//  - SANDBOX (2026-08-07): Registration and Starters tabs previously had NO
+//    working export at all — Excel silently did nothing (downloadDashboard
+//    Excel() had no branch for those two dashViews), and PDF silently fell
+//    through to the Weekly-report code path and produced a mislabelled
+//    report with the wrong content. Fixed with dedicated downloadRegistrat
+//    ionExcel_/PDF_ and downloadCommencementExcel_/PDF_ functions, wired
+//    into both dispatchers. Excel exports use ExcelJS (real formatted
+//    .xlsx workbook — fills, fonts, multiple sheets — same pattern as
+//    downloadWeeklyExcel/downloadTrendExcel), NOT a CSV. PDF exports reuse
+//    a new shared openPdfReportWindow_() helper (same window.open()+
+//    print() pattern as every other PDF export in this file). If you add a
+//    6th dashView in future, it needs its own Excel+PDF branch in BOTH
+//    downloadDashboardExcel() and downloadDashboardPDF() — neither
+//    dispatcher has a fallback/default case, so a missing branch is a
+//    silent no-op, not an error. See
+//    _test_dashboard_tab_reorder_and_exports.js.
+//  - SANDBOX (2026-08-07): the Registration/Starters dashboards' horizontal
+//    scroll tables appeared to "snap back" whenever a manager tried to drag
+//    to see the right-hand columns. TWO CSS-only fix attempts (-webkit-
+//    overflow-scrolling:touch + overscroll-behavior-x:contain, then
+//    overscroll-behavior:contain alone) both left it happening — the real
+//    cause was never scroll physics. loadAllForDashboard() had no
+//    "already attempted" gate, so its own S.loading=false;render(); at the
+//    end of every call re-satisfied the bare `!S.loading` check at all 4
+//    tab-content call sites in renderApp(), re-firing itself forever — an
+//    unthrottled fetch → full app.innerHTML rebuild → fetch → rebuild loop
+//    that reset scrollLeft on every table underneath the manager's own
+//    drag. Fixed with the same "attempted-once" gate pattern as
+//    S.regRecoAttempted/S.commRecoAttempted: S.dashDataAttempted, set
+//    synchronously before the first await, checked alongside !S.loading at
+//    all 4 call sites. If a future scroll-snap-back report comes in, check
+//    for a NEW ungated retry loop first — do not reach for CSS overscroll-
+//    behavior tweaks again, they were never the cause. See
+//    _test_dashboard_data_retry_storm.js and
+//    _test_horizontal_scroll_overscroll_fix.js (the latter's CSS is kept as
+//    reasonable defensive styling, not because it was ever the fix).
+//  - SANDBOX (2026-08-07): Starter dashboard's "Forecast — Run-Rate vs
+//    Confirmed/Pipeline" table now folds Enrolment Pipeline students
+//    (Bec: "Enrolment pipeline students combined with the commenced/
+//    pipeline forecast") directly into pipelineForecastYearEnd — see
+//    getOpenEnrolmentPipelineCount_ in appscript.js, which excludes ONLY
+//    "enrolled" students (a DELIBERATELY narrower exclusion than
+//    isStudentLeadOpen — do not "fix" it to use the full closed-status
+//    vocabulary). A SEPARATE new "Registration Pipeline Forecast — Not
+//    guaranteed" card (renderCommencementRecovery_) adds every OPEN
+//    Student Leads record on top of that (Bec: "as a separate table as
+//    this pipeline is not guaranteed future starters") — see
+//    getOpenRegistrationPipelineCount_, which uses the shared
+//    isStudentLeadOpen() vocabulary and applies NO staleness/time-window
+//    filter (Bec's explicit answer: "No time limit"). These two numbers
+//    must NEVER be blended into one — registrationPipelineForecastYearEnd
+//    is built ON TOP OF pipelineForecastYearEnd, never a replacement for
+//    it, same "never blend the two forecast methodologies" principle as
+//    runRateForecastYearEnd vs pipelineForecastYearEnd above. Both
+//    Excel/PDF exports (downloadCommencementExcel_/PDF_) must stay in sync
+//    with any future change here. See
+//    _test_enrolment_registration_pipeline_forecast.js and the updated
+//    _test_commencement_recovery_backend.js /
+//    _test_commencement_recovery_runtime.js.
+//  - SANDBOX (2026-08-07, Bec: "Rather than pull counts from the trackers
+//    activity logs can we ensure that totals are coming from the database
+//    sheets"): every "actual" figure on the Starters dashboard (YTD/This
+//    Week/This Month Actual, the per-CR breakdown, and the Run-Rate
+//    Forecast's historical sample weeks) now comes from the "<Fname> —
+//    Commencements" WIP DATABASE tab (appscript.js's
+//    getActualCommencementsFromDatabase_), NOT the tracker's Activity Log
+//    (getCommencementEvents_, now dead code as far as this dashboard is
+//    concerned — do not wire it back in without re-confirming with Bec).
+//    A row counts once its Induction Status is Active/Active-reported
+//    (same point getConfirmedFutureCommencements_ already treats a booked
+//    row as "started" — the two can never double-count the same student)
+//    AND it passes a per-state "new enrolment only" filter on col F (the
+//    "COE" column, repurposed by coordinators to flag re-enrolments —
+//    see NEW_ENROLMENT_FILTERS_): VIC requires literally "New Enrolment",
+//    NSW/QLD require literally "No". YTD Actual is now a STRAIGHT count —
+//    the old fixed historical baseline (c.ytdBaseline) and cutover-date
+//    fencing (c.cutoverDate) are NO LONGER used in this calculation (the
+//    config sheet still stores/returns them, but they're vestigial for
+//    Starters now — don't reintroduce them here without confirming with
+//    Bec first). This does NOT affect Registration Recovery — that
+//    feature still reads the Activity Log and still uses its own
+//    baseline+cutover, untouched. See the updated
+//    _test_commencement_recovery_backend.js /
+//    _test_commencement_recovery_runtime.js.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════
+// 2026-08-07: LIVE deployment URL (confirmed directly with Bec). This file
+// is otherwise IDENTICAL to the SANDBOX build delivered the same day
+// (CRBGC_Activity_Tracker_SANDBOX_STARTERS_20260807_v12.html) — only this
+// constant differs. IMPORTANT: several features in this build (the
+// Enrolment/Registration Pipeline forecast additions and the Starters
+// database-source switch on the Commencement Recovery dashboard) depend on
+// NEW fields returned by computeCommencementRecovery_ that only exist in
+// this session's updated appscript.js — if the LIVE Apps Script project
+// hasn't ALSO been updated with those backend changes yet, those specific
+// UI elements will render blank/"undefined" (the rest of the app is
+// unaffected and degrades gracefully). Deploy the matching backend before
+// or at the same time as this file, not after.
 const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwhsxmi0drQCntbqjjveKG4RwK9UrVveSRAH6iZQ0J4RFFE5y1QW2aUlyI1AIbpNty-5w/exec";
 const SRC_ID = "13D91QS2g-DZCbNxqlXcQhAZHTamALw3eAOfEj1LdL0k";
 const WIP_ID = "1tFinzQotgIErtpCq2LKNybvInw5b3LtTQ2hkC0QKHxY";
@@ -540,6 +687,37 @@ const WEEKLY_TARGETS = {
   lead_generated:{VIC:8,NSW:8,QLD:8},
 };
 
+// 2026-08-07 SANDBOX — leave-based weekly target reduction (Bec's request:
+// "activity targets for any single day leave that week altered (reduced)
+// to account for the lost time"). Deliberately SINGLE-DAY leave only, per
+// that exact wording — extended leave already pulls its Employer/ACAP
+// follow-ups out of the window entirely (see appscript.js's
+// redistributeFollowupsForExtendedLeave_), so it isn't double-counted here.
+//
+// SCOPE NOTE: this wrapper is wired into the main Weekly Dashboard tiles
+// below (renderDashboard's per-coordinator target grid) — the primary
+// place a manager looks at "target vs actual" — but NOT into every other
+// place WEEKLY_TARGETS is read directly in this file (the Daily Dashboard's
+// pace bars, the pace-based Focus system, the weekly Excel/PDF exports,
+// etc. — there are 15+ such call sites). Converting all of them safely in
+// one pass risked introducing a subtle bug in the pace/focus system, which
+// several regressions in this file's own history show is easy to get
+// wrong. If this sandbox is approved to go live, treat "convert every
+// WEEKLY_TARGETS call site to weeklyTargetFor_" as its own follow-up pass,
+// not something to assume already happened everywhere just because it
+// works on the Weekly Dashboard.
+function weekLeaveDaysCount_(coord, mondayStr){
+  if (!S.leave) return 0;
+  const days = weekDaysMF(mondayStr); // Mon..Fri date strings for that week
+  return S.leave.filter(l=>l.coord===coord && l.status==="Active" && l.kind==="Single day" && days.includes(l.startDate)).length;
+}
+function weeklyTargetFor_(baseTarget, coord, dateInWeek){
+  const mon = mondayOf(dateInWeek||S.date);
+  const leaveDays = weekLeaveDaysCount_(coord, mon);
+  if (!leaveDays) return baseTarget;
+  return Math.max(0, Math.round(baseTarget * (5-leaveDays) / 5 * 10) / 10);
+}
+
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
@@ -569,7 +747,19 @@ let S = {
   editAct: null,
   wkExpanded: {},
   dashFilter: {coord:"all",dateFrom:"",dateTo:"",activityType:"",outcome:"",relType:"",pipelineStage:"",overdueOnly:false},
-  dashView: "weekly",
+  // 2026-08-07 per Bec: the Management Dashboard tab (renderDashboard())
+  // now shows only Registration/Starters, so this is the landing dashView
+  // for that tab — Weekly was the old default from before those two views
+  // existed. Weekly/Daily/Trend now live as their own top-level S.tab
+  // values with their own dashView assignment (see renderManagerWeeklyTab_
+  // etc.), so this default only ever matters for the Dashboard tab itself;
+  // renderDashboard()'s own guard resets S.dashView to "registration" if it
+  // was ever left on a stale non-registration/starters value.
+  dashView: "registration",
+  // 2026-08-07: gates loadAllForDashboard() to fire ONCE per session — see
+  // that function's own comment for the retry-storm bug this fixes (same
+  // bug class/fix shape as S.regRecoAttempted/S.commRecoAttempted above).
+  dashDataAttempted: false,
   trendFrom: "",  // trend date range start
   trendTo:   "",  // trend date range end
   // 2026-08-07: manager-only "who's active" panel (Settings modal). Not
@@ -578,6 +768,32 @@ let S = {
   // "right now"). null = not fetched yet this session.
   presence: null,
   presenceLoading: false,
+  // 2026-08-07 SANDBOX — leave management (Bec's request). null = not
+  // fetched yet this session; refreshed on load and whenever Settings is
+  // opened, same convention as S.presence above. leaveForm holds the
+  // in-progress "mark leave" form state (reset after a successful submit).
+  leave: null,
+  leaveLoading: false,
+  leaveForm: {coord:null, startDate:"", endDate:"", reason:""},
+
+  // 2026-08-07 SANDBOX — 2026 Registration Target & Recovery Tracker. null
+  // = not fetched yet this session; refreshed on load and whenever the
+  // Registration dashboard tab is opened, same convention as S.leave above.
+  // regRecoAttempted/regRecoError exist so a failed fetch shows a real
+  // error instead of retrying in a tight loop forever (see the 2026-08-07
+  // bugfix comment on refreshRegistrationRecovery_).
+  regReco: null,
+  regRecoLoading: false,
+  regRecoAttempted: false,
+  regRecoError: null,
+
+  // 2026-08-07 SANDBOX — 2026 Commencement (Starter) Target & Recovery
+  // Tracker. Same convention as S.regReco above, same bugfix (attempted-once
+  // gate + surfaced error) applied from the start this time.
+  commReco: null,
+  commRecoLoading: false,
+  commRecoAttempted: false,
+  commRecoError: null,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -1596,7 +1812,7 @@ function dailyPaceBehindCount(day){
   const dayNum = weekPaceDayNum(day.date);
   let behind=0;
   STANDARD_PACE_METRICS.forEach(m=>{
-    const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
+    const weekly=weeklyTargetFor_((WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0, day.coord, day.date);
     if(weekly<=0) return;
     const pace = Math.round((weekly*dayNum/5)*10)/10;
     const actual = T[m.actualField]||0;
@@ -1688,7 +1904,7 @@ function computeFocusThresholdMet(day){
     // weeklyPaceActuals (not weeklyTotals) to avoid recursion.
     let combinedNeeded=0;
     STANDARD_PACE_METRICS.forEach(m=>{
-      const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
+      const weekly=weeklyTargetFor_((WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0, day.coord, day.date);
       if(weekly>0) combinedNeeded += paceNeeded(T[m.actualField]||0, weekly, dayNum);
     });
 
@@ -1706,14 +1922,14 @@ function computeFocusThresholdMet(day){
       paceCfg.standardLabels.forEach(label=>{
         const m = STANDARD_PACE_METRICS.find(sm=>sm.label===label);
         if(!m) return;
-        const weekly=(WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0;
+        const weekly=weeklyTargetFor_((WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0, day.coord, day.date);
         if(weekly>0) focusNeeded += paceTargetFlat(weekly, dayNum);
       });
     } else if(paceCfg.targetKeys){
       // Events — not one of the 7 standard Daily Pace metrics, so nothing
       // to double-count; computed as its own small pace figure.
       let weeklySum=0;
-      paceCfg.targetKeys.forEach(k=>{ weeklySum += (WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0; });
+      paceCfg.targetKeys.forEach(k=>{ weeklySum += weeklyTargetFor_((WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0, day.coord, day.date); });
       focusNeeded = paceTargetFlat(weeklySum, dayNum);
     }
 
@@ -2029,9 +2245,11 @@ function validate(fields){
 
 // ── Trend Excel download ──────────────────────────────────────────────────
 function downloadDashboardExcel() {
-  if (S.dashView==="daily")   return downloadDailyExcel();
-  if (S.dashView==="weekly")  return downloadWeeklyExcel();
-  if (S.dashView==="trend")   return downloadTrendExcel();
+  if (S.dashView==="daily")        return downloadDailyExcel();
+  if (S.dashView==="weekly")       return downloadWeeklyExcel();
+  if (S.dashView==="trend")        return downloadTrendExcel();
+  if (S.dashView==="registration") return downloadRegistrationExcel_();
+  if (S.dashView==="starters")     return downloadCommencementExcel_();
 }
 
 function downloadDailyExcel() {
@@ -2131,18 +2349,18 @@ function downloadDailyExcel() {
       ws.getRow(r).height = 16; r++;
 
       const metrics = [
-        {label:"Commencements",         val:acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(tgt.commencement[s])),  obj:"o1"},
+        {label:"Commencements",         val:acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.commencement[s],coord,date))),  obj:"o1"},
         // 2026-08-06: only a brand-new person (newContactDetails set) counts
         // as a new registration — see weeklyTotals()'s matching fix.
-        {label:"Registrations",          val:acts.filter(isRegistrationReached_).length,       tgt:Math.round(paceTarget(tgt.registration[s])),  obj:"o1"},
-        {label:"ACAP contacts",          val:acts.filter(function(a){return a.type==="acap_contact"||a.type==="acap_f2f";}).length, tgt:Math.round(paceTarget(tgt.acap_contact[s])), obj:"o2"},
-        {label:"ACAP F2F visits",        val:acts.filter(function(a){return a.type==="acap_f2f";}).length,            tgt:Math.round(paceTarget(tgt.acap_f2f[s])),      obj:"o2"},
-        {label:"Events",                 val:acts.filter(function(a){return a.type==="event";}).length,               tgt:Math.round(paceTarget(tgt.event[s])),          obj:"o2"},
-        {label:"Employer calls",         val:acts.filter(function(a){return a.type==="employer_call";}).length,       tgt:Math.round(paceTarget(tgt.employer_call[s])), obj:"o3"},
+        {label:"Registrations",          val:acts.filter(isRegistrationReached_).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.registration[s],coord,date))),  obj:"o1"},
+        {label:"ACAP contacts",          val:acts.filter(function(a){return a.type==="acap_contact"||a.type==="acap_f2f";}).length, tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.acap_contact[s],coord,date))), obj:"o2"},
+        {label:"ACAP F2F visits",        val:acts.filter(function(a){return a.type==="acap_f2f";}).length,            tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.acap_f2f[s],coord,date))),      obj:"o2"},
+        {label:"Events",                 val:acts.filter(function(a){return a.type==="event";}).length,               tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.event[s],coord,date))),          obj:"o2"},
+        {label:"Employer calls",         val:acts.filter(function(a){return a.type==="employer_call";}).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.employer_call[s],coord,date))), obj:"o3"},
         {label:"Meaningful conversations",val:acts.filter(isMeaningfulCall).length,                                   tgt:0,                                             obj:"o3"},
-        {label:"Site visits",            val:acts.filter(function(a){return a.type==="site_visit";}).length,          tgt:Math.round(paceTarget(tgt.site_visit[s])),    obj:"o3"},
-        {label:"New employers met",      val:acts.filter(function(a){return a.type==="new_employer_met";}).length,    tgt:Math.round(paceTarget(tgt.new_employer_met[s])),obj:"o3"},
-        {label:"Student leads",          val:acts.filter(function(a){return a.type==="lead";}).length,                tgt:Math.round(paceTarget(tgt.lead_generated[s])),obj:"o3"},
+        {label:"Site visits",            val:acts.filter(function(a){return a.type==="site_visit";}).length,          tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.site_visit[s],coord,date))),    obj:"o3"},
+        {label:"New employers met",      val:acts.filter(function(a){return a.type==="new_employer_met";}).length,    tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.new_employer_met[s],coord,date))),obj:"o3"},
+        {label:"Student leads",          val:acts.filter(function(a){return a.type==="lead";}).length,                tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.lead_generated[s],coord,date))),obj:"o3"},
         {label:"Pipeline contacted",     val:acts.filter(function(a){return a.type==="pipeline";}).length,            tgt:0,                                             obj:"o3"},
         // 2026-08-06: widened to match renderPipeline()'s own definition —
         // pipeline + registration + enrolment_pipeline, see weeklyTotals().
@@ -2313,24 +2531,24 @@ function downloadWeeklyExcel() {
       // Objectives
       const sections = [
         {title:"OBJECTIVE 1 — Commencement Pipeline", fill:O1, font:"FF085041", metrics:[
-          {label:"Commencements",      val:T.commencement,          tgt:tgt.commencement[s]},
-          {label:"Registrations",      val:T.registration,          tgt:tgt.registration[s]},
-          {label:"Enrolments",         val:T.enrolment,             tgt:tgt.enrolment[s]||0},
+          {label:"Commencements",      val:T.commencement,          tgt:weeklyTargetFor_(tgt.commencement[s],coord,S.date)},
+          {label:"Registrations",      val:T.registration,          tgt:weeklyTargetFor_(tgt.registration[s],coord,S.date)},
+          {label:"Enrolments",         val:T.enrolment,             tgt:weeklyTargetFor_(tgt.enrolment[s],coord,S.date)||0},
           {label:"Intro calls",        val:T.intro_call_done,       tgt:0},
         ]},
         {title:"OBJECTIVE 2 — ACAP Partner Engagement", fill:O2, font:"FF0C447C", metrics:[
-          {label:"ACAP contacts",      val:T.acap_contact_attempted,tgt:tgt.acap_contact[s]},
-          {label:"ACAP F2F visits",    val:T.acap_f2f,              tgt:tgt.acap_f2f[s]},
-          {label:"Events",             val:T.event,                 tgt:tgt.event[s]},
+          {label:"ACAP contacts",      val:T.acap_contact_attempted,tgt:weeklyTargetFor_(tgt.acap_contact[s],coord,S.date)},
+          {label:"ACAP F2F visits",    val:T.acap_f2f,              tgt:weeklyTargetFor_(tgt.acap_f2f[s],coord,S.date)},
+          {label:"Events",             val:T.event,                 tgt:weeklyTargetFor_(tgt.event[s],coord,S.date)},
         ]},
         {title:"OBJECTIVE 3 — Employer Growth", fill:O3, font:"FF633806", metrics:[
-          {label:"Employer calls",     val:T.call_attempted,        tgt:tgt.employer_call[s]},
+          {label:"Employer calls",     val:T.call_attempted,        tgt:weeklyTargetFor_(tgt.employer_call[s],coord,S.date)},
           {label:"Calls connected",    val:T.call_connected,        tgt:0},
           {label:"Meaningful convs",   val:T.call_meaningful,       tgt:0},
-          {label:"Site visits",        val:T.site_employers,        tgt:tgt.site_visit[s]},
-          {label:"New employers met",  val:T.new_employer_met,      tgt:tgt.new_employer_met[s]},
-          {label:"New employers to DB",val:T.new_employer_db,       tgt:tgt.new_employer_db[s]},
-          {label:"Student leads",      val:T.lead,                  tgt:tgt.lead_generated[s]},
+          {label:"Site visits",        val:T.site_employers,        tgt:weeklyTargetFor_(tgt.site_visit[s],coord,S.date)},
+          {label:"New employers met",  val:T.new_employer_met,      tgt:weeklyTargetFor_(tgt.new_employer_met[s],coord,S.date)},
+          {label:"New employers to DB",val:T.new_employer_db,       tgt:weeklyTargetFor_(tgt.new_employer_db[s],coord,S.date)},
+          {label:"Student leads",      val:T.lead,                  tgt:weeklyTargetFor_(tgt.lead_generated[s],coord,S.date)},
           {label:"Opportunities",      val:T.opp_generated,         tgt:0},
           {label:"Pipeline progressed",val:T.pipeline_progressed,   tgt:0},
           {label:"Sign-ups booked",    val:T.signup_booked,         tgt:0},
@@ -2499,16 +2717,16 @@ function downloadTrendExcel() {
     weeks.forEach(function(mon){ data[coord][mon] = weeklyTotals(coord, mon); });
   });
 
-  function getWeeklyTgt(metricKey, warn, state) {
+  function getWeeklyTgt(metricKey, warn, state, coord) {
     if (warn || !metricKey) return 0;
     const t = WEEKLY_TARGETS;
-    return metricKey==="commencement"?t.commencement[state]:
-           metricKey==="registration"?t.registration[state]:
-           metricKey==="call_attempted"?t.employer_call[state]:
-           metricKey==="site_employers"?t.site_visit[state]:
-           metricKey==="acap_contact"?t.acap_contact[state]:
-           metricKey==="new_employer_met"?t.new_employer_met[state]:
-           metricKey==="lead"?t.lead_generated[state]:0;
+    return metricKey==="commencement"?weeklyTargetFor_(t.commencement[state],coord,S.date):
+           metricKey==="registration"?weeklyTargetFor_(t.registration[state],coord,S.date):
+           metricKey==="call_attempted"?weeklyTargetFor_(t.employer_call[state],coord,S.date):
+           metricKey==="site_employers"?weeklyTargetFor_(t.site_visit[state],coord,S.date):
+           metricKey==="acap_contact"?weeklyTargetFor_(t.acap_contact[state],coord,S.date):
+           metricKey==="new_employer_met"?weeklyTargetFor_(t.new_employer_met[state],coord,S.date):
+           metricKey==="lead"?weeklyTargetFor_(t.lead_generated[state],coord,S.date):0;
   }
 
   function ragFill(v, tgt, warn) {
@@ -2600,7 +2818,7 @@ function downloadTrendExcel() {
 
         // Combined weekly target
         const combinedTgt = coordList.reduce(function(sum,coord){
-          return sum + getWeeklyTgt(metric.key, metric.warn, STATES[coord]);
+          return sum + getWeeklyTgt(metric.key, metric.warn, STATES[coord], coord);
         },0);
 
         const latest = vals[0]||0, prev = vals[1]||0;
@@ -2667,6 +2885,276 @@ function downloadTrendExcel() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    });
+  });
+}
+
+// ── Registration Recovery Excel download (2026-08-07 SANDBOX) ─────────────
+// Was previously a silent no-op — downloadDashboardExcel() had no branch
+// for S.dashView==="registration" at all, so clicking Excel on that tab did
+// nothing. Same ExcelJS pattern (real formatted .xlsx, not a renamed CSV)
+// as downloadWeeklyExcel/downloadTrendExcel above, built from the exact
+// same S.regReco object the on-screen tab renders from — so the download
+// can never disagree with what's on screen.
+function downloadRegistrationExcel_() {
+  if (!S.regReco) { alert("Registration data hasn't loaded yet — open the Registration tab first, then try exporting again."); return; }
+  const d = S.regReco, t = d.total;
+
+  const loadExcelJS = function(cb) {
+    if (window.ExcelJS) { cb(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
+    s.onload = cb;
+    s.onerror = function(){ alert("Could not load ExcelJS library"); };
+    document.head.appendChild(s);
+  };
+
+  loadExcelJS(function() {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CRBGC Activity Tracker";
+
+    const HDR = {type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};
+    const GRN = {type:"pattern",pattern:"solid",fgColor:{argb:"FFC6EFCE"}};
+    const AMB = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFEB9C"}};
+    const RED = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
+    const ALT = {type:"pattern",pattern:"solid",fgColor:{argb:"FFF8F9FA"}};
+    const statusFill = {"On Track":GRN, "At Risk":AMB, "Behind":RED};
+    const statusFont = {"On Track":"FF375623", "At Risk":"FF7D6608", "Behind":"FF9C0006"};
+
+    // ── Summary sheet ──
+    const ws1 = wb.addWorksheet("Summary");
+    ws1.getColumn(1).width = 26; ws1.getColumn(2).width = 16;
+    let r = 1;
+    ws1.mergeCells(r,1,r,2);
+    ws1.getCell(r,1).value = "2026 Registration Performance — As of "+d.asOf+" ("+d.weeksRemaining+" week(s) to 31 Dec)";
+    ws1.getCell(r,1).fill = HDR; ws1.getCell(r,1).font = {bold:true,size:13,color:{argb:"FFFFFFFF"}};
+    ws1.getRow(r).height = 22; r += 2;
+    const summaryRows = [
+      ["2026 Target", t.annualTarget], ["YTD Actual", t.ytdActual], ["Remaining", t.remaining],
+      ["% Achieved", t.pctAchieved+"%"], ["Required This Week", t.requiredWeekly],
+      ["Achieved This Week", t.thisWeekActual], ["Weekly Variance", t.weeklyVariance],
+      ["Req. Run Rate to Year End", t.requiredWeeklyRunRateToYearEnd+"/wk"],
+      ["Forecast Year End", t.forecastYearEnd], ["Forecast Variance", t.forecastVariance],
+      ["National Status", t.status],
+    ];
+    summaryRows.forEach(function(row, i) {
+      const fill = i%2===0?ALT:{type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
+      ws1.getCell(r,1).value = row[0]; ws1.getCell(r,1).fill = fill; ws1.getCell(r,1).font={bold:true};
+      const vCell = ws1.getCell(r,2); vCell.value = row[1]; vCell.fill = fill;
+      if (row[0]==="National Status") { vCell.fill = statusFill[row[1]]||fill; vCell.font = {bold:true,color:{argb:statusFont[row[1]]||"FF000000"}}; }
+      r++;
+    });
+
+    // ── By State sheet ──
+    const ws2 = wb.addWorksheet("By State");
+    const stateHeaders = ["State","Annual Budget","YTD","Remaining","% Achieved","This Week","Weekly Target","Wkly Var","This Month","Monthly Req.","Mthly Var","Forecast YE","Fcst Var","Status"];
+    stateHeaders.forEach(function(h,i){ ws2.getColumn(i+1).width = i===0?10:14; });
+    const hRow2 = ws2.getRow(1);
+    stateHeaders.forEach(function(h,i){ const c=hRow2.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.alignment={horizontal:"center",wrapText:true}; });
+    hRow2.height = 28;
+    var rr = 2;
+    ["VIC","NSW","QLD"].forEach(function(s){
+      const rec = d.states[s];
+      const vals = [s, rec.annualTarget, rec.ytdActual, rec.remaining, rec.pctAchieved+"%", rec.thisWeekActual, rec.weeklyTarget, rec.weeklyVariance, rec.thisMonthActual, rec.monthlyRequiredRunRate, rec.monthlyVariance, rec.forecastYearEnd, rec.forecastVariance, rec.status];
+      const row = ws2.getRow(rr);
+      vals.forEach(function(v,i){ const c=row.getCell(i+1); c.value=v; if(i===13){c.fill=statusFill[v]||null; c.font={color:{argb:statusFont[v]||"FF000000"}};} });
+      rr++;
+    });
+    const totRow = ws2.getRow(rr);
+    const totVals = ["TOTAL", t.annualTarget, t.ytdActual, t.remaining, t.pctAchieved+"%", t.thisWeekActual, t.weeklyTarget, t.weeklyVariance, t.thisMonthActual, t.requiredMonthly, t.monthlyVariance, t.forecastYearEnd, t.forecastVariance, t.status];
+    totVals.forEach(function(v,i){ const c=totRow.getCell(i+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE6F1FB"}}; });
+
+    // ── Individual CR Contribution sheet ──
+    const ws3 = wb.addWorksheet("CR Contribution");
+    const crHeaders = ["CR","State","This Week","Weekly Target","Variance","MTD"];
+    crHeaders.forEach(function(h,i){ ws3.getColumn(i+1).width = i===0?22:14; });
+    const hRow3 = ws3.getRow(1);
+    crHeaders.forEach(function(h,i){ const c=hRow3.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
+    var rr3 = 2;
+    d.perCR.forEach(function(cr, i){
+      const row = ws3.getRow(rr3);
+      const fill = i%2===0?ALT:{type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
+      [cr.coord, cr.state, cr.thisWeekActual, cr.weeklyTarget, cr.variance, cr.thisMonthActual].forEach(function(v,ci){ const c=row.getCell(ci+1); c.value=v; c.fill=fill; });
+      rr3++;
+    });
+
+    wb.xlsx.writeBuffer().then(function(buffer) {
+      const blob = new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href=url; a.download="CRBGC_Registration_Recovery_"+d.asOf+".xlsx";
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    });
+  });
+}
+
+// ── Commencement (Starter) Recovery Excel download (2026-08-07 SANDBOX) ───
+// Same gap as Registration — S.dashView==="starters" had no Excel branch at
+// all. Mirrors downloadRegistrationExcel_() above, sheet-for-sheet, plus two
+// Starter-specific sheets (Confirmed Future breakdown, Registrations vs
+// Starters — the latter only if S.regReco is already loaded, same "Load
+// now" guard the on-screen card uses rather than silently showing blanks).
+function downloadCommencementExcel_() {
+  if (!S.commReco) { alert("Starter data hasn't loaded yet — open the Starters tab first, then try exporting again."); return; }
+  const d = S.commReco, t = d.total;
+
+  const loadExcelJS = function(cb) {
+    if (window.ExcelJS) { cb(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
+    s.onload = cb;
+    s.onerror = function(){ alert("Could not load ExcelJS library"); };
+    document.head.appendChild(s);
+  };
+
+  loadExcelJS(function() {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CRBGC Activity Tracker";
+
+    const HDR = {type:"pattern",pattern:"solid",fgColor:{argb:"FF085041"}};
+    const GRN = {type:"pattern",pattern:"solid",fgColor:{argb:"FFC6EFCE"}};
+    const AMB = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFEB9C"}};
+    const RED = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFC7CE"}};
+    const ALT = {type:"pattern",pattern:"solid",fgColor:{argb:"FFF8F9FA"}};
+    const statusFill = {"On Track":GRN, "At Risk":AMB, "Behind":RED};
+    const statusFont = {"On Track":"FF375623", "At Risk":"FF7D6608", "Behind":"FF9C0006"};
+
+    // ── Summary sheet ──
+    const ws1 = wb.addWorksheet("Summary");
+    ws1.getColumn(1).width = 26; ws1.getColumn(2).width = 16;
+    let r = 1;
+    ws1.mergeCells(r,1,r,2);
+    ws1.getCell(r,1).value = "2026 Starter Performance — As of "+d.asOf+" ("+d.weeksRemaining+" week(s) to 31 Dec)";
+    ws1.getCell(r,1).fill = HDR; ws1.getCell(r,1).font = {bold:true,size:13,color:{argb:"FFFFFFFF"}};
+    ws1.getRow(r).height = 22; r += 2;
+    const summaryRows = [
+      ["2026 Starter Target", t.annualTarget], ["YTD Actual", t.ytdActual], ["Remaining", t.remaining],
+      ["% Achieved", t.pctAchieved+"%"], ["Required This Week", t.requiredWeekly],
+      ["Achieved This Week", t.thisWeekActual], ["Weekly Variance", t.weeklyVariance],
+      ["Req. Run Rate to Year End", t.requiredWeeklyRunRateToYearEnd+"/wk"],
+      ["Confirmed Future", t.confirmedFutureTotal],
+      ["Forecast Year End (Run-Rate)", t.runRateForecastYearEnd], ["Forecast Variance (Run-Rate)", t.runRateForecastVariance],
+      ["Open Enrolment Pipeline", t.openEnrolmentPipelineCount],
+      ["Forecast Year End (Pipeline)", t.pipelineForecastYearEnd], ["Forecast Variance (Pipeline)", t.pipelineForecastVariance],
+      ["Open Registration Pipeline (Not Guaranteed)", t.openRegistrationPipelineCount],
+      ["Forecast Year End (Registration Pipeline)", t.registrationPipelineForecastYearEnd],
+      ["Forecast Variance (Registration Pipeline)", t.registrationPipelineForecastVariance],
+      ["National Status", t.status],
+    ];
+    summaryRows.forEach(function(row, i) {
+      const fill = i%2===0?ALT:{type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
+      ws1.getCell(r,1).value = row[0]; ws1.getCell(r,1).fill = fill; ws1.getCell(r,1).font={bold:true};
+      const vCell = ws1.getCell(r,2); vCell.value = row[1]; vCell.fill = fill;
+      if (row[0]==="National Status") { vCell.fill = statusFill[row[1]]||fill; vCell.font = {bold:true,color:{argb:statusFont[row[1]]||"FF000000"}}; }
+      r++;
+    });
+
+    // ── By State sheet ──
+    const ws2 = wb.addWorksheet("By State");
+    const stateHeaders = ["State","Annual Budget","YTD","Remaining","% Achieved","This Week","Weekly Target","Wkly Var","This Month","Monthly Req.","Mthly Var","Confirmed Future","Forecast YE (Run-Rate)","Fcst Var (Run-Rate)","Status"];
+    stateHeaders.forEach(function(h,i){ ws2.getColumn(i+1).width = i===0?10:16; });
+    const hRow2 = ws2.getRow(1);
+    stateHeaders.forEach(function(h,i){ const c=hRow2.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.alignment={horizontal:"center",wrapText:true}; });
+    hRow2.height = 28;
+    var rr = 2;
+    ["VIC","NSW","QLD"].forEach(function(s){
+      const rec = d.states[s];
+      const vals = [s, rec.annualTarget, rec.ytdActual, rec.remaining, rec.pctAchieved+"%", rec.thisWeekActual, rec.weeklyTarget, rec.weeklyVariance, rec.thisMonthActual, rec.monthlyRequiredRunRate, rec.monthlyVariance, rec.confirmedFutureTotal, rec.runRateForecastYearEnd, rec.runRateForecastVariance, rec.status];
+      const row = ws2.getRow(rr);
+      vals.forEach(function(v,i){ const c=row.getCell(i+1); c.value=v; if(i===14){c.fill=statusFill[v]||null; c.font={color:{argb:statusFont[v]||"FF000000"}};} });
+      rr++;
+    });
+    const totRow = ws2.getRow(rr);
+    const totVals = ["TOTAL", t.annualTarget, t.ytdActual, t.remaining, t.pctAchieved+"%", t.thisWeekActual, t.weeklyTarget, t.weeklyVariance, t.thisMonthActual, t.requiredMonthly, t.monthlyVariance, t.confirmedFutureTotal, t.runRateForecastYearEnd, t.runRateForecastVariance, t.status];
+    totVals.forEach(function(v,i){ const c=totRow.getCell(i+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE1F5EE"}}; });
+
+    // ── Individual CR Starter Contribution sheet ──
+    const ws3 = wb.addWorksheet("CR Contribution");
+    const crHeaders = ["CR","State","Starters This Week","Starters MTD","Starters YTD","Confirmed Future"];
+    crHeaders.forEach(function(h,i){ ws3.getColumn(i+1).width = i===0?22:16; });
+    const hRow3 = ws3.getRow(1);
+    crHeaders.forEach(function(h,i){ const c=hRow3.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
+    var rr3 = 2;
+    d.perCR.forEach(function(cr, i){
+      const row = ws3.getRow(rr3);
+      const fill = i%2===0?ALT:{type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
+      [cr.coord, cr.state, cr.thisWeekActual, cr.thisMonthActual, cr.ytdActual, cr.confirmedFutureTotal].forEach(function(v,ci){ const c=row.getCell(ci+1); c.value=v; c.fill=fill; });
+      rr3++;
+    });
+
+    // ── Confirmed Future Starters sheet ──
+    const ws4 = wb.addWorksheet("Confirmed Future");
+    const cfHeaders = ["State","Next 7 Days","Next 30 Days","Beyond 30 Days","Total"];
+    cfHeaders.forEach(function(h,i){ ws4.getColumn(i+1).width = i===0?10:16; });
+    const hRow4 = ws4.getRow(1);
+    cfHeaders.forEach(function(h,i){ const c=hRow4.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
+    var rr4 = 2;
+    ["VIC","NSW","QLD"].forEach(function(s){
+      const rec = d.states[s];
+      const row = ws4.getRow(rr4);
+      [s, rec.confirmedFuture7, rec.confirmedFuture30, rec.confirmedFutureBeyond30, rec.confirmedFutureTotal].forEach(function(v,ci){ row.getCell(ci+1).value = v; });
+      rr4++;
+    });
+    const cfTot = ws4.getRow(rr4);
+    ["TOTAL", t.confirmedFuture7, t.confirmedFuture30, t.confirmedFutureBeyond30, t.confirmedFutureTotal].forEach(function(v,ci){ const c=cfTot.getCell(ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE1F5EE"}}; });
+
+    // ── Registration Pipeline sheet (Not Guaranteed — 2026-08-07 addition) ──
+    const ws4b = wb.addWorksheet("Registration Pipeline");
+    ws4b.mergeCells(1,1,1,5);
+    ws4b.getCell(1,1).value = "Registration Pipeline Forecast — NOT GUARANTEED (open Student Leads, no cross-tab ID matching)";
+    ws4b.getCell(1,1).fill = HDR; ws4b.getCell(1,1).font = {bold:true,size:11,color:{argb:"FFFFFFFF"}};
+    ws4b.getRow(1).height = 20;
+    const rpHeaders = ["State","Confirmed/Pipeline Forecast","Open Registration Pipeline","Registration Pipeline Forecast","Variance"];
+    rpHeaders.forEach(function(h,i){ ws4b.getColumn(i+1).width = i===0?10:24; });
+    const hRow4b = ws4b.getRow(2);
+    rpHeaders.forEach(function(h,i){ const c=hRow4b.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.alignment={wrapText:true}; });
+    hRow4b.height = 28;
+    var rr4b = 3;
+    ["VIC","NSW","QLD"].forEach(function(s){
+      const rec = d.states[s];
+      const row = ws4b.getRow(rr4b);
+      [s, rec.pipelineForecastYearEnd, rec.openRegistrationPipelineCount, rec.registrationPipelineForecastYearEnd, rec.registrationPipelineForecastVariance].forEach(function(v,ci){ row.getCell(ci+1).value = v; });
+      rr4b++;
+    });
+    const rpTot = ws4b.getRow(rr4b);
+    ["TOTAL", t.pipelineForecastYearEnd, t.openRegistrationPipelineCount, t.registrationPipelineForecastYearEnd, t.registrationPipelineForecastVariance].forEach(function(v,ci){ const c=rpTot.getCell(ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFFFEB9C"}}; });
+    rr4b += 2;
+    const rpNote = ws4b.addRow(["Sourced from each state's Student Leads WIP tab, no staleness/time-window filter on current stage. No reliable cross-tab ID matching exists between Student Leads / Enrolment Pipeline / Commencements, so this may overlap with students already counted in the Confirmed/Pipeline Forecast. Treat as a ceiling/early-warning figure, not a guaranteed future Starter count."]);
+    ws4b.mergeCells(rpNote.number,1,rpNote.number,5);
+    rpNote.getCell(1).font = {italic:true, size:9, color:{argb:"FF888888"}};
+    rpNote.getCell(1).alignment = {wrapText:true};
+
+    // ── Registrations vs Starters sheet (only if Registration data is loaded) ──
+    if (S.regReco) {
+      const rd = S.regReco;
+      const ws5 = wb.addWorksheet("Registrations vs Starters");
+      const cvHeaders = ["State","Registrations YTD","Registration Target %","Starters YTD","Starter Target %","Confirmed Future Starters"];
+      cvHeaders.forEach(function(h,i){ ws5.getColumn(i+1).width = i===0?10:20; });
+      const hRow5 = ws5.getRow(1);
+      cvHeaders.forEach(function(h,i){ const c=hRow5.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; c.alignment={wrapText:true}; });
+      var rr5 = 2;
+      ["VIC","NSW","QLD"].forEach(function(s){
+        const row = ws5.getRow(rr5);
+        [s, rd.states[s].ytdActual, rd.states[s].pctAchieved+"%", d.states[s].ytdActual, d.states[s].pctAchieved+"%", d.states[s].confirmedFutureTotal].forEach(function(v,ci){ row.getCell(ci+1).value = v; });
+        rr5++;
+      });
+      const cvTot = ws5.getRow(rr5);
+      ["TOTAL", rd.total.ytdActual, rd.total.pctAchieved+"%", t.ytdActual, t.pctAchieved+"%", t.confirmedFutureTotal].forEach(function(v,ci){ const c=cvTot.getCell(ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE6F1FB"}}; });
+      ws5.addRow([]);
+      const noteRow = ws5.addRow(["Registrations and Starters are separate performance measures, shown side-by-side for comparison only — this is NOT \"Registrations minus Starters = awaiting commencement\". The two YTD cohorts aren't necessarily the same students."]);
+      ws5.mergeCells(noteRow.number,1,noteRow.number,6);
+      noteRow.getCell(1).font = {italic:true, size:9, color:{argb:"FF888888"}};
+      noteRow.getCell(1).alignment = {wrapText:true};
+    }
+
+    wb.xlsx.writeBuffer().then(function(buffer) {
+      const blob = new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href=url; a.download="CRBGC_Starter_Recovery_"+d.asOf+".xlsx";
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
     });
   });
 }
@@ -2746,13 +3234,13 @@ function downloadTrendPDF() {
         const trend = latest>prev?"↑":latest<prev?"↓":"→";
         const tCol  = metric.warn?(latest>prev?"#9C0006":latest<prev?"#375623":"#888"):(latest>prev?"#375623":latest<prev?"#9C0006":"#888");
         const rowBg = mi%2===0?"#f8f9fa":"#fff";
-        const weeklyTgt = metric.key==="commencement"?tgt.commencement[state]:
-                          metric.key==="registration"?tgt.registration[state]:
-                          metric.key==="call_attempted"?tgt.employer_call[state]:
-                          metric.key==="site_employers"?tgt.site_visit[state]:
-                          metric.key==="acap_contact"?tgt.acap_contact[state]:
-                          metric.key==="new_employer_met"?tgt.new_employer_met[state]:
-                          metric.key==="lead"?tgt.lead_generated[state]:0;
+        const weeklyTgt = metric.key==="commencement"?weeklyTargetFor_(tgt.commencement[state],coord,S.date):
+                          metric.key==="registration"?weeklyTargetFor_(tgt.registration[state],coord,S.date):
+                          metric.key==="call_attempted"?weeklyTargetFor_(tgt.employer_call[state],coord,S.date):
+                          metric.key==="site_employers"?weeklyTargetFor_(tgt.site_visit[state],coord,S.date):
+                          metric.key==="acap_contact"?weeklyTargetFor_(tgt.acap_contact[state],coord,S.date):
+                          metric.key==="new_employer_met"?weeklyTargetFor_(tgt.new_employer_met[state],coord,S.date):
+                          metric.key==="lead"?weeklyTargetFor_(tgt.lead_generated[state],coord,S.date):0;
         return `<tr style="background:${rowBg}">
           <td style="font-weight:600;color:${metric.warn?"#9C0006":"#1a1a1a"}">${metric.label}</td>
           <td style="font-weight:700;font-size:16px;color:${tCol};text-align:center">${trend}</td>
@@ -2798,9 +3286,214 @@ function downloadTrendPDF() {
   setTimeout(function(){ win.print(); }, 500);
 }
 
+// ── Shared PDF report shell — used by Registration/Starter PDF exports below,
+// same window.open()+print() pattern as downloadDashboardPDF/downloadTrendPDF
+// (browser's own "Save as PDF" print target keeps the formatting, same as
+// every other report export in this file — nothing here downloads a raw
+// HTML/CSV file instead of an actual formatted report). ─────────────────────
+function openPdfReportWindow_(title, bodyHtml) {
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>${title}</title>
+  <style>
+    @media print { @page { margin: 15mm; } }
+    body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; max-width: 1000px; margin: 0 auto; padding: 20px; }
+    .report-hdr { background: #1C3C6B; color: #fff; padding: 20px 24px; border-radius: 8px; margin-bottom: 20px; }
+    .report-hdr h1 { margin: 0 0 4px; font-size: 18px; }
+    .report-hdr p { margin: 0; opacity: .8; font-size: 11px; }
+    .rpt-section { border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 16px; overflow: hidden; page-break-inside: avoid; }
+    .rpt-section-hdr { background: #1C3C6B; color: #fff; padding: 10px 16px; font-weight: 700; font-size: 13px; }
+    .rpt-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .rpt-table th { background: #F8F9FA; padding: 6px 8px; text-align: right; font-size: 10px; color: #555; border-bottom: 1px solid #e0e0e0; white-space: nowrap; }
+    .rpt-table th:first-child, .rpt-table td:first-child { text-align: left; }
+    .rpt-table td { padding: 6px 8px; text-align: right; border-bottom: .5px solid #f0f0f0; white-space: nowrap; }
+    .rpt-table tr.total td { font-weight: 700; background: #F8F9FA; }
+    .rpt-tiles { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+    .rpt-tile { flex: 1 1 100px; text-align: center; padding: 8px 4px; background: #F8F9FA; border-radius: 6px; }
+    .rpt-tile .lbl { font-size: 9px; color: #888; margin-bottom: 3px; }
+    .rpt-tile .val { font-size: 15px; font-weight: 700; }
+    .var-pos { color: #375623; } .var-neg { color: #9C0006; }
+    .status-badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+    .status-on { background: #C6EFCE; color: #375623; } .status-risk { background: #FFEB9C; color: #7D6608; } .status-behind { background: #FFC7CE; color: #9C0006; }
+    .rpt-note { padding: 8px 16px; font-size: 10px; color: #888; }
+    .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e0e0e0; font-size: 10px; color: #aaa; text-align: center; }
+  </style></head><body>
+  <div class="report-hdr">
+    <h1>${title}</h1>
+    <p>CRBGC Activity Tracker · Generated ${new Date().toLocaleDateString("en-AU",{weekday:"long",day:"numeric",month:"long",year:"numeric"})} at ${new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})}</p>
+  </div>
+  ${bodyHtml}
+  <div class="footer">CRBGC Activity Tracker · Builders Academy Australia & CWBTS</div>
+  </body></html>`;
+  const win = window.open("","_blank","width=1100,height=800");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(function(){ win.print(); }, 500);
+}
+
+function pdfStatusBadge_(status) {
+  const cls = status==="On Track"?"status-on":status==="Behind"?"status-behind":"status-risk";
+  return `<span class="status-badge ${cls}">${status}</span>`;
+}
+function pdfVarCls_(v) { return v>=0 ? "var-pos" : "var-neg"; }
+function pdfFmtVar_(v) { return (v>=0?"+":"")+v; }
+
+// ── Registration Recovery PDF download (2026-08-07 SANDBOX) ───────────────
+// Was previously a silent MIS-generation, not a no-op: downloadDashboardPDF()
+// had no branch for S.dashView==="registration", so isDaily fell through to
+// false and it silently produced a mislabelled "Weekly Management Report"
+// built from per-coordinator daily-log stats — completely different content
+// to what the Registration tab shows. Fixed with a dedicated export built
+// from the exact S.regReco object the on-screen tab renders from.
+function downloadRegistrationPDF_() {
+  if (!S.regReco) { alert("Registration data hasn't loaded yet — open the Registration tab first, then try exporting again."); return; }
+  const d = S.regReco, t = d.total;
+
+  const summaryTiles = [
+    {lbl:"2026 Target", val:t.annualTarget}, {lbl:"YTD Actual", val:t.ytdActual}, {lbl:"Remaining", val:t.remaining},
+    {lbl:"% Achieved", val:t.pctAchieved+"%"}, {lbl:"Required This Week", val:t.requiredWeekly}, {lbl:"Achieved This Week", val:t.thisWeekActual},
+    {lbl:"Weekly Variance", val:pdfFmtVar_(t.weeklyVariance), cls:pdfVarCls_(t.weeklyVariance)},
+    {lbl:"Req. Run Rate to YE", val:t.requiredWeeklyRunRateToYearEnd+"/wk"}, {lbl:"Forecast Year End", val:t.forecastYearEnd},
+    {lbl:"Forecast Variance", val:pdfFmtVar_(t.forecastVariance), cls:pdfVarCls_(t.forecastVariance)},
+  ];
+
+  const body = `
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">2026 Registration Performance — As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</div>
+    <div class="rpt-tiles">${summaryTiles.map(x=>`<div class="rpt-tile"><div class="lbl">${x.lbl}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join("")}</div>
+    <div style="text-align:center;padding-bottom:12px">${pdfStatusBadge_(t.status)} <span style="font-size:10px;color:#888;margin-left:6px">National pace status this week</span></div>
+  </div>
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">By State</div>
+    <table class="rpt-table"><thead><tr><th>State</th><th>Annual Budget</th><th>YTD</th><th>Remaining</th><th>% Achieved</th><th>This Week</th><th>Weekly Target</th><th>Wkly Var</th><th>This Month</th><th>Monthly Req.</th><th>Mthly Var</th><th>Forecast YE</th><th>Fcst Var</th><th>Status</th></tr></thead>
+    <tbody>
+      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr>
+        <td>${s}</td><td>${r.annualTarget}</td><td>${r.ytdActual}</td><td>${r.remaining}</td><td>${r.pctAchieved}%</td><td>${r.thisWeekActual}</td><td>${r.weeklyTarget}</td>
+        <td class="${pdfVarCls_(r.weeklyVariance)}">${pdfFmtVar_(r.weeklyVariance)}</td><td>${r.thisMonthActual}</td><td>${r.monthlyRequiredRunRate}</td>
+        <td class="${pdfVarCls_(r.monthlyVariance)}">${pdfFmtVar_(r.monthlyVariance)}</td><td>${r.forecastYearEnd}</td>
+        <td class="${pdfVarCls_(r.forecastVariance)}">${pdfFmtVar_(r.forecastVariance)}</td><td>${pdfStatusBadge_(r.status)}</td>
+      </tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${t.annualTarget}</td><td>${t.ytdActual}</td><td>${t.remaining}</td><td>${t.pctAchieved}%</td><td>${t.thisWeekActual}</td><td>${t.weeklyTarget}</td>
+        <td class="${pdfVarCls_(t.weeklyVariance)}">${pdfFmtVar_(t.weeklyVariance)}</td><td>${t.thisMonthActual}</td><td>${t.requiredMonthly}</td>
+        <td class="${pdfVarCls_(t.monthlyVariance)}">${pdfFmtVar_(t.monthlyVariance)}</td><td>${t.forecastYearEnd}</td>
+        <td class="${pdfVarCls_(t.forecastVariance)}">${pdfFmtVar_(t.forecastVariance)}</td><td>${pdfStatusBadge_(t.status)}</td></tr>
+    </tbody></table>
+  </div>
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">Individual CR Contribution</div>
+    <table class="rpt-table"><thead><tr><th>CR</th><th>State</th><th>This Week</th><th>Weekly Target</th><th>Variance</th><th>MTD</th></tr></thead>
+    <tbody>${d.perCR.map(function(cr){ return `<tr><td>${cr.coord}</td><td>${cr.state}</td><td>${cr.thisWeekActual}</td><td>${cr.weeklyTarget}</td>
+      <td class="${pdfVarCls_(cr.variance)}">${pdfFmtVar_(cr.variance)}</td><td>${cr.thisMonthActual}</td></tr>`; }).join("")}</tbody></table>
+    <div class="rpt-note">Forecast uses up to the last 4 completed weeks of tracker registration data per state (fewer if less history exists yet since each state's commencement date).</div>
+  </div>`;
+
+  openPdfReportWindow_("Registration Recovery Report — As of "+d.asOf, body);
+}
+
+// ── Commencement (Starter) Recovery PDF download (2026-08-07 SANDBOX) ─────
+// Same fix as downloadRegistrationPDF_ above — S.dashView==="starters" fell
+// through to the same mislabelled weekly-report path.
+function downloadCommencementPDF_() {
+  if (!S.commReco) { alert("Starter data hasn't loaded yet — open the Starters tab first, then try exporting again."); return; }
+  const d = S.commReco, t = d.total;
+
+  const summaryTiles = [
+    {lbl:"2026 Starter Target", val:t.annualTarget}, {lbl:"YTD Actual", val:t.ytdActual}, {lbl:"Remaining", val:t.remaining},
+    {lbl:"% Achieved", val:t.pctAchieved+"%"}, {lbl:"Required This Week", val:t.requiredWeekly}, {lbl:"Achieved This Week", val:t.thisWeekActual},
+    {lbl:"Weekly Variance", val:pdfFmtVar_(t.weeklyVariance), cls:pdfVarCls_(t.weeklyVariance)},
+    {lbl:"Req. Run Rate to YE", val:t.requiredWeeklyRunRateToYearEnd+"/wk"}, {lbl:"Confirmed Future", val:t.confirmedFutureTotal},
+    {lbl:"Forecast Year End", val:t.runRateForecastYearEnd},
+    {lbl:"Forecast Variance", val:pdfFmtVar_(t.runRateForecastVariance), cls:pdfVarCls_(t.runRateForecastVariance)},
+  ];
+
+  let body = `
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">2026 Starter Performance — As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</div>
+    <div class="rpt-tiles">${summaryTiles.map(x=>`<div class="rpt-tile"><div class="lbl">${x.lbl}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join("")}</div>
+    <div style="text-align:center;padding-bottom:12px">${pdfStatusBadge_(t.status)} <span style="font-size:10px;color:#888;margin-left:6px">National pace status this week</span></div>
+  </div>
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">By State</div>
+    <table class="rpt-table"><thead><tr><th>State</th><th>Annual Budget</th><th>YTD</th><th>Remaining</th><th>% Achieved</th><th>This Week</th><th>Weekly Target</th><th>Wkly Var</th><th>This Month</th><th>Monthly Req.</th><th>Mthly Var</th><th>Confirmed Future</th><th>Forecast YE</th><th>Fcst Var</th><th>Status</th></tr></thead>
+    <tbody>
+      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr>
+        <td>${s}</td><td>${r.annualTarget}</td><td>${r.ytdActual}</td><td>${r.remaining}</td><td>${r.pctAchieved}%</td><td>${r.thisWeekActual}</td><td>${r.weeklyTarget}</td>
+        <td class="${pdfVarCls_(r.weeklyVariance)}">${pdfFmtVar_(r.weeklyVariance)}</td><td>${r.thisMonthActual}</td><td>${r.monthlyRequiredRunRate}</td>
+        <td class="${pdfVarCls_(r.monthlyVariance)}">${pdfFmtVar_(r.monthlyVariance)}</td><td>${r.confirmedFutureTotal}</td><td>${r.runRateForecastYearEnd}</td>
+        <td class="${pdfVarCls_(r.runRateForecastVariance)}">${pdfFmtVar_(r.runRateForecastVariance)}</td><td>${pdfStatusBadge_(r.status)}</td>
+      </tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${t.annualTarget}</td><td>${t.ytdActual}</td><td>${t.remaining}</td><td>${t.pctAchieved}%</td><td>${t.thisWeekActual}</td><td>${t.weeklyTarget}</td>
+        <td class="${pdfVarCls_(t.weeklyVariance)}">${pdfFmtVar_(t.weeklyVariance)}</td><td>${t.thisMonthActual}</td><td>${t.requiredMonthly}</td>
+        <td class="${pdfVarCls_(t.monthlyVariance)}">${pdfFmtVar_(t.monthlyVariance)}</td><td>${t.confirmedFutureTotal}</td><td>${t.runRateForecastYearEnd}</td>
+        <td class="${pdfVarCls_(t.runRateForecastVariance)}">${pdfFmtVar_(t.runRateForecastVariance)}</td><td>${pdfStatusBadge_(t.status)}</td></tr>
+    </tbody></table>
+  </div>
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">Individual CR Starter Contribution</div>
+    <table class="rpt-table"><thead><tr><th>CR</th><th>State</th><th>Starters This Week</th><th>Starters MTD</th><th>Starters YTD</th><th>Confirmed Future</th></tr></thead>
+    <tbody>${d.perCR.map(function(cr){ return `<tr><td>${cr.coord}</td><td>${cr.state}</td><td>${cr.thisWeekActual}</td><td>${cr.thisMonthActual}</td>
+      <td>${cr.ytdActual}</td><td>${cr.confirmedFutureTotal}</td></tr>`; }).join("")}</tbody></table>
+    <div class="rpt-note">CR YTD is sourced from the Commencements WIP database (Induction Status Active/Active-reported, dated on/before today) — sums exactly to the state's own YTD Actual above.</div>
+  </div>
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">Confirmed Future Starters</div>
+    <table class="rpt-table"><thead><tr><th>State</th><th>Next 7 Days</th><th>Next 30 Days</th><th>Beyond 30 Days</th><th>Total</th></tr></thead>
+    <tbody>
+      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr><td>${s}</td><td>${r.confirmedFuture7}</td><td>${r.confirmedFuture30}</td><td>${r.confirmedFutureBeyond30}</td><td>${r.confirmedFutureTotal}</td></tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${t.confirmedFuture7}</td><td>${t.confirmedFuture30}</td><td>${t.confirmedFutureBeyond30}</td><td>${t.confirmedFutureTotal}</td></tr>
+    </tbody></table>
+    <div class="rpt-note">Sourced from each state's Commencements tab (Commencement Date × Induction Status) — booked/expected, not yet actually started.</div>
+  </div>`;
+
+  if (S.regReco) {
+    const rd = S.regReco;
+    const rows = ["VIC","NSW","QLD"].map(function(s){ return {state:s, regYtd:rd.states[s].ytdActual, regPct:rd.states[s].pctAchieved, starYtd:d.states[s].ytdActual, starPct:d.states[s].pctAchieved, future:d.states[s].confirmedFutureTotal}; });
+    body += `
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">Registrations vs Starters</div>
+    <table class="rpt-table"><thead><tr><th>State</th><th>Registrations YTD</th><th>Registration Target %</th><th>Starters YTD</th><th>Starter Target %</th><th>Confirmed Future Starters</th></tr></thead>
+    <tbody>
+      ${rows.map(function(r){ return `<tr><td>${r.state}</td><td>${r.regYtd}</td><td>${r.regPct}%</td><td>${r.starYtd}</td><td>${r.starPct}%</td><td>${r.future}</td></tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${rd.total.ytdActual}</td><td>${rd.total.pctAchieved}%</td><td>${t.ytdActual}</td><td>${t.pctAchieved}%</td><td>${t.confirmedFutureTotal}</td></tr>
+    </tbody></table>
+    <div class="rpt-note">Registrations and Starters are separate performance measures, shown side-by-side for comparison only — this is NOT "Registrations minus Starters = awaiting commencement". The two YTD cohorts aren't necessarily the same students.</div>
+  </div>`;
+  }
+
+  body += `
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">Forecast — Run-Rate vs Confirmed/Pipeline</div>
+    <table class="rpt-table"><thead><tr><th>State</th><th>YTD Actual</th><th>Annual Target</th><th>Run-Rate Forecast</th><th>Run-Rate Variance</th><th>Open Enrolment Pipeline</th><th>Confirmed/Pipeline Forecast</th><th>Pipeline Variance</th></tr></thead>
+    <tbody>
+      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr><td>${s}</td><td>${r.ytdActual}</td><td>${r.annualTarget}</td><td>${r.runRateForecastYearEnd}</td>
+        <td class="${pdfVarCls_(r.runRateForecastVariance)}">${pdfFmtVar_(r.runRateForecastVariance)}</td><td>${r.openEnrolmentPipelineCount}</td><td>${r.pipelineForecastYearEnd}</td>
+        <td class="${pdfVarCls_(r.pipelineForecastVariance)}">${pdfFmtVar_(r.pipelineForecastVariance)}</td></tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${t.ytdActual}</td><td>${t.annualTarget}</td><td>${t.runRateForecastYearEnd}</td>
+        <td class="${pdfVarCls_(t.runRateForecastVariance)}">${pdfFmtVar_(t.runRateForecastVariance)}</td><td>${t.openEnrolmentPipelineCount}</td><td>${t.pipelineForecastYearEnd}</td>
+        <td class="${pdfVarCls_(t.pipelineForecastVariance)}">${pdfFmtVar_(t.pipelineForecastVariance)}</td></tr>
+    </tbody></table>
+    <div class="rpt-note"><b>Run-Rate Forecast</b> = based on the last completed week(s) of actual performance. <b>Confirmed/Pipeline Forecast</b> = YTD Actual + Confirmed Future Starters due by 31 Dec 2026 + Open Enrolment Pipeline students (not yet marked Enrolled).</div>
+  </div>
+  <div class="rpt-section">
+    <div class="rpt-section-hdr">Registration Pipeline Forecast — NOT GUARANTEED</div>
+    <table class="rpt-table"><thead><tr><th>State</th><th>Confirmed/Pipeline Forecast</th><th>Open Registration Pipeline</th><th>Registration Pipeline Forecast</th><th>Variance</th></tr></thead>
+    <tbody>
+      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr><td>${s}</td><td>${r.pipelineForecastYearEnd}</td><td>${r.openRegistrationPipelineCount}</td>
+        <td>${r.registrationPipelineForecastYearEnd}</td><td class="${pdfVarCls_(r.registrationPipelineForecastVariance)}">${pdfFmtVar_(r.registrationPipelineForecastVariance)}</td></tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${t.pipelineForecastYearEnd}</td><td>${t.openRegistrationPipelineCount}</td>
+        <td>${t.registrationPipelineForecastYearEnd}</td><td class="${pdfVarCls_(t.registrationPipelineForecastVariance)}">${pdfFmtVar_(t.registrationPipelineForecastVariance)}</td></tr>
+    </tbody></table>
+    <div class="rpt-note">Sourced from each state's Student Leads WIP tab (any student not marked completed/cancelled/N/A/registered/enrolled/closed/withdrawn), no staleness/time-window filter. No reliable cross-tab ID matching exists between Student Leads / Enrolment Pipeline / Commencements, so this may overlap with students already counted in the Confirmed/Pipeline Forecast above — treat as a ceiling/early-warning figure, not a guaranteed future Starter count.</div>
+  </div>`;
+
+  openPdfReportWindow_("Starter Recovery Report — As of "+d.asOf, body);
+}
+
 // ── Dashboard PDF download ────────────────────────────────────────────────
 function downloadDashboardPDF() {
-  if (S.dashView === "trend") return downloadTrendPDF();
+  if (S.dashView === "trend")        return downloadTrendPDF();
+  if (S.dashView === "registration") return downloadRegistrationPDF_();
+  if (S.dashView === "starters")     return downloadCommencementPDF_();
   const isDaily = S.dashView === "daily";
   const coordsToShow = S.dashFilter.coord === "all" ? COORDS : [S.dashFilter.coord];
   const date = S.date;
@@ -2839,14 +3532,14 @@ function downloadDashboardPDF() {
       const opps             = acts.filter(a=>["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)).length;
 
       const metrics = [
-        ["Commencements",      commencements,    Math.round(paceTarget(tgt.commencement[s]))],
-        ["Registrations",      registrations,    Math.round(paceTarget(tgt.registration[s]))],
-        ["ACAP contacts",      acapContacts,     Math.round(paceTarget(tgt.acap_contact[s]))],
-        ["Calls attempted",    callsAttempted,   Math.round(paceTarget(tgt.employer_call[s]))],
+        ["Commencements",      commencements,    Math.round(paceTarget(weeklyTargetFor_(tgt.commencement[s],coord,date)))],
+        ["Registrations",      registrations,    Math.round(paceTarget(weeklyTargetFor_(tgt.registration[s],coord,date)))],
+        ["ACAP contacts",      acapContacts,     Math.round(paceTarget(weeklyTargetFor_(tgt.acap_contact[s],coord,date)))],
+        ["Calls attempted",    callsAttempted,   Math.round(paceTarget(weeklyTargetFor_(tgt.employer_call[s],coord,date)))],
         ["Meaningful convs",   callsMeaningful,  0],
-        ["Site visits",        siteVisits,       Math.round(paceTarget(tgt.site_visit[s]))],
-        ["New employers",      newEmployers,     Math.round(paceTarget(tgt.new_employer_met[s]))],
-        ["Student leads",      leads,            Math.round(paceTarget(tgt.lead_generated[s]))],
+        ["Site visits",        siteVisits,       Math.round(paceTarget(weeklyTargetFor_(tgt.site_visit[s],coord,date)))],
+        ["New employers",      newEmployers,     Math.round(paceTarget(weeklyTargetFor_(tgt.new_employer_met[s],coord,date)))],
+        ["Student leads",      leads,            Math.round(paceTarget(weeklyTargetFor_(tgt.lead_generated[s],coord,date)))],
         ["Pipeline contacted", pipelineContacted,0],
         ["Pipeline progressed",pipelineProgressed,0],
         ["Follow-ups closed",  followupsClosed,  0],
@@ -2919,15 +3612,15 @@ function downloadDashboardPDF() {
       });
       const statusCounts = `${T.days_productive} productive · ${T.days_partial} partial · ${T.days_none} no activity · ${T.days_complete} complete`;
       const metrics = [
-        ["Commencements",        T.commencement,         tgt.commencement[s]],
-        ["Registrations",        T.registration,         tgt.registration[s]],
-        ["ACAP contacts",        T.acap_contact_attempted,tgt.acap_contact[s]],
-        ["Calls attempted",      T.call_attempted,       tgt.employer_call[s]],
+        ["Commencements",        T.commencement,         weeklyTargetFor_(tgt.commencement[s],coord,date)],
+        ["Registrations",        T.registration,         weeklyTargetFor_(tgt.registration[s],coord,date)],
+        ["ACAP contacts",        T.acap_contact_attempted,weeklyTargetFor_(tgt.acap_contact[s],coord,date)],
+        ["Calls attempted",      T.call_attempted,       weeklyTargetFor_(tgt.employer_call[s],coord,date)],
         ["Meaningful convs",     T.call_meaningful,      0],
-        ["Site visits",          T.site_employers,       tgt.site_visit[s]],
-        ["New employers met",    T.new_employer_met,     tgt.new_employer_met[s]],
-        ["New employers to DB",  T.new_employer_db,      tgt.new_employer_db[s]],
-        ["Student leads",        T.lead,                 tgt.lead_generated[s]],
+        ["Site visits",          T.site_employers,       weeklyTargetFor_(tgt.site_visit[s],coord,date)],
+        ["New employers met",    T.new_employer_met,     weeklyTargetFor_(tgt.new_employer_met[s],coord,date)],
+        ["New employers to DB",  T.new_employer_db,      weeklyTargetFor_(tgt.new_employer_db[s],coord,date)],
+        ["Student leads",        T.lead,                 weeklyTargetFor_(tgt.lead_generated[s],coord,date)],
         ["Opportunities",        T.opp_generated,        0],
         ["Pipeline progressed",  T.pipeline_progressed,  0],
         ["Sign-ups booked",      T.signup_booked,        0],
@@ -3047,14 +3740,24 @@ function renderApp(){
   const coord=S.user.coord, isManager=S.user.isManager;
   const day=getDay();
   const state=STATES[coord];
-  // 2026-08-07 per Bec: manager view gets its own tab order (Dashboard
-  // first, then Today, Wk Notes, Daily Notes, Pipeline, Employer Calls,
-  // Site Visits, This Week, History) — deliberately different from the
-  // coordinator order below, which is untouched.
+  // 2026-08-07 per Bec's follow-up screenshots (superseding the SAME-DAY
+  // earlier "Dashboard first, then Today/Wk Notes/.../History" tab order):
+  // the manager's DEFAULT top tab bar is now just Dashboard, Weekly, Daily,
+  // Trend — Today/Wk Notes/Daily Notes/Pipeline/Employer Calls/Site Visits/
+  // This Week/History are no longer manager top-level tabs at all; those
+  // per-coordinator single-day logging tabs stay reachable ONLY via
+  // switchToCoord()'s existing "View & Edit →" button (see the per-CR cards
+  // in renderManagerWeeklyTab_), which drops the manager into that ONE
+  // coordinator's full detail view — CR_DETAIL_TABS below is the tab set
+  // for THAT mode specifically, so it still works exactly as before; it is
+  // NOT shown by default. Coordinator accounts (isManager===false) are
+  // completely untouched.
+  const CR_DETAIL_TABS = ["today","wknotes","notes","pipeline","calls","visits","thisweek","history"];
+  const inCoordDetailMode = isManager && CR_DETAIL_TABS.includes(S.tab);
   const tabs = isManager
-    ? ["dashboard","today","wknotes","notes","pipeline","calls","visits","thisweek","history"]
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend"])
     : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"];
-  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard"};
+  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend"};
 
   let h=`<div class="hdr">
     <div class="hdr-top">
@@ -3078,8 +3781,14 @@ function renderApp(){
   <input type="date" value="${S.date}" onchange="setLogDate(this.value,{reload:true})" style="width:auto;padding:4px 8px;font-size:12px;border:1px solid var(--bd);border-radius:6px">
   </div>`;
 
-  // Tab bar
-  h+=`<div class="tabs" id="tabBar">${tabs.map(t=>`<button class="tb${S.tab===t?" on":""}" onclick="S.tab='${t}';render();scrollTabIntoView('${t}')">${tabLabels[t]}</button>`).join("")}</div>
+  // Tab bar — clicking Weekly/Daily/Trend also sets S.dashView to match, so
+  // downloadDashboardPDF()/downloadDashboardExcel() (which dispatch on
+  // S.dashView, unchanged from before this tab reshuffle) keep exporting
+  // the right thing without needing their own dispatch logic touched.
+  h+=`<div class="tabs" id="tabBar">${tabs.map(t=>{
+    const dvSet = (t==="weekly"||t==="daily"||t==="trend") ? `S.dashView='${t}';` : "";
+    return `<button class="tb${S.tab===t?" on":""}" onclick="S.tab='${t}';${dvSet}render();scrollTabIntoView('${t}')">${tabLabels[t]}</button>`;
+  }).join("")}</div>
     <button onclick="scrollTabs(-1)" style="position:absolute;left:0;top:0;height:32px;width:24px;background:linear-gradient(to right,#fff,transparent);border:none;cursor:pointer;font-size:16px;color:var(--hdr);z-index:5;display:flex;align-items:center;justify-content:center;padding:0">‹</button>
     <button onclick="scrollTabs(1)" style="position:absolute;right:0;top:0;height:32px;width:24px;background:linear-gradient(to left,#fff,transparent);border:none;cursor:pointer;font-size:16px;color:var(--hdr);z-index:5;display:flex;align-items:center;justify-content:center;padding:0">›</button>`;
 
@@ -3092,7 +3801,14 @@ function renderApp(){
   if(S.tab==="thisweek")   h+=renderThisWeek(coord,state);
   if(S.tab==="wknotes")    h+=renderWkNotes(coord,state);
   if(S.tab==="history")    h+=renderHistory(coord,state);
-  if(S.tab==="dashboard"){ if(!S.loading) loadAllForDashboard(); h+=renderDashboard(); }
+  // 2026-08-07 bugfix: gated with dashDataAttempted (in addition to the
+  // pre-existing !S.loading check) — see loadAllForDashboard()'s own
+  // comment for the retry-storm this fixes (was re-firing on every single
+  // render pass while sat on any of these 4 tabs).
+  if(S.tab==="dashboard"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderDashboard(); }
+  if(S.tab==="weekly"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerWeeklyTab_(); }
+  if(S.tab==="daily"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerDailyTab_();  }
+  if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerTrendTab_();  }
 
   // Push FAB
   h+=`<button class="push-fab" onclick="pushData()" ${S.syncing?"disabled":""}>
@@ -3169,8 +3885,10 @@ function confirmUser(){
 
 function openSettings(){
   S.modal={type:"settings"};
+  if (!S.leaveForm.coord && S.user) S.leaveForm.coord = S.user.coord;
   render();
   if (S.user && S.user.isManager) refreshPresence_();
+  refreshLeave_();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3197,13 +3915,13 @@ function computeDailyPaceDetails(coord, state, date) {
 
   // Metrics to pace-check (those with targets > 0)
   const paceMetrics = [
-    {label:"Commencements",    actual:T.commencement,          weekly:tgt.commencement[s]},
-    {label:"Registrations",    actual:T.registration,          weekly:tgt.registration[s]},
-    {label:"ACAP contacts",    actual:T.acap_contact_attempted,weekly:tgt.acap_contact[s]},
-    {label:"Employer calls",   actual:T.call_attempted,        weekly:tgt.employer_call[s]},
-    {label:"Site visits",      actual:T.site_employers,        weekly:tgt.site_visit[s]},
-    {label:"New employers met",actual:T.new_employer_met,      weekly:tgt.new_employer_met[s]},
-    {label:"Student leads",    actual:T.lead,                  weekly:tgt.lead_generated[s]},
+    {label:"Commencements",    actual:T.commencement,          weekly:weeklyTargetFor_(tgt.commencement[s],coord,ds)},
+    {label:"Registrations",    actual:T.registration,          weekly:weeklyTargetFor_(tgt.registration[s],coord,ds)},
+    {label:"ACAP contacts",    actual:T.acap_contact_attempted,weekly:weeklyTargetFor_(tgt.acap_contact[s],coord,ds)},
+    {label:"Employer calls",   actual:T.call_attempted,        weekly:weeklyTargetFor_(tgt.employer_call[s],coord,ds)},
+    {label:"Site visits",      actual:T.site_employers,        weekly:weeklyTargetFor_(tgt.site_visit[s],coord,ds)},
+    {label:"New employers met",actual:T.new_employer_met,      weekly:weeklyTargetFor_(tgt.new_employer_met[s],coord,ds)},
+    {label:"Student leads",    actual:T.lead,                  weekly:weeklyTargetFor_(tgt.lead_generated[s],coord,ds)},
   ].filter(m=>m.weekly>0);
 
   // Daily pace target = weekly × dayNum/5
@@ -3886,21 +4604,21 @@ function renderThisWeek(coord,state){
   // Full weekly KR table
   const tgt=WEEKLY_TARGETS, s=state;
   const krRows=[
-    {label:"Commencements",val:T.commencement,tgt:tgt.commencement[s]},
-    {label:"Registrations",val:T.registration,tgt:tgt.registration[s]},
-    {label:"Enrolments",val:T.enrolment,tgt:tgt.enrolment[s]},
-    {label:"Intro calls completed",val:T.intro_call_done,tgt:tgt.intro_call[s]},
-    {label:"ACAP contacts",val:T.acap_contact_attempted,tgt:tgt.acap_contact[s]},
-    {label:"ACAP F2F visits",val:T.acap_f2f,tgt:tgt.acap_f2f[s]},
-    {label:"Events",val:T.event,tgt:tgt.event[s]},
-    {label:"Employer calls attempted",val:T.call_attempted,tgt:tgt.employer_call[s]},
+    {label:"Commencements",val:T.commencement,tgt:weeklyTargetFor_(tgt.commencement[s],coord,S.date)},
+    {label:"Registrations",val:T.registration,tgt:weeklyTargetFor_(tgt.registration[s],coord,S.date)},
+    {label:"Enrolments",val:T.enrolment,tgt:weeklyTargetFor_(tgt.enrolment[s],coord,S.date)},
+    {label:"Intro calls completed",val:T.intro_call_done,tgt:weeklyTargetFor_(tgt.intro_call[s],coord,S.date)},
+    {label:"ACAP contacts",val:T.acap_contact_attempted,tgt:weeklyTargetFor_(tgt.acap_contact[s],coord,S.date)},
+    {label:"ACAP F2F visits",val:T.acap_f2f,tgt:weeklyTargetFor_(tgt.acap_f2f[s],coord,S.date)},
+    {label:"Events",val:T.event,tgt:weeklyTargetFor_(tgt.event[s],coord,S.date)},
+    {label:"Employer calls attempted",val:T.call_attempted,tgt:weeklyTargetFor_(tgt.employer_call[s],coord,S.date)},
     {label:"Calls connected",val:T.call_connected,tgt:0},
     {label:"Meaningful conversations",val:T.call_meaningful,tgt:0},
-    {label:"Site visits (employers)",val:T.site_employers,tgt:tgt.site_visit[s]},
+    {label:"Site visits (employers)",val:T.site_employers,tgt:weeklyTargetFor_(tgt.site_visit[s],coord,S.date)},
     {label:"Site locations",val:T.site_locations,tgt:0},
-    {label:"New employers met",val:T.new_employer_met,tgt:tgt.new_employer_met[s]},
-    {label:"New employers to DB",val:T.new_employer_db,tgt:tgt.new_employer_db[s]},
-    {label:"Student leads",val:T.lead,tgt:tgt.lead_generated[s]},
+    {label:"New employers met",val:T.new_employer_met,tgt:weeklyTargetFor_(tgt.new_employer_met[s],coord,S.date)},
+    {label:"New employers to DB",val:T.new_employer_db,tgt:weeklyTargetFor_(tgt.new_employer_db[s],coord,S.date)},
+    {label:"Student leads",val:T.lead,tgt:weeklyTargetFor_(tgt.lead_generated[s],coord,S.date)},
     {label:"Opportunities generated",val:T.opp_generated,tgt:0},
     {label:"Pipeline progressed",val:T.pipeline_progressed,tgt:0},
     {label:"Sign-ups booked",val:T.signup_booked,tgt:0},
@@ -4373,19 +5091,19 @@ function renderDailyDashboard(){
       <!-- Daily activity grid — reordered/redefined 2026-08-03 per Bec's spec -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px">
         ${[
-          {lbl:"Registrations",              val:registrations,          tgt:Math.round(paceTarget(tgt.registration[s]))},
-          {lbl:"Enrolments",                 val:enrolments,             tgt:Math.round(paceTarget(tgt.enrolment[s]))},
-          {lbl:"Commencements",              val:commencements,          tgt:Math.round(paceTarget(tgt.commencement[s]))},
+          {lbl:"Registrations",              val:registrations,          tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.registration[s],coord,date)))},
+          {lbl:"Enrolments",                 val:enrolments,             tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.enrolment[s],coord,date)))},
+          {lbl:"Commencements",              val:commencements,          tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.commencement[s],coord,date)))},
           {lbl:"Pipeline Progression Attempts",val:pipelineContacted,    tgt:0},
-          {lbl:"ACAP Contacts",              val:acapContacts,           tgt:Math.round(paceTarget(tgt.acap_contact[s]))},
-          {lbl:"Site Visits",                val:siteVisits,             tgt:Math.round(paceTarget(tgt.site_visit[s]))},
-          {lbl:"Existing Employer Calls",    val:existingEmployerCalls,  tgt:Math.round(paceTarget(tgt.employer_call[s]))},
+          {lbl:"ACAP Contacts",              val:acapContacts,           tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.acap_contact[s],coord,date)))},
+          {lbl:"Site Visits",                val:siteVisits,             tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.site_visit[s],coord,date)))},
+          {lbl:"Existing Employer Calls",    val:existingEmployerCalls,  tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.employer_call[s],coord,date)))},
           {lbl:"New Employer Calls",         val:newEmployerCalls,       tgt:0},
-          {lbl:"New Employers Added",        val:newEmployersAdded,      tgt:Math.round(paceTarget(tgt.new_employer_db[s]))},
+          {lbl:"New Employers Added",        val:newEmployersAdded,      tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.new_employer_db[s],coord,date)))},
           {lbl:"Total Contacts Attempted",   val:totalContactsAttempted, tgt:0},
           {lbl:"Meaningful Contacts",        val:callsMeaningful,        tgt:0},
-          {lbl:"New Student Leads",          val:leads,                  tgt:Math.round(paceTarget(tgt.lead_generated[s]))},
-          {lbl:"Events",                     val:events,                 tgt:Math.round(paceTarget(tgt.event[s]))},
+          {lbl:"New Student Leads",          val:leads,                  tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.lead_generated[s],coord,date)))},
+          {lbl:"Events",                     val:events,                 tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.event[s],coord,date)))},
           {lbl:"New Opportunity",            val:newOpportunity,         tgt:0},
         ].map(k=>{
           const onPace = k.tgt===0 || k.val>=k.tgt;
@@ -4491,7 +5209,7 @@ function renderTrendDashboard() {
   if (S.dashFilter.coord === "all") {
     h += `<div class="card">
       <div class="card-title"><i class="ti ti-trending-up"></i> Team — Week on Week Trend</div>
-      <div style="overflow-x:auto">
+      <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <tr>
           <th style="text-align:left;padding:6px 8px;background:var(--hdr);color:#fff;min-width:130px">Metric</th>
@@ -4523,13 +5241,13 @@ function renderTrendDashboard() {
               const combinedTgt = coordsToShow.reduce(function(sum,coord){
                 const s=STATES[coord], t=WEEKLY_TARGETS;
                 const tk = metric.warn?0:
-                  metric.label==="Commencements"?t.commencement[s]:
-                  metric.label==="Registrations"?t.registration[s]:
-                  metric.label==="Calls attempted"?t.employer_call[s]:
-                  metric.label==="Site visits"?t.site_visit[s]:
-                  metric.label==="ACAP contacts"?t.acap_contact[s]:
-                  metric.label==="New employers met"?t.new_employer_met[s]:
-                  metric.label==="Student leads"?t.lead_generated[s]:0;
+                  metric.label==="Commencements"?weeklyTargetFor_(t.commencement[s],coord,S.date):
+                  metric.label==="Registrations"?weeklyTargetFor_(t.registration[s],coord,S.date):
+                  metric.label==="Calls attempted"?weeklyTargetFor_(t.employer_call[s],coord,S.date):
+                  metric.label==="Site visits"?weeklyTargetFor_(t.site_visit[s],coord,S.date):
+                  metric.label==="ACAP contacts"?weeklyTargetFor_(t.acap_contact[s],coord,S.date):
+                  metric.label==="New employers met"?weeklyTargetFor_(t.new_employer_met[s],coord,S.date):
+                  metric.label==="Student leads"?weeklyTargetFor_(t.lead_generated[s],coord,S.date):0;
                 return sum+tk;
               },0);
               let tCellBg, tCellTxt, tBarCol;
@@ -4565,7 +5283,7 @@ function renderTrendDashboard() {
     const state = STATES[coord];
     h += `<div class="card">
       <div class="card-title"><i class="ti ti-user-circle"></i> ${coord} — ${state} · Week on Week</div>
-      <div style="overflow-x:auto">
+      <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
       <table style="width:100%;border-collapse:collapse;font-size:11px">
         <tr>
           <th style="text-align:left;padding:6px 8px;background:var(--hdr);color:#fff;min-width:130px">Metric</th>
@@ -4585,13 +5303,13 @@ function renderTrendDashboard() {
             : (latest>prev?"var(--greent)":latest<prev?"var(--redt)":"var(--tm)");
           const max = Math.max(...vals, 1);
           const tgt = WEEKLY_TARGETS;
-          const weeklyTgt = metric.key==="commencement"?tgt.commencement[state]:
-                            metric.key==="registration"?tgt.registration[state]:
-                            metric.key==="call_attempted"?tgt.employer_call[state]:
-                            metric.key==="site_employers"?tgt.site_visit[state]:
-                            metric.key==="acap_contact"?tgt.acap_contact[state]:
-                            metric.key==="new_employer_met"?tgt.new_employer_met[state]:
-                            metric.key==="lead"?tgt.lead_generated[state]:0;
+          const weeklyTgt = metric.key==="commencement"?weeklyTargetFor_(tgt.commencement[state],coord,S.date):
+                            metric.key==="registration"?weeklyTargetFor_(tgt.registration[state],coord,S.date):
+                            metric.key==="call_attempted"?weeklyTargetFor_(tgt.employer_call[state],coord,S.date):
+                            metric.key==="site_employers"?weeklyTargetFor_(tgt.site_visit[state],coord,S.date):
+                            metric.key==="acap_contact"?weeklyTargetFor_(tgt.acap_contact[state],coord,S.date):
+                            metric.key==="new_employer_met"?weeklyTargetFor_(tgt.new_employer_met[state],coord,S.date):
+                            metric.key==="lead"?weeklyTargetFor_(tgt.lead_generated[state],coord,S.date):0;
 
           return `<tr>
             <td style="padding:6px 8px;font-weight:600;background:${rowBg};color:${metric.warn?"var(--redt)":"var(--tp)"}">${metric.label}${weeklyTgt?`<div style="font-size:10px;color:var(--tm);font-weight:400">target: ${weeklyTgt}</div>`:""}
@@ -4634,23 +5352,64 @@ function renderTrendDashboard() {
   return h;
 }
 
+// 2026-08-07 per Bec (superseding the SAME-DAY earlier "gate Weekly/Daily/
+// Trend behind a coordinator pick" change, per her follow-up screenshots):
+// the Management Dashboard TAB (S.tab==="dashboard") now shows ONLY the two
+// national views, Registration and Starters — both deliberately ignore
+// S.dashFilter.coord (see renderRegistrationRecovery_/
+// renderCommencementRecovery_), so no coordinator selector belongs on this
+// card at all. Weekly/Daily/Trend are no longer nested inside this card as
+// dashView sub-buttons — they are now their OWN top-level tabs, siblings of
+// Dashboard, in the manager's main tab bar (see renderApp()'s tabs array and
+// renderManagerWeeklyTab_/renderManagerDailyTab_/renderManagerTrendTab_
+// below). Each of those three keeps its own "View / edit as" selector and
+// PDF/Excel export, same as before — only WHERE they live changed, not what
+// they do or how they're reached.
 function renderDashboard(){
-  const ds=S.dashFilter;
-  const targetDate=S.date;
+  // Guard against S.dashView being left on a stale "weekly"/"daily"/"trend"
+  // value from before this tab existed only for Registration/Starters —
+  // without this, the button-highlight/PDF/Excel dispatch below would look
+  // for a view that no longer has a button on THIS card.
+  if (!["registration","starters"].includes(S.dashView)) S.dashView = "registration";
 
   let h=`<div class="card">
     <div class="card-title"><i class="ti ti-layout-dashboard"></i> Management Dashboard</div>
+    ${renderTeamLeaveBanner_()}
     <!-- View toggle -->
     <div style="display:flex;gap:8px;margin-bottom:12px">
-      <button onclick="S.dashView='weekly';render()" style="flex:1;padding:8px;border-radius:var(--r);border:1.5px solid ${S.dashView==='weekly'?'var(--hdr)':'var(--bd)'};background:${S.dashView==='weekly'?'var(--hdr)':'#fff'};color:${S.dashView==='weekly'?'#fff':'var(--ts)'};font-size:13px;font-weight:600;cursor:pointer">
-        <i class="ti ti-calendar-week"></i> Weekly
+      <button onclick="S.dashView='registration';refreshRegistrationRecovery_();render()" style="flex:1;padding:8px;border-radius:var(--r);border:1.5px solid ${S.dashView==='registration'?'var(--hdr)':'var(--bd)'};background:${S.dashView==='registration'?'var(--hdr)':'#fff'};color:${S.dashView==='registration'?'#fff':'var(--ts)'};font-size:13px;font-weight:600;cursor:pointer">
+        <i class="ti ti-target-arrow"></i> Registration
       </button>
-      <button onclick="S.dashView='daily';render()" style="flex:1;padding:8px;border-radius:var(--r);border:1.5px solid ${S.dashView==='daily'?'var(--hdr)':'var(--bd)'};background:${S.dashView==='daily'?'var(--hdr)':'#fff'};color:${S.dashView==='daily'?'#fff':'var(--ts)'};font-size:13px;font-weight:600;cursor:pointer">
-        <i class="ti ti-calendar-day"></i> Daily
+      <button onclick="S.dashView='starters';refreshCommencementRecovery_();render()" style="flex:1;padding:8px;border-radius:var(--r);border:1.5px solid ${S.dashView==='starters'?'var(--hdr)':'var(--bd)'};background:${S.dashView==='starters'?'var(--hdr)':'#fff'};color:${S.dashView==='starters'?'#fff':'var(--ts)'};font-size:13px;font-weight:600;cursor:pointer">
+        <i class="ti ti-school"></i> Starters
       </button>
-      <button onclick="S.dashView='trend';render()" style="flex:1;padding:8px;border-radius:var(--r);border:1.5px solid ${S.dashView==='trend'?'var(--hdr)':'var(--bd)'};background:${S.dashView==='trend'?'var(--hdr)':'#fff'};color:${S.dashView==='trend'?'#fff':'var(--ts)'};font-size:13px;font-weight:600;cursor:pointer">
-        <i class="ti ti-trending-up"></i> Trend
+      <button onclick="downloadDashboardPDF()" style="padding:8px 12px;border-radius:var(--r);border:1.5px solid #085041;background:#085041;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <i class="ti ti-download"></i> PDF
       </button>
+      <button onclick="downloadDashboardExcel()" style="padding:8px 12px;border-radius:var(--r);border:1.5px solid #1d6f42;background:#1d6f42;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <i class="ti ti-table-export"></i> Excel
+      </button>
+    </div>
+  </div>`;
+
+  if (S.dashView==="starters") return h + renderCommencementRecovery_();
+  return h + renderRegistrationRecovery_();
+}
+
+// Shared header — "View / edit as" coordinator selector + PDF/Excel export
+// buttons + any view-specific extra fields — used identically by the three
+// per-CR tabs below (renderManagerWeeklyTab_/renderManagerDailyTab_/
+// renderManagerTrendTab_). viewKey is one of "weekly"/"daily"/"trend" and
+// must match the dashView the caller has already set (used for both the
+// PDF/Excel dispatch in downloadDashboardPDF/downloadDashboardExcel, which
+// switch on S.dashView, and for the date-field label below).
+function renderCRTabControls_(viewKey){
+  const ds = S.dashFilter;
+  const targetDate = S.date;
+  return `<div class="card">
+    <div class="card-title"><i class="ti ti-layout-dashboard"></i> ${viewKey==="weekly"?"Weekly":viewKey==="daily"?"Daily":"Trend"} Dashboard</div>
+    ${renderTeamLeaveBanner_()}
+    <div style="display:flex;gap:8px;margin-bottom:12px;justify-content:flex-end">
       <button onclick="downloadDashboardPDF()" style="padding:8px 12px;border-radius:var(--r);border:1.5px solid #085041;background:#085041;color:#fff;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">
         <i class="ti ti-download"></i> PDF
       </button>
@@ -4660,13 +5419,13 @@ function renderDashboard(){
     </div>
     <div class="field-row">
       <div class="field">
-        <label>Coordinator</label>
+        <label>View / edit as</label>
         <select onchange="S.dashFilter.coord=this.value;render()" style="font-size:12px">
           <option value="all"${ds.coord==="all"?" selected":""}>All coordinators</option>
           ${COORDS.map(c=>`<option value="${c}"${ds.coord===c?" selected":""}>${c}</option>`).join("")}
         </select>
       </div>
-      ${S.dashView==="trend" ? `
+      ${viewKey==="trend" ? `
       <div class="field">
         <label>From week</label>
         <input type="date" value="${S.trendFrom||addWeeks(S.date,-7)}" onchange="S.trendFrom=this.value;render()" style="font-size:12px">
@@ -4676,16 +5435,20 @@ function renderDashboard(){
         <input type="date" value="${S.trendTo||S.date}" onchange="S.trendTo=this.value;render()" style="font-size:12px">
       </div>` : `
       <div class="field">
-        <label>${S.dashView==="daily"?"Date":"Week containing"}</label>
+        <label>${viewKey==="daily"?"Date":"Week containing"}</label>
         <input type="date" value="${targetDate}" onchange="S.date=this.value;render()" style="font-size:12px">
       </div>`}
     </div>
-    ${S.dashView!=="trend" ? renderDashboardFilterControls() : ""}
+    ${viewKey!=="trend" ? renderDashboardFilterControls() : ""}
   </div>`;
+}
 
-  const coordsToShow=ds.coord==="all"?COORDS:[ds.coord];
-  if (S.dashView==="daily") return h + renderDailyDashboard() + renderFilteredActivityLog(coordsToShow,[targetDate]);
-  if (S.dashView==="trend") return h + renderTrendDashboard();
+function renderManagerWeeklyTab_(){
+  S.dashView = "weekly";
+  const ds = S.dashFilter;
+  const targetDate = S.date;
+  let h = renderCRTabControls_("weekly");
+  const coordsToShow = ds.coord==="all" ? COORDS : [ds.coord];
 
   coordsToShow.forEach(coord=>{
     const state=STATES[coord];
@@ -4700,31 +5463,40 @@ function renderDashboard(){
     // paceTarget()'s daily-prorated slice — that's specific to the
     // single-day Daily Dashboard view; this card already represents the
     // whole week, so the raw tgt.X[s] value is the correct comparison).
+    // 2026-08-07 SANDBOX: each tgt.X[s] lookup below is now routed through
+    // weeklyTargetFor_(), which reduces it proportionally for any
+    // single-day leave this coordinator has within THIS week — see that
+    // function's own comment for scope.
     const W = weeklyTileMetrics(coord, targetDate);
+    const leaveDaysThisWeek = weekLeaveDaysCount_(coord, mondayOf(targetDate));
+    const onLeaveNow = leaveActiveToday_().some(l=>l.coord===coord);
 
     h+=`<div class="card">
       <div class="card-title"><i class="ti ti-user-circle"></i> ${coord} — ${state}
         <span class="day-status ${T.days_productive>3?"ds-productive":T.days_productive>1?"ds-partial":"ds-none"}" style="margin-left:8px">${T.days_productive}/5 productive</span>
+        ${onLeaveNow?`<span style="margin-left:8px;background:#FDECEA;color:#B3261E;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700"><i class="ti ti-plane-departure"></i> ON LEAVE</span>`:""}
+        ${!onLeaveNow&&leaveDaysThisWeek>0?`<span style="margin-left:8px;background:var(--o2);color:var(--o2t);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">${leaveDaysThisWeek} leave day${leaveDaysThisWeek>1?"s":""} this week</span>`:""}
         <button onclick="switchToCoord('${coord}')" style="margin-left:auto;font-size:11px;padding:3px 10px;background:var(--hdr);color:#fff;border:none;border-radius:var(--r);cursor:pointer">View & Edit →</button>
       </div>
+      ${leaveDaysThisWeek>0?`<div style="font-size:11px;color:var(--o2t);background:var(--o2);padding:5px 8px;border-radius:var(--r);margin-bottom:8px">Weekly targets below are reduced for ${leaveDaysThisWeek} single-day leave this week (SANDBOX — see Settings for details).</div>`:""}
 
       <!-- Activity summary grid — 2026-08-06: matches the Daily Dashboard's
            14-tile set, accrued across the whole week (see weeklyTileMetrics) -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
         ${[
-          {lbl:"Registrations",              val:W.registrations,          tgt:tgt.registration[s]},
-          {lbl:"Enrolments",                 val:W.enrolments,             tgt:tgt.enrolment[s]},
-          {lbl:"Commencements",              val:W.commencements,          tgt:tgt.commencement[s]},
+          {lbl:"Registrations",              val:W.registrations,          tgt:weeklyTargetFor_(tgt.registration[s],coord,targetDate)},
+          {lbl:"Enrolments",                 val:W.enrolments,             tgt:weeklyTargetFor_(tgt.enrolment[s],coord,targetDate)},
+          {lbl:"Commencements",              val:W.commencements,          tgt:weeklyTargetFor_(tgt.commencement[s],coord,targetDate)},
           {lbl:"Pipeline Progression Attempts",val:W.pipelineContacted,    tgt:0},
-          {lbl:"ACAP Contacts",              val:W.acapContacts,           tgt:tgt.acap_contact[s]},
-          {lbl:"Site Visits",                val:W.siteVisits,             tgt:tgt.site_visit[s]},
-          {lbl:"Existing Employer Calls",    val:W.existingEmployerCalls,  tgt:tgt.employer_call[s]},
+          {lbl:"ACAP Contacts",              val:W.acapContacts,           tgt:weeklyTargetFor_(tgt.acap_contact[s],coord,targetDate)},
+          {lbl:"Site Visits",                val:W.siteVisits,             tgt:weeklyTargetFor_(tgt.site_visit[s],coord,targetDate)},
+          {lbl:"Existing Employer Calls",    val:W.existingEmployerCalls,  tgt:weeklyTargetFor_(tgt.employer_call[s],coord,targetDate)},
           {lbl:"New Employer Calls",         val:W.newEmployerCalls,       tgt:0},
-          {lbl:"New Employers Added",        val:W.newEmployersAdded,      tgt:tgt.new_employer_db[s]},
+          {lbl:"New Employers Added",        val:W.newEmployersAdded,      tgt:weeklyTargetFor_(tgt.new_employer_db[s],coord,targetDate)},
           {lbl:"Total Contacts Attempted",   val:W.totalContactsAttempted, tgt:0},
           {lbl:"Meaningful Contacts",        val:W.callsMeaningful,        tgt:0},
-          {lbl:"New Student Leads",          val:W.leads,                  tgt:tgt.lead_generated[s]},
-          {lbl:"Events",                     val:W.events,                 tgt:tgt.event[s]},
+          {lbl:"New Student Leads",          val:W.leads,                  tgt:weeklyTargetFor_(tgt.lead_generated[s],coord,targetDate)},
+          {lbl:"Events",                     val:W.events,                 tgt:weeklyTargetFor_(tgt.event[s],coord,targetDate)},
           {lbl:"New Opportunity",            val:W.newOpportunity,         tgt:0},
         ].map(k=>{
           const pct=k.tgt>0?Math.min(100,k.val/k.tgt*100):50;
@@ -4817,6 +5589,19 @@ function renderDashboard(){
 
   h += renderFilteredActivityLog(coordsToShow, weekDaysMF(targetDate));
   return h;
+}
+
+function renderManagerDailyTab_(){
+  S.dashView = "daily";
+  const ds = S.dashFilter;
+  const targetDate = S.date;
+  const coordsToShow = ds.coord==="all" ? COORDS : [ds.coord];
+  return renderCRTabControls_("daily") + renderDailyDashboard() + renderFilteredActivityLog(coordsToShow,[targetDate]);
+}
+
+function renderManagerTrendTab_(){
+  S.dashView = "trend";
+  return renderCRTabControls_("trend") + renderTrendDashboard();
 }
 
 // 2026-07-28: management dashboard filters, added to address the audit gap
@@ -4920,6 +5705,7 @@ function renderModal(){
   // S.modal.closingFollowup carrying the linkage back to the original
   // follow-up. Do not reintroduce a separate close_followup modal type.
   if(m.type==="activity")      return renderActivityModal(m.actType,m.data||{});
+  if(m.type==="leave_reassign") return renderLeavePickerModal_();
   return "";
 }
 
@@ -5019,6 +5805,758 @@ async function refreshPresence_(){
   if (S.modal && S.modal.type==="settings") render();
 }
 
+// ═══════════════════════════════════════════════════════════
+// 2026 REGISTRATION TARGET & RECOVERY TRACKER (SANDBOX — 2026-08-07)
+// Bec's brief: "update my existing CR Activity Tracker to incorporate a
+// 2026 Registration Target & Recovery Tracker." All figures come from
+// appscript.js's computeRegistrationRecovery_ via the new
+// get_registration_recovery doGet action — see that function's own header
+// comment for the full calculation (dynamic weekly/monthly required run
+// rate, forecast, YTD baseline handling, commencement-date fencing). This
+// is a READ-ONLY view — nothing here writes back to any sheet. The Annual
+// Target / YTD Baseline / Commencement Date inputs live in the new
+// "Registration Targets 2026" WIP tab, editable directly in Sheets.
+// ═══════════════════════════════════════════════════════════
+async function refreshRegistrationRecovery_(){
+  S.regRecoLoading = true;
+  // 2026-08-07 BUGFIX: renderRegistrationRecovery_'s "auto-fetch if nothing
+  // loaded yet" check re-fires on EVERY render while S.regReco stays null —
+  // which, before this fix, meant a single failed/errored response (e.g. an
+  // old deployed Web App version that doesn't recognise this action yet)
+  // put the tile into a tight fetch→fail→render→fetch loop that LOOKED like
+  // it was stuck on "Loading…" forever, instead of ever showing the actual
+  // error. regRecoAttempted gates that auto-fetch to a single try per
+  // session; a real "Not loaded" state (with the server's own error
+  // message, if any) is shown after that, with a manual Retry link.
+  S.regRecoAttempted = true;
+  if (S.dashView==="registration") render();
+  try {
+    const url = WEBAPP_URL+"?action=get_registration_recovery";
+    const data = await jsonpFetch(url);
+    if (data && data.ok) {
+      S.regReco = data;
+      S.regRecoError = null;
+      // 2026-08-07: the ONLY place WEEKLY_TARGETS.registration is mutated —
+      // feeds this feature's dynamic per-state weekly target into every
+      // pre-existing weeklyTargetFor_ call site (the KR 1.2 "Registrations"
+      // tile, Daily Dashboard pace bars, the Focus system, Excel/PDF
+      // exports) with no change needed to any of those ~30 call sites. Per
+      // Bec's answer, KR 1.2 now tracks this dynamic recovery target too.
+      ["VIC","NSW","QLD"].forEach(function(s){
+        if (data.states && data.states[s]) WEEKLY_TARGETS.registration[s] = data.states[s].weeklyTarget;
+      });
+    } else {
+      // Surface WHY it failed (e.g. "Unknown action: get_registration_recovery"
+      // means the deployed Web App version is stale and needs redeploying)
+      // instead of silently doing nothing, same fix as the loop above.
+      S.regRecoError = (data && data.msg) || "Unknown error";
+    }
+  } catch(e) {
+    S.regRecoError = "Network error: " + (e && e.message ? e.message : e);
+  }
+  S.regRecoLoading = false;
+  render();
+}
+
+// Compact management summary + per-state table + per-CR contribution table
+// — see computeRegistrationRecovery_'s return shape (states/perCR/total).
+function renderRegistrationRecovery_(){
+  // Only auto-fetch ONCE per session (regRecoAttempted) — see the bugfix
+  // comment in refreshRegistrationRecovery_ above for why re-firing this on
+  // every render caused the tile to look permanently stuck on "Loading…"
+  // whenever the server ever responded with anything other than success.
+  if (!S.regReco && !S.regRecoLoading && !S.regRecoAttempted) refreshRegistrationRecovery_();
+  if (!S.regReco) {
+    return `<div class="card"><div class="card-title"><i class="ti ti-target-arrow"></i> 2026 Registration Performance</div>
+      ${S.regRecoLoading ? "Loading…" : `Not loaded${S.regRecoError?` — <span style="color:var(--redt)">${S.regRecoError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshRegistrationRecovery_()">Retry</a>`}</div>`;
+  }
+  const d = S.regReco;
+  const t = d.total;
+  const statusColors = {"On Track":["--green","--greent"], "At Risk":["--amber","--ambert"], "Behind":["--red","--redt"]};
+  const statusBadge = (status) => {
+    const c = statusColors[status] || statusColors["At Risk"];
+    return `<span style="background:var(${c[0]});color:var(${c[1]});padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap">${status}</span>`;
+  };
+  const varClass = (v) => v>=0 ? "text-green" : "text-red";
+  const fmtVar = (v) => (v>=0 ? "+" : "") + v;
+
+  const summaryTiles = [
+    {lbl:"2026 Target",        val:t.annualTarget},
+    {lbl:"YTD Actual",         val:t.ytdActual},
+    {lbl:"Remaining",          val:t.remaining},
+    {lbl:"% Achieved",         val:t.pctAchieved+"%"},
+    {lbl:"Required This Week", val:t.requiredWeekly},
+    {lbl:"Achieved This Week", val:t.thisWeekActual},
+    {lbl:"Weekly Variance",    val:fmtVar(t.weeklyVariance), cls:varClass(t.weeklyVariance)},
+    {lbl:"Req. Run Rate to YE",val:t.requiredWeeklyRunRateToYearEnd+"/wk"},
+    {lbl:"Forecast Year End",  val:t.forecastYearEnd},
+    {lbl:"Forecast Variance",  val:fmtVar(t.forecastVariance), cls:varClass(t.forecastVariance)},
+  ];
+
+  let h = `<div class="card">
+    <div class="card-title"><i class="ti ti-target-arrow"></i> 2026 Registration Performance
+      <span style="margin-left:auto;font-size:11px;color:var(--tm);font-weight:400">As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px">
+      ${summaryTiles.map(x=>`<div style="text-align:center;padding:8px 4px;background:var(--o2);border-radius:var(--r)">
+        <div style="font-size:10px;color:var(--ts);margin-bottom:3px">${x.lbl}</div>
+        <div style="font-size:16px;font-weight:700" class="${x.cls||''}">${x.val}</div>
+      </div>`).join("")}
+    </div>
+    <div style="text-align:center">${statusBadge(t.status)} <span style="font-size:11px;color:var(--tm);margin-left:6px">National pace status this week</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-map-pin"></i> By State</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">Annual<br>Budget</th>
+        <th style="text-align:right;padding:6px 6px">YTD</th>
+        <th style="text-align:right;padding:6px 6px">Remaining</th>
+        <th style="text-align:right;padding:6px 6px">%<br>Achieved</th>
+        <th style="text-align:right;padding:6px 6px">This<br>Week</th>
+        <th style="text-align:right;padding:6px 6px">Weekly<br>Target</th>
+        <th style="text-align:right;padding:6px 6px">Wkly<br>Var</th>
+        <th style="text-align:right;padding:6px 6px">This<br>Month</th>
+        <th style="text-align:right;padding:6px 6px">Monthly<br>Req.</th>
+        <th style="text-align:right;padding:6px 6px">Mthly<br>Var</th>
+        <th style="text-align:right;padding:6px 6px">Forecast<br>YE</th>
+        <th style="text-align:right;padding:6px 6px">Fcst<br>Var</th>
+        <th style="text-align:right;padding:6px 6px">Status</th>
+      </tr></thead>
+      <tbody>
+        ${["VIC","NSW","QLD"].map(s=>{
+          const r = d.states[s];
+          return `<tr style="border-bottom:.5px solid var(--bd)">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${s}</td>
+            <td style="text-align:right;padding:6px 6px">${r.annualTarget}</td>
+            <td style="text-align:right;padding:6px 6px">${r.ytdActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.remaining}</td>
+            <td style="text-align:right;padding:6px 6px">${r.pctAchieved}%</td>
+            <td style="text-align:right;padding:6px 6px">${r.thisWeekActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.weeklyTarget}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.weeklyVariance)}">${fmtVar(r.weeklyVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${r.thisMonthActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.monthlyRequiredRunRate}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.monthlyVariance)}">${fmtVar(r.monthlyVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${r.forecastYearEnd}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.forecastVariance)}">${fmtVar(r.forecastVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${statusBadge(r.status)}</td>
+          </tr>`;
+        }).join("")}
+        <tr style="font-weight:700;background:var(--o2)">
+          <td style="text-align:left;padding:6px 6px">TOTAL</td>
+          <td style="text-align:right;padding:6px 6px">${t.annualTarget}</td>
+          <td style="text-align:right;padding:6px 6px">${t.ytdActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.remaining}</td>
+          <td style="text-align:right;padding:6px 6px">${t.pctAchieved}%</td>
+          <td style="text-align:right;padding:6px 6px">${t.thisWeekActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.weeklyTarget}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.weeklyVariance)}">${fmtVar(t.weeklyVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${t.thisMonthActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.requiredMonthly}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.monthlyVariance)}">${fmtVar(t.monthlyVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${t.forecastYearEnd}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.forecastVariance)}">${fmtVar(t.forecastVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${statusBadge(t.status)}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-users"></i> Individual CR Contribution</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">CR</th>
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">This Week</th>
+        <th style="text-align:right;padding:6px 6px">Weekly Target</th>
+        <th style="text-align:right;padding:6px 6px">Variance</th>
+        <th style="text-align:right;padding:6px 6px">MTD</th>
+      </tr></thead>
+      <tbody>
+        ${d.perCR.map(cr=>`<tr style="border-bottom:.5px solid var(--bd)">
+          <td style="text-align:left;padding:6px 6px">${cr.coord}</td>
+          <td style="text-align:left;padding:6px 6px">${cr.state}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.thisWeekActual}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.weeklyTarget}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(cr.variance)}">${fmtVar(cr.variance)}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.thisMonthActual}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px">Forecast uses up to the last 4 completed weeks of tracker registration data per state (fewer if less history exists yet since each state's commencement date).</div>
+  </div>`;
+
+  return h;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 2026 COMMENCEMENT (STARTER) TARGET & RECOVERY TRACKER (SANDBOX — 2026-08-07)
+// Bec's brief: "extend the existing CR Activity Tracker to incorporate a
+// 2026 Commencement (Starter) Target & Recovery Tracker, using the same
+// principles, functionality and visual structure as the Registration
+// Target & Recovery Tracker... Do not change, remove or replace the
+// existing Registration tracking functionality." This is a PARALLEL
+// section — same architecture as renderRegistrationRecovery_/
+// refreshRegistrationRecovery_ above, a different metric (actual
+// commencements, not registrations), backed by appscript.js's
+// computeCommencementRecovery_ via the new get_commencement_recovery doGet
+// action. READ-ONLY — nothing here writes back to any sheet. Deliberately
+// does NOT feed WEEKLY_TARGETS.commencement (unlike Registration feeding
+// WEEKLY_TARGETS.registration) — Bec's Starter brief never asked for the
+// existing KR 1.1 "Commencement" tile to track this dynamic target, so this
+// stays purely additive; flag it if she wants that wired up too later.
+// ═══════════════════════════════════════════════════════════
+async function refreshCommencementRecovery_(){
+  S.commRecoLoading = true;
+  // Same attempted-once gate as refreshRegistrationRecovery_ — see that
+  // function's 2026-08-07 bugfix comment for why re-firing this on every
+  // render (instead of once per session) turns any non-success server
+  // response into a tight retry loop that looks like a stuck spinner.
+  S.commRecoAttempted = true;
+  if (S.dashView==="starters") render();
+  try {
+    const url = WEBAPP_URL+"?action=get_commencement_recovery";
+    const data = await jsonpFetch(url);
+    if (data && data.ok) {
+      S.commReco = data;
+      S.commRecoError = null;
+    } else {
+      S.commRecoError = (data && data.msg) || "Unknown error";
+    }
+  } catch(e) {
+    S.commRecoError = "Network error: " + (e && e.message ? e.message : e);
+  }
+  S.commRecoLoading = false;
+  render();
+}
+
+// Compact management summary + per-state table + per-CR contribution table
+// + Confirmed Future Starters breakdown + a Registrations-vs-Starters
+// comparison (built client-side from S.regReco + S.commReco together — no
+// new server call needed for that comparison, and it can never disagree
+// with either individual dashboard since it reads the exact same objects).
+function renderCommencementRecovery_(){
+  if (!S.commReco && !S.commRecoLoading && !S.commRecoAttempted) refreshCommencementRecovery_();
+  if (!S.commReco) {
+    return `<div class="card"><div class="card-title"><i class="ti ti-school"></i> 2026 Starter Performance</div>
+      ${S.commRecoLoading ? "Loading…" : `Not loaded${S.commRecoError?` — <span style="color:var(--redt)">${S.commRecoError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshCommencementRecovery_()">Retry</a>`}</div>`;
+  }
+  const d = S.commReco;
+  const t = d.total;
+  const statusColors = {"On Track":["--green","--greent"], "At Risk":["--amber","--ambert"], "Behind":["--red","--redt"]};
+  const statusBadge = (status) => {
+    const c = statusColors[status] || statusColors["At Risk"];
+    return `<span style="background:var(${c[0]});color:var(${c[1]});padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap">${status}</span>`;
+  };
+  const varClass = (v) => v>=0 ? "text-green" : "text-red";
+  const fmtVar = (v) => (v>=0 ? "+" : "") + v;
+
+  const summaryTiles = [
+    {lbl:"2026 Starter Target",  val:t.annualTarget},
+    {lbl:"YTD Actual",           val:t.ytdActual},
+    {lbl:"Remaining",            val:t.remaining},
+    {lbl:"% Achieved",           val:t.pctAchieved+"%"},
+    {lbl:"Required This Week",   val:t.requiredWeekly},
+    {lbl:"Achieved This Week",   val:t.thisWeekActual},
+    {lbl:"Weekly Variance",      val:fmtVar(t.weeklyVariance), cls:varClass(t.weeklyVariance)},
+    {lbl:"Req. Run Rate to YE",  val:t.requiredWeeklyRunRateToYearEnd+"/wk"},
+    {lbl:"Confirmed Future",     val:t.confirmedFutureTotal},
+    {lbl:"Forecast Year End",    val:t.runRateForecastYearEnd},
+    {lbl:"Forecast Variance",    val:fmtVar(t.runRateForecastVariance), cls:varClass(t.runRateForecastVariance)},
+  ];
+
+  let h = `<div class="card">
+    <div class="card-title"><i class="ti ti-school"></i> 2026 Starter Performance
+      <span style="margin-left:auto;font-size:11px;color:var(--tm);font-weight:400">As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px">
+      ${summaryTiles.map(x=>`<div style="text-align:center;padding:8px 4px;background:var(--o1);border-radius:var(--r)">
+        <div style="font-size:10px;color:var(--ts);margin-bottom:3px">${x.lbl}</div>
+        <div style="font-size:16px;font-weight:700" class="${x.cls||''}">${x.val}</div>
+      </div>`).join("")}
+    </div>
+    <div style="text-align:center">${statusBadge(t.status)} <span style="font-size:11px;color:var(--tm);margin-left:6px">National pace status this week</span></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-map-pin"></i> By State</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">Annual<br>Budget</th>
+        <th style="text-align:right;padding:6px 6px">YTD</th>
+        <th style="text-align:right;padding:6px 6px">Remaining</th>
+        <th style="text-align:right;padding:6px 6px">%<br>Achieved</th>
+        <th style="text-align:right;padding:6px 6px">This<br>Week</th>
+        <th style="text-align:right;padding:6px 6px">Weekly<br>Target</th>
+        <th style="text-align:right;padding:6px 6px">Wkly<br>Var</th>
+        <th style="text-align:right;padding:6px 6px">This<br>Month</th>
+        <th style="text-align:right;padding:6px 6px">Monthly<br>Req.</th>
+        <th style="text-align:right;padding:6px 6px">Mthly<br>Var</th>
+        <th style="text-align:right;padding:6px 6px">Confirmed<br>Future</th>
+        <th style="text-align:right;padding:6px 6px">Forecast<br>YE</th>
+        <th style="text-align:right;padding:6px 6px">Fcst<br>Var</th>
+        <th style="text-align:right;padding:6px 6px">Status</th>
+      </tr></thead>
+      <tbody>
+        ${["VIC","NSW","QLD"].map(s=>{
+          const r = d.states[s];
+          return `<tr style="border-bottom:.5px solid var(--bd)">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${s}</td>
+            <td style="text-align:right;padding:6px 6px">${r.annualTarget}</td>
+            <td style="text-align:right;padding:6px 6px">${r.ytdActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.remaining}</td>
+            <td style="text-align:right;padding:6px 6px">${r.pctAchieved}%</td>
+            <td style="text-align:right;padding:6px 6px">${r.thisWeekActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.weeklyTarget}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.weeklyVariance)}">${fmtVar(r.weeklyVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${r.thisMonthActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.monthlyRequiredRunRate}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.monthlyVariance)}">${fmtVar(r.monthlyVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${r.confirmedFutureTotal}</td>
+            <td style="text-align:right;padding:6px 6px">${r.runRateForecastYearEnd}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.runRateForecastVariance)}">${fmtVar(r.runRateForecastVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${statusBadge(r.status)}</td>
+          </tr>`;
+        }).join("")}
+        <tr style="font-weight:700;background:var(--o1)">
+          <td style="text-align:left;padding:6px 6px">TOTAL</td>
+          <td style="text-align:right;padding:6px 6px">${t.annualTarget}</td>
+          <td style="text-align:right;padding:6px 6px">${t.ytdActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.remaining}</td>
+          <td style="text-align:right;padding:6px 6px">${t.pctAchieved}%</td>
+          <td style="text-align:right;padding:6px 6px">${t.thisWeekActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.weeklyTarget}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.weeklyVariance)}">${fmtVar(t.weeklyVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${t.thisMonthActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.requiredMonthly}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.monthlyVariance)}">${fmtVar(t.monthlyVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${t.confirmedFutureTotal}</td>
+          <td style="text-align:right;padding:6px 6px">${t.runRateForecastYearEnd}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.runRateForecastVariance)}">${fmtVar(t.runRateForecastVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${statusBadge(t.status)}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-users"></i> Individual CR Starter Contribution</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">CR</th>
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">Starters This Week</th>
+        <th style="text-align:right;padding:6px 6px">Starters MTD</th>
+        <th style="text-align:right;padding:6px 6px">Starters YTD</th>
+        <th style="text-align:right;padding:6px 6px">Confirmed Future</th>
+      </tr></thead>
+      <tbody>
+        ${d.perCR.map(cr=>`<tr style="border-bottom:.5px solid var(--bd)">
+          <td style="text-align:left;padding:6px 6px">${cr.coord}</td>
+          <td style="text-align:left;padding:6px 6px">${cr.state}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.thisWeekActual}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.thisMonthActual}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.ytdActual}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.confirmedFutureTotal}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px">CR YTD is sourced from the Commencements WIP database (Induction Status Active/Active-reported, dated on/before today) — sums exactly to the state's own YTD Actual above.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-calendar-event"></i> Confirmed Future Starters</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">Next 7 Days</th>
+        <th style="text-align:right;padding:6px 6px">Next 30 Days</th>
+        <th style="text-align:right;padding:6px 6px">Beyond 30 Days</th>
+        <th style="text-align:right;padding:6px 6px">Total</th>
+      </tr></thead>
+      <tbody>
+        ${["VIC","NSW","QLD"].map(s=>{
+          const r = d.states[s];
+          return `<tr style="border-bottom:.5px solid var(--bd)">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${s}</td>
+            <td style="text-align:right;padding:6px 6px">${r.confirmedFuture7}</td>
+            <td style="text-align:right;padding:6px 6px">${r.confirmedFuture30}</td>
+            <td style="text-align:right;padding:6px 6px">${r.confirmedFutureBeyond30}</td>
+            <td style="text-align:right;padding:6px 6px;font-weight:600">${r.confirmedFutureTotal}</td>
+          </tr>`;
+        }).join("")}
+        <tr style="font-weight:700;background:var(--o1)">
+          <td style="text-align:left;padding:6px 6px">TOTAL</td>
+          <td style="text-align:right;padding:6px 6px">${t.confirmedFuture7}</td>
+          <td style="text-align:right;padding:6px 6px">${t.confirmedFuture30}</td>
+          <td style="text-align:right;padding:6px 6px">${t.confirmedFutureBeyond30}</td>
+          <td style="text-align:right;padding:6px 6px">${t.confirmedFutureTotal}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px">Sourced from each state's Commencements tab (Commencement Date × Induction Status) — these are booked/expected, not yet actually started, so they never count toward YTD Actual above until they do.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-arrows-exchange"></i> Registrations vs Starters</div>
+    ${!S.regReco ? `<div style="font-size:12px;color:var(--ts)">Registration Performance data not loaded yet — open the Registration tab once to populate this comparison. <a href="#" onclick="event.preventDefault();refreshRegistrationRecovery_()">Load now</a></div>` : (function(){
+      const rd = S.regReco;
+      const rows = ["VIC","NSW","QLD"].map(s=>({
+        state:s, regYtd:rd.states[s].ytdActual, regPct:rd.states[s].pctAchieved,
+        starYtd:d.states[s].ytdActual, starPct:d.states[s].pctAchieved, future:d.states[s].confirmedFutureTotal
+      }));
+      const totalRow = {state:"TOTAL", regYtd:rd.total.ytdActual, regPct:rd.total.pctAchieved,
+        starYtd:t.ytdActual, starPct:t.pctAchieved, future:t.confirmedFutureTotal};
+      return `<div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+        <thead><tr style="border-bottom:1.5px solid var(--bd)">
+          <th style="text-align:left;padding:6px 6px">State</th>
+          <th style="text-align:right;padding:6px 6px">Registrations YTD</th>
+          <th style="text-align:right;padding:6px 6px">Registration Target %</th>
+          <th style="text-align:right;padding:6px 6px">Starters YTD</th>
+          <th style="text-align:right;padding:6px 6px">Starter Target %</th>
+          <th style="text-align:right;padding:6px 6px">Confirmed Future Starters</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r=>`<tr style="border-bottom:.5px solid var(--bd)">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${r.state}</td>
+            <td style="text-align:right;padding:6px 6px">${r.regYtd}</td>
+            <td style="text-align:right;padding:6px 6px">${r.regPct}%</td>
+            <td style="text-align:right;padding:6px 6px">${r.starYtd}</td>
+            <td style="text-align:right;padding:6px 6px">${r.starPct}%</td>
+            <td style="text-align:right;padding:6px 6px">${r.future}</td>
+          </tr>`).join("")}
+          <tr style="font-weight:700;background:var(--o2)">
+            <td style="text-align:left;padding:6px 6px">${totalRow.state}</td>
+            <td style="text-align:right;padding:6px 6px">${totalRow.regYtd}</td>
+            <td style="text-align:right;padding:6px 6px">${totalRow.regPct}%</td>
+            <td style="text-align:right;padding:6px 6px">${totalRow.starYtd}</td>
+            <td style="text-align:right;padding:6px 6px">${totalRow.starPct}%</td>
+            <td style="text-align:right;padding:6px 6px">${totalRow.future}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <div style="font-size:10px;color:var(--tm);margin-top:8px">Registrations and Starters are separate performance measures, shown here side-by-side for comparison only — this is NOT "Registrations minus Starters = awaiting commencement". The two YTD cohorts aren't necessarily the same students, since a registration and its eventual commencement can land in different reporting periods.</div>`;
+    })()}
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-chart-line"></i> Forecast — Run-Rate vs Confirmed/Pipeline</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">YTD Actual</th>
+        <th style="text-align:right;padding:6px 6px">Annual Target</th>
+        <th style="text-align:right;padding:6px 6px">Run-Rate Forecast</th>
+        <th style="text-align:right;padding:6px 6px">Run-Rate Variance</th>
+        <th style="text-align:right;padding:6px 6px">Open Enrolment<br>Pipeline</th>
+        <th style="text-align:right;padding:6px 6px">Confirmed/Pipeline Forecast</th>
+        <th style="text-align:right;padding:6px 6px">Pipeline Variance</th>
+      </tr></thead>
+      <tbody>
+        ${["VIC","NSW","QLD"].map(s=>{
+          const r = d.states[s];
+          return `<tr style="border-bottom:.5px solid var(--bd)">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${s}</td>
+            <td style="text-align:right;padding:6px 6px">${r.ytdActual}</td>
+            <td style="text-align:right;padding:6px 6px">${r.annualTarget}</td>
+            <td style="text-align:right;padding:6px 6px">${r.runRateForecastYearEnd}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.runRateForecastVariance)}">${fmtVar(r.runRateForecastVariance)}</td>
+            <td style="text-align:right;padding:6px 6px">${r.openEnrolmentPipelineCount}</td>
+            <td style="text-align:right;padding:6px 6px">${r.pipelineForecastYearEnd}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.pipelineForecastVariance)}">${fmtVar(r.pipelineForecastVariance)}</td>
+          </tr>`;
+        }).join("")}
+        <tr style="font-weight:700;background:var(--o1)">
+          <td style="text-align:left;padding:6px 6px">TOTAL</td>
+          <td style="text-align:right;padding:6px 6px">${t.ytdActual}</td>
+          <td style="text-align:right;padding:6px 6px">${t.annualTarget}</td>
+          <td style="text-align:right;padding:6px 6px">${t.runRateForecastYearEnd}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.runRateForecastVariance)}">${fmtVar(t.runRateForecastVariance)}</td>
+          <td style="text-align:right;padding:6px 6px">${t.openEnrolmentPipelineCount}</td>
+          <td style="text-align:right;padding:6px 6px">${t.pipelineForecastYearEnd}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.pipelineForecastVariance)}">${fmtVar(t.pipelineForecastVariance)}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px"><b>Run-Rate Forecast</b> = based on the last ${Math.max(d.states.VIC.forecastSampleWeeks,d.states.NSW.forecastSampleWeeks,d.states.QLD.forecastSampleWeeks)} completed week(s) of actual performance. <b>Confirmed/Pipeline Forecast</b> = YTD Actual + Confirmed Future Starters due by 31 Dec 2026 + Open Enrolment Pipeline students (any Enrolment Pipeline student not yet marked Enrolled). These are kept separate from Run-Rate deliberately — a booked/enrolling future Starter is not the same as one who has actually started.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><i class="ti ti-alert-triangle"></i> Registration Pipeline Forecast <span style="margin-left:8px;font-size:10px;font-weight:400;color:var(--amber);background:var(--ambert);padding:2px 8px;border-radius:20px">Not guaranteed</span></div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:10px">Adds every OPEN Student Leads record (not yet completed/cancelled/N/A/registered/enrolled/closed/withdrawn) on top of the Confirmed/Pipeline Forecast above. These students haven't even reached the Enrolment Pipeline yet, so this is deliberately shown as its own, more speculative figure — never blended into the forecast above.</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:6px 6px">State</th>
+        <th style="text-align:right;padding:6px 6px">Confirmed/Pipeline Forecast</th>
+        <th style="text-align:right;padding:6px 6px">Open Registration<br>Pipeline</th>
+        <th style="text-align:right;padding:6px 6px">Registration Pipeline Forecast</th>
+        <th style="text-align:right;padding:6px 6px">Variance</th>
+      </tr></thead>
+      <tbody>
+        ${["VIC","NSW","QLD"].map(s=>{
+          const r = d.states[s];
+          return `<tr style="border-bottom:.5px solid var(--bd)">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${s}</td>
+            <td style="text-align:right;padding:6px 6px">${r.pipelineForecastYearEnd}</td>
+            <td style="text-align:right;padding:6px 6px">${r.openRegistrationPipelineCount}</td>
+            <td style="text-align:right;padding:6px 6px">${r.registrationPipelineForecastYearEnd}</td>
+            <td style="text-align:right;padding:6px 6px" class="${varClass(r.registrationPipelineForecastVariance)}">${fmtVar(r.registrationPipelineForecastVariance)}</td>
+          </tr>`;
+        }).join("")}
+        <tr style="font-weight:700;background:var(--o1)">
+          <td style="text-align:left;padding:6px 6px">TOTAL</td>
+          <td style="text-align:right;padding:6px 6px">${t.pipelineForecastYearEnd}</td>
+          <td style="text-align:right;padding:6px 6px">${t.openRegistrationPipelineCount}</td>
+          <td style="text-align:right;padding:6px 6px">${t.registrationPipelineForecastYearEnd}</td>
+          <td style="text-align:right;padding:6px 6px" class="${varClass(t.registrationPipelineForecastVariance)}">${fmtVar(t.registrationPipelineForecastVariance)}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px">Sourced from each state's Student Leads WIP tab, no staleness/time-window filter applied to a lead's current stage. Because there's no reliable cross-tab ID match between Student Leads, Enrolment Pipeline and Commencements, a student who has already progressed further may still be counted here if their Student Leads row wasn't updated — treat this table as a ceiling/early-warning figure, not a guaranteed future Starter count.</div>
+  </div>`;
+
+  return h;
+}
+
+// ═══════════════════════════════════════════════════════════
+// LEAVE MANAGEMENT (SANDBOX — 2026-08-07, Bec's request)
+// "need to add a function into the tracker that CR team/manager can mark
+// themselves as on leave, for individual days at a time or extended
+// leave." Backed by appscript.js's submit_leave/cancel_leave (doPost) and
+// get_leave (doGet) — see that file's own header comment on this feature
+// for the full behaviour (single-day uncapped next-business-day move vs.
+// extended-leave 3/day-capped redistribution + Pipeline bulk reassignment)
+// and its SANDBOX SCOPE NOTES, which apply here too.
+// ═══════════════════════════════════════════════════════════
+async function refreshLeave_(){
+  S.leaveLoading = true;
+  if (S.modal && S.modal.type==="settings") render();
+  try {
+    const url = WEBAPP_URL+"?action=get_leave";
+    const data = await jsonpFetch(url);
+    if (data && data.ok) S.leave = data.leave;
+  } catch(e) {
+    // Silent, same as refreshPresence_ — leave data not loading yet just
+    // means the panel shows "Loading…" a little longer, not worth a banner.
+  }
+  S.leaveLoading = false;
+  render();
+}
+
+function todayYMD_(){ return TODAY; }
+
+// Active (non-cancelled) leave records for one coordinator, soonest first.
+function leaveForCoord_(coord){
+  if (!S.leave) return [];
+  return S.leave.filter(l=>l.coord===coord && l.status==="Active")
+    .sort((a,b)=>a.startDate<b.startDate?-1:a.startDate>b.startDate?1:0);
+}
+// Leave covering (or overlapping) TODAY, across everyone — for the manager
+// Dashboard "on leave" banner.
+function leaveActiveToday_(){
+  if (!S.leave) return [];
+  const t = todayYMD_();
+  return S.leave.filter(l=>l.status==="Active" && l.startDate<=t && l.endDate>=t);
+}
+
+async function submitLeave_(){
+  const coord = S.leaveForm.coord || S.user.coord;
+  const startDate = S.leaveForm.startDate;
+  const endDate = S.leaveForm.endDate || startDate;
+  const reason = S.leaveForm.reason || "";
+  if (!startDate) { alert("Pick a start date."); return; }
+  if (endDate < startDate) { alert("End date can't be before the start date."); return; }
+  const r = await post("submit_leave", {coord, startDate, endDate, reason, requestedBy:S.user.coord});
+  if (!r || !r.ok) { alert("Couldn't record leave: "+((r&&r.msg)||"unknown error")); return; }
+  S.leaveForm = {coord:S.user.coord, startDate:"", endDate:"", reason:""};
+  await refreshLeave_();
+  if (r.mode==="extended" && r.pendingReassignment && r.pendingReassignment.length) {
+    const selected = {};
+    r.pendingReassignment.forEach(it=>{ selected[it.source+"|"+it.id] = true; });
+    S.modal = {type:"leave_reassign", leaveId:r.leaveId, fromCoord:coord, items:r.pendingReassignment, selected, toCoord:""};
+    render();
+  } else {
+    alert(r.msg);
+    render();
+  }
+}
+
+async function cancelLeave_(leaveId){
+  if (!confirm("Cancel this leave record?\n\nAny follow-ups already moved because of it will be reverted back to their original date, unless one has since been rescheduled or actioned again (those are left alone).")) return;
+  const r = await post("cancel_leave", {leaveId});
+  if (!r || !r.ok) { alert((r&&r.msg)||"Couldn't cancel"); return; }
+  await refreshLeave_();
+}
+
+// Bulk-reassign the Pipeline follow-ups collected from an extended-leave
+// submission onto another coordinator — the picker opened automatically by
+// submitLeave_() above when pendingReassignment is non-empty.
+//
+// UPDATED per Bec's follow-up ("does it track back to the WIP database on
+// the actual CR owner of the contact?"): this no longer physically moves or
+// relabels anything. It creates a "Leave Servicing" mapping instead — the
+// underlying WIP record stays with the original coordinator (leaveId is
+// passed through so the mapping can be tied back to, and later cleaned up
+// with, that specific leave record); the servicing coordinator sees/actions
+// it via their own Overdue/Due Today list in the meantime; and any activity
+// they log still credits THEM for their own KPI/activity tracking. See
+// resolveServicingOwner_ in appscript.js for the full mechanism.
+function toggleReassignItem_(key){
+  S.modal.selected[key] = !S.modal.selected[key];
+  render();
+}
+async function applyReassignment_(){
+  const m = S.modal;
+  if (!m.toCoord) { alert("Pick who should take these on."); return; }
+  const items = m.items.filter(it=>m.selected[it.source+"|"+it.id]);
+  if (!items.length) { alert("Nothing selected."); return; }
+  const r = await post("reassign_followups", {leaveId:m.leaveId, fromCoord:m.fromCoord, toCoord:m.toCoord, items});
+  if (!r || !r.ok) { alert("Couldn't reassign: "+((r&&r.msg)||"unknown error")); return; }
+  alert(r.msg);
+  closeModal();
+}
+
+function renderLeavePickerModal_(){
+  const m = S.modal;
+  const otherCoords = COORDS.filter(c=>c!==m.fromCoord);
+  return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
+  <div class="modal">
+    <div class="modal-title"><i class="ti ti-users"></i> Reassign Enrolment Pipeline follow-ups</div>
+    <div style="font-size:12px;color:var(--ts);margin-bottom:10px">
+      ${m.fromCoord} has ${m.items.length} Enrolment Pipeline follow-up(s) due during this leave period. (Registration and Student Lead follow-ups are handled automatically — they recommence spread out from ${m.fromCoord.split(" ")[0]}'s first day back, no action needed here.) Pick who should service these Enrolment Pipeline items while ${m.fromCoord.split(" ")[0]} is away, select which ones, then reassign. This is a temporary bulk move — it does not change anything else about these records.
+    </div>
+    <div class="field">
+      <label>Reassign to</label>
+      <select onchange="S.modal.toCoord=this.value;render()">
+        <option value="">— choose a coordinator —</option>
+        ${otherCoords.map(c=>`<option value="${c}"${m.toCoord===c?" selected":""}>${c} (${STATES[c]})</option>`).join("")}
+      </select>
+    </div>
+    <div style="max-height:260px;overflow-y:auto;border:1px solid var(--bd);border-radius:var(--r);margin:8px 0">
+      ${m.items.map(it=>{
+        const key = it.source+"|"+it.id;
+        const checked = !!m.selected[key];
+        const srcLabel = it.source==="tracker" ? (it.type==="registration"?"Registration":"Pipeline") : it.source==="lead" ? "Student Lead" : "Enrolment Pipeline";
+        return `<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--bd);font-size:12px;cursor:pointer">
+          <input type="checkbox" ${checked?"checked":""} onchange="toggleReassignItem_('${key}')">
+          <span style="flex:1">${it.name||"(no name)"}<span style="color:var(--ts)"> — ${srcLabel}, due ${it.date}</span></span>
+        </label>`;
+      }).join("")}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      <button onclick="applyReassignment_()" class="btn-primary btn-sm">Reassign selected</button>
+      <button onclick="closeModal()" class="btn-ghost btn-sm">Do this later</button>
+    </div>
+  </div></div>`;
+}
+
+function renderLeavePanel_(){
+  if (S.leaveLoading && !S.leave) return `<div style="font-size:12px;color:var(--ts)">Loading…</div>`;
+  if (!S.leave) return `<div style="font-size:12px;color:var(--ts)">Not loaded. <a href="#" onclick="event.preventDefault();refreshLeave_()">Refresh</a></div>`;
+
+  const isMgr = S.user.isManager;
+  const formCoord = S.leaveForm.coord || S.user.coord;
+  const listCoords = isMgr ? COORDS : [S.user.coord];
+  const rows = listCoords.flatMap(c=>leaveForCoord_(c)).sort((a,b)=>a.startDate<b.startDate?-1:a.startDate>b.startDate?1:0);
+  const today = todayYMD_();
+
+  const listHtml = rows.length===0
+    ? `<div class="muted small">No upcoming or current leave.</div>`
+    : rows.map(l=>{
+        const isPast = l.endDate < today;
+        const current = l.startDate<=today && l.endDate>=today;
+        const badge = current ? `<span style="background:#FDECEA;color:#B3261E;padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700">ON LEAVE NOW</span>`
+          : isPast ? `<span style="color:var(--ts);font-size:10px">past</span>`
+          : `<span style="background:var(--o2);color:var(--o2t);padding:1px 6px;border-radius:10px;font-size:10px;font-weight:700">UPCOMING</span>`;
+        const dateLabel = l.startDate===l.endDate ? fmtDMY_(l.startDate) : fmtDMY_(l.startDate)+" – "+fmtDMY_(l.endDate);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px">
+          <span style="font-weight:600;min-width:100px">${isMgr?l.coord:""}</span>
+          <span style="flex:1">${dateLabel} <span style="color:var(--ts)">(${l.kind})</span>${l.reason?` — ${l.reason}`:""}</span>
+          ${badge}
+          ${!isPast?`<a href="#" onclick="event.preventDefault();cancelLeave_('${l.leaveId}')" style="color:var(--dg);font-size:11px">Cancel</a>`:""}
+        </div>`;
+      }).join("");
+
+  return `<div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      ${isMgr?`<div>
+        <label style="font-size:11px;color:var(--ts);display:block">Who</label>
+        <select onchange="S.leaveForm.coord=this.value;render()" style="font-size:12px">
+          ${COORDS.map(c=>`<option value="${c}"${formCoord===c?" selected":""}>${c}</option>`).join("")}
+        </select>
+      </div>`:""}
+      <div><label style="font-size:11px;color:var(--ts);display:block">Start</label>
+        <input type="date" value="${S.leaveForm.startDate}" onchange="S.leaveForm.startDate=this.value;render()" style="font-size:12px"></div>
+      <div><label style="font-size:11px;color:var(--ts);display:block">End (optional — same as start for one day)</label>
+        <input type="date" value="${S.leaveForm.endDate}" onchange="S.leaveForm.endDate=this.value;render()" style="font-size:12px"></div>
+      <div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--ts);display:block">Reason (optional)</label>
+        <input value="${S.leaveForm.reason}" onchange="S.leaveForm.reason=this.value" placeholder="Annual leave, sick, etc" style="font-size:12px;width:100%"></div>
+      <button onclick="submitLeave_()" class="btn-primary btn-sm">Mark leave</button>
+    </div>
+    <div style="font-size:11px;color:var(--o2t);margin-bottom:8px;background:var(--o2);padding:6px 8px;border-radius:var(--r)">
+      A single day moves that day's follow-ups straight to the next business day. Two or more days redistributes Employer/ACAP and Registration/Student Lead follow-ups across the normal 3/day spread (Registration ones recommence from the first day back), and lets you bulk-reassign any Enrolment Pipeline follow-ups in that window to a teammate.
+    </div>
+    <div>${listHtml}</div>
+  </div>`;
+}
+
+function fmtDMY_(ymd){
+  if (!ymd) return "";
+  const p = String(ymd).split("-");
+  return p.length===3 ? p[2]+"/"+p[1]+"/"+p[0] : ymd;
+}
+
+// Manager Dashboard "who's on leave" banner — SANDBOX, 2026-08-07. Shows
+// anyone on leave today plus anyone with leave starting in the next 7 days,
+// so it's useful both "right now" and for short-term planning. Hidden
+// entirely when nobody's on/near leave, so it doesn't add permanent visual
+// noise to the Dashboard on an ordinary week.
+function renderTeamLeaveBanner_(){
+  if (!S.leave) return "";
+  const today = todayYMD_();
+  const soon = addDays_(today, 7);
+  const relevant = S.leave.filter(l=>l.status==="Active" && l.endDate>=today && l.startDate<=soon)
+    .sort((a,b)=>a.startDate<b.startDate?-1:a.startDate>b.startDate?1:0);
+  if (!relevant.length) return "";
+  return `<div style="background:var(--o2);border:1px solid var(--bd);border-radius:var(--r);padding:8px 12px;margin-bottom:12px;font-size:12px">
+    <div style="font-weight:700;color:var(--o2t);margin-bottom:4px"><i class="ti ti-plane-departure"></i> Team leave (SANDBOX)</div>
+    ${relevant.map(l=>{
+      const current = l.startDate<=today && l.endDate>=today;
+      const dateLabel = l.startDate===l.endDate ? fmtDMY_(l.startDate) : fmtDMY_(l.startDate)+" – "+fmtDMY_(l.endDate);
+      return `<div>${current?"<b>Now:</b>":"<b>Upcoming:</b>"} ${l.coord} — ${dateLabel} (${l.kind})</div>`;
+    }).join("")}
+  </div>`;
+}
+// Local date-math helper for the banner above — mirrors appscript.js's
+// addDays but stays in tracker.html's own plain-JS date convention (avoids
+// pulling in a library just for "+N days" on a yyyy-mm-dd string).
+function addDays_(ymd, n){
+  const d = new Date(ymd+"T12:00:00");
+  d.setDate(d.getDate()+n);
+  return toLocalYMD(d);
+}
+
 function renderSettingsModal(){
   return `<div class="modal-bg" onclick="if(event.target.className==='modal-bg')closeModal()">
   <div class="modal">
@@ -5041,6 +6579,10 @@ function renderSettingsModal(){
       <label>Team status <span style="font-weight:400;color:var(--ts);font-size:11px">(manager view only)</span></label>
       ${renderPresencePanel_()}
     </div><hr class="divider">`:""}
+    <div class="field">
+      <label>${S.user.isManager?"Team leave":"My leave"} <span style="font-weight:400;color:var(--ts);font-size:11px">(SANDBOX)</span></label>
+      ${renderLeavePanel_()}
+    </div><hr class="divider">
     ${S.user.isManager?`
     <div class="field">
       <label>Web App URL <span style="font-weight:400;color:var(--ts);font-size:11px">(manager view only)</span></label>
@@ -7886,8 +9428,32 @@ async function pullAcaps(coord) {
   } catch(e) {}
 }
 
+// 2026-08-07 bugfix: this had no "already attempted" gate — every one of
+// the 4 call sites below (Dashboard/Weekly/Daily/Trend tabs) only checked
+// `!S.loading`, and this function itself flips S.loading false→true→false
+// AROUND a render() call at each transition. Since S.tab stays on one of
+// those 4 tabs the whole time a manager is looking at it, the render() at
+// the END of this function (S.loading=false; render();) satisfied that
+// same `!S.loading` check on its own very next pass, immediately re-firing
+// this function — an unthrottled infinite loop of fetch → full-DOM-rebuild
+// → fetch → full-DOM-rebuild, as fast as each round trip to Apps Script
+// completed. Reported as "the slide bars on the registration and starters
+// dashboards are glitching ... it keeps pulling it back" — every loop
+// iteration replaces app.innerHTML wholesale (see render()), which resets
+// the scrollLeft of any horizontally-scrolling table the manager was
+// mid-drag on. Two earlier attempts (CSS overscroll-behavior/-webkit-
+// overflow-scrolling tweaks on the scroll containers) had zero effect
+// because the real cause was never scroll physics — it was the entire
+// subtree being destroyed and recreated underneath the user's finger/mouse,
+// repeatedly, full stop.
+// Fixed with the SAME attempted-once-per-session gate already used for
+// S.regRecoAttempted/S.commRecoAttempted (see refreshRegistrationRecovery_'s
+// own 2026-08-07 bugfix comment for the original instance of this exact bug
+// class) — S.dashDataAttempted is set synchronously here, before the first
+// await, so the gate is in place before any second render can re-check it.
 async function loadAllForDashboard() {
   if(!S.user?.isManager||!WEBAPP_URL) return;
+  S.dashDataAttempted = true;
   S.loading=true; render();
   try {
     const url=WEBAPP_URL+"?action=get_all_current";
@@ -8089,6 +9655,28 @@ function sendHeartbeat_(){
 }
 setInterval(sendHeartbeat_, 90*1000);
 if (S.user) sendHeartbeat_(); // fire one immediately on load rather than waiting up to 90s
+
+// 2026-08-07 SANDBOX: load leave data on startup (not just when Settings is
+// opened) so the Dashboard "on leave" banner and weekly-target reduction
+// (see weeklyTargetFor_) have data ready without requiring a Settings visit
+// first. Best-effort, same as the presence/heartbeat calls above.
+if (S.user) refreshLeave_();
+
+// 2026-08-07 SANDBOX: load the 2026 Registration Recovery data on startup
+// (not just when that dashboard tab is opened) so the dynamic weekly
+// target it computes overwrites WEEKLY_TARGETS.registration BEFORE the
+// pre-existing KR 1.2 "Registrations" tile (and every other
+// weeklyTargetFor_ call site) renders for the first time — otherwise the
+// very first render of the app would briefly show the old static 6/6/6
+// value. Best-effort, same as the leave/presence/heartbeat calls above.
+if (S.user) refreshRegistrationRecovery_();
+
+// 2026-08-07 SANDBOX: load the 2026 Commencement (Starter) Recovery data on
+// startup too, same reasoning as Registration above — so the Starters tab
+// (and the Registrations vs Starters comparison it needs alongside
+// S.regReco) has data ready as soon as it's opened, not just after a first
+// fetch triggered by clicking into it. Best-effort, same as the others.
+if (S.user) refreshCommencementRecovery_();
 
 // Auto-refresh the manager's Team status panel every 15s while it's the
 // open modal, so it feels live without polling when nobody's looking at it.
