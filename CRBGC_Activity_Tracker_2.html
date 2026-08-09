@@ -152,6 +152,15 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - "Team can't save the weekly reflection" (three stacked causes: save
+//    confirmation only ever appeared in the top status bar, off-screen at
+//    the reflection card; reflection boxes are keyed to the week of S.date
+//    so they legitimately blank out when the week rolls over; and saved
+//    reflections were never pulled back from WK_REFLECTIONS, so any other
+//    device/cleared cache showed empty boxes forever — made worse by
+//    appscript.js getReflection()'s String()-vs-Date week compare, fixed
+//    same day) — see ensureReflectionFromCloud_/wkrefSavedNote and
+//    _test_weekly_reflection_pull_and_feedback.js.
 //  - Manager Weekly/Daily tabs showing 0 for every coordinator except the
 //    logged-in one when viewing a non-current week (get_all_current only
 //    covers the server's current Monday; past weeks for other coordinators
@@ -4665,6 +4674,14 @@ function renderWkNotes(coord,state){
   const allWks=getAllWeeks(coord);
   let ref={wr1:"",wr2:"",wr3:""};
   try{const r=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(r)ref=JSON.parse(r);}catch(e){}
+  // 2026-08-10: reflections were WRITE-ONLY from the app's point of view —
+  // pushed to WK_REFLECTIONS on save, but never pulled back. They only
+  // rendered from this device's localStorage, so a new device, a cleared
+  // cache, or simply the week rolling over (the boxes are keyed to the
+  // week of S.date) made a saved reflection look lost — reported Mon 10
+  // Aug as "the team is unable to save the weekly reflection". If local
+  // storage has nothing for this week, fall back to the sheet.
+  if(!ref.wr1&&!ref.wr2&&!ref.wr3) ensureReflectionFromCloud_(coord, wkMon);
 
   const days=weekDaysMF(S.date);
   // Aggregate daily notes for the week
@@ -4751,10 +4768,21 @@ function renderWkNotes(coord,state){
   }
 
   // Weekly reflection
+  // 2026-08-10: two changes born of the same report ("unable to save"):
+  // the card title now names WHICH week the boxes belong to (they're keyed
+  // to the week of S.date, so Monday morning they're legitimately empty
+  // for the new week — that looked like Friday's reflection being lost),
+  // and saving now confirms RIGHT HERE next to the button. The only
+  // feedback used to be the status bar at the very top of the page — this
+  // card sits far enough down the Wk Notes tab that the confirmation was
+  // reliably off-screen at the moment of clicking, i.e. "Save does
+  // nothing".
+  const wkrefSavedNote = (S.wkrefSaved && S.wkrefSaved.key===coord+"|"+wkMon)
+    ? `<span style="font-size:11px;font-weight:600;color:#1baf7a;margin-right:8px"><i class="ti ti-check"></i> Saved ${S.wkrefSaved.at}${S.unsyncedChanges?" — syncing…":" — synced"}</span>` : "";
   h+=`<div class="card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div class="card-title" style="margin:0"><i class="ti ti-bulb"></i> Weekly Reflection</div>
-      <button onclick="saveWeeklyReflection()" class="btn-primary btn-sm">Save</button>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:6px">
+      <div class="card-title" style="margin:0"><i class="ti ti-bulb"></i> Weekly Reflection — week of ${fmtDate(wkMon)}</div>
+      <div style="display:flex;align-items:center">${wkrefSavedNote}<button onclick="saveWeeklyReflection()" class="btn-primary btn-sm">Save</button></div>
     </div>
     <div class="field">
       <label>1. What moved registrations forward this week?</label>
@@ -7478,7 +7506,39 @@ function saveWeeklyReflection(){
   S.unsyncedChanges=true;
   schedulePush();
   S.status={ok:true,msg:"Weekly reflection saved — syncing…"};
+  // 2026-08-10: in-card confirmation — see the wkrefSavedNote comment in
+  // renderWkNotes for why the status-bar message alone wasn't enough.
+  S.wkrefSaved={key:S.user.coord+"|"+wkMon, at:new Date().toLocaleTimeString("en-AU",{hour:"numeric",minute:"2-digit"})};
   render();
+}
+
+// 2026-08-10: cloud fallback for reflections — see the call site in
+// renderWkNotes. Same attempted-once-per-coord+week gate class as
+// ensureManagerWeekData_/S.dashDataAttempted (keys set synchronously
+// before the fetch, so repeated renders can't stack requests). Only
+// adopts the cloud copy when local is still empty at the moment the
+// response lands, and never re-renders over a reflection box the
+// coordinator is actively typing in.
+function ensureReflectionFromCloud_(coord, wkMon){
+  if(!WEBAPP_URL) return;
+  S.wkrefPullAttempted = S.wkrefPullAttempted || {};
+  const key=coord+"|"+wkMon;
+  if(S.wkrefPullAttempted[key]) return;
+  S.wkrefPullAttempted[key]=true;
+  jsonpFetch(WEBAPP_URL+"?action=get_reflection&coord="+encodeURIComponent(coord)+"&monday="+wkMon)
+    .then(function(r){
+      if(!r||!r.ok||!(r.wr1||r.wr2||r.wr3)) return;
+      // Re-check local: if the coordinator saved something while this
+      // request was in flight, their version wins.
+      let cur=null;
+      try{const v=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(v)cur=JSON.parse(v);}catch(e){}
+      if(cur&&(cur.wr1||cur.wr2||cur.wr3)) return;
+      try{localStorage.setItem(PFX+"wkref:"+coord+":"+wkMon,JSON.stringify({wr1:r.wr1||"",wr2:r.wr2||"",wr3:r.wr3||""}));}catch(e){}
+      const ae=document.activeElement;
+      const typing=ae&&(ae.id==="wr1"||ae.id==="wr2"||ae.id==="wr3");
+      if(!S.modal&&!typing) render();
+    })
+    .catch(function(e){});
 }
 
 function openActivityModal(type){
