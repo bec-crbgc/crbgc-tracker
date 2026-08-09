@@ -152,6 +152,13 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - Manager Weekly/Daily tabs showing 0 for every coordinator except the
+//    logged-in one when viewing a non-current week (get_all_current only
+//    covers the server's current Monday; past weeks for other coordinators
+//    must be pulled per-week) — see ensureManagerWeekData_ and
+//    _test_manager_week_backfetch.js. Do not remove the per-coord+Monday
+//    attempted-key gate: an ungated call from renderApp() is the same
+//    retry-storm bug class as the S.dashDataAttempted fix.
 //  - Closed follow-ups not appearing in their type's tab (Employer Calls/
 //    Site Visits/Pipeline) despite correct Dashboard tile counts — see
 //    renderClosedFollowupSection_ below and _test_closed_followups_show_in_tabs.js.
@@ -408,18 +415,19 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
 // ═══════════════════════════════════════════════════════════
-// 2026-08-07: LIVE deployment URL (confirmed directly with Bec). This file
-// is otherwise IDENTICAL to the SANDBOX build delivered the same day
-// (CRBGC_Activity_Tracker_SANDBOX_STARTERS_20260807_v12.html) — only this
-// constant differs. IMPORTANT: several features in this build (the
-// Enrolment/Registration Pipeline forecast additions and the Starters
-// database-source switch on the Commencement Recovery dashboard) depend on
-// NEW fields returned by computeCommencementRecovery_ that only exist in
-// this session's updated appscript.js — if the LIVE Apps Script project
-// hasn't ALSO been updated with those backend changes yet, those specific
-// UI elements will render blank/"undefined" (the rest of the app is
-// unaffected and degrades gracefully). Deploy the matching backend before
-// or at the same time as this file, not after.
+// 2026-08-07 SANDBOX ONLY: pointed at Bec's separate sandbox Apps Script
+// project's own Web App deployment (confirmed via Deploy → Manage
+// deployments in that sandbox project) — NOT the live tracker's URL. This
+// is what "the registration tile won't load" turned out to be: the sandbox
+// copy of this file was still hardcoded to the LIVE deployment's URL,
+// which correctly has never had the new registration-recovery code
+// deployed to it, so every request came back "Unknown action". Do NOT
+// carry this sandbox URL forward into a live deployment of this file —
+// when this feature is folded into the live tracker, this constant must
+// revert to the live Web App's own URL, not this sandbox one. (2026-08-07,
+// later: this DID happen — see CRBGC_Activity_Tracker_2.html, delivered
+// for the bec-crbgc/crbgc-tracker GitHub Pages repo, which has this
+// constant swapped to the live URL Bec confirmed directly.)
 const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwhsxmi0drQCntbqjjveKG4RwK9UrVveSRAH6iZQ0J4RFFE5y1QW2aUlyI1AIbpNty-5w/exec";
 const SRC_ID = "13D91QS2g-DZCbNxqlXcQhAZHTamALw3eAOfEj1LdL0k";
 const WIP_ID = "1tFinzQotgIErtpCq2LKNybvInw5b3LtTQ2hkC0QKHxY";
@@ -3806,8 +3814,16 @@ function renderApp(){
   // comment for the retry-storm this fixes (was re-firing on every single
   // render pass while sat on any of these 4 tabs).
   if(S.tab==="dashboard"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderDashboard(); }
-  if(S.tab==="weekly"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerWeeklyTab_(); }
-  if(S.tab==="daily"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerDailyTab_();  }
+  // 2026-08-10: ensureManagerWeekData_() added alongside the existing
+  // loadAllForDashboard() gate — see its own comment block for why. In
+  // short: get_all_current only ever covers the server's CURRENT week, so
+  // the moment a new week started, "last week" on the manager Weekly/Daily
+  // tabs went blank for every coordinator except whoever this device is
+  // logged in as (Bec hit this Monday 10 Aug viewing the week of 3 Aug —
+  // James and Johnson showed 0 across the board while Wayne's data, pulled
+  // per-coordinator by loadFromCloud() for the selected date, was fine).
+  if(S.tab==="weekly"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerWeeklyTab_(); }
+  if(S.tab==="daily"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerDailyTab_();  }
   if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerTrendTab_();  }
 
   // Push FAB
@@ -9451,6 +9467,45 @@ async function pullAcaps(coord) {
 // own 2026-08-07 bugfix comment for the original instance of this exact bug
 // class) — S.dashDataAttempted is set synchronously here, before the first
 // await, so the gate is in place before any second render can re-check it.
+// 2026-08-10: manager Weekly/Daily tabs — fetch the SELECTED week for ALL
+// coordinators, not just the logged-in one. Root cause of "the weekly
+// dashboard is only showing Wayne's activity for last week": the only
+// all-coordinator cloud pull was loadAllForDashboard() → get_all_current,
+// and the backend's getAllCurrentWeek() is hardwired to the server's
+// current Monday. Non-current weeks therefore rendered purely from
+// whatever this device happened to have cached in localStorage from when
+// that week WAS current — the logged-in coordinator was the sole
+// exception, because loadFromCloud() pulls get_week for S.user.coord at
+// the selected date. First business day of a new week, "last week" =
+// blank for everyone else. (This gap existed in the old live tracker too;
+// it just surfaced now because the new-week rollover coincided with the
+// redeploy.)
+// Same attempted-once gate class as S.dashDataAttempted /
+// S.regRecoAttempted, but keyed per coordinator+Monday so changing the
+// week picker naturally triggers a fetch for the newly-selected week
+// while re-renders of an already-fetched week stay free. Keys are set
+// synchronously before the first await — same retry-storm-proofing as
+// loadAllForDashboard()'s own 2026-08-07 fix.
+async function ensureManagerWeekData_() {
+  if(!S.user?.isManager||!WEBAPP_URL) return;
+  const monday=mondayOf(S.date);
+  S.mgrWeekAttempted = S.mgrWeekAttempted || {};
+  const todo=COORDS.filter(c=>!S.mgrWeekAttempted[c+"|"+monday]);
+  if(!todo.length) return;
+  todo.forEach(c=>{ S.mgrWeekAttempted[c+"|"+monday]=true; });
+  S.loading=true; render();
+  try {
+    await Promise.all(todo.map(async c=>{
+      const data=await pullWeek(c, S.date);
+      mergeCloudData(data, c);
+    }));
+    S.status={ok:true,msg:"✓ Week of "+fmtDate(monday)+" loaded from cloud for all coordinators"};
+  } catch(e){
+    S.status={ok:false,msg:"Week load failed: "+e.message};
+  }
+  S.loading=false; render();
+}
+
 async function loadAllForDashboard() {
   if(!S.user?.isManager||!WEBAPP_URL) return;
   S.dashDataAttempted = true;
