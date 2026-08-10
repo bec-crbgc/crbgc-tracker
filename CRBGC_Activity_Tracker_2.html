@@ -170,7 +170,15 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    Week reads 0 despite 10 logged registrations" report of 10 Aug. The
 //    "Achieved Last Week"/"Last Wk" figures exist for Monday reporting —
 //    see computeRegistrationRecovery_'s 2026-08-10 comment and
-//    _test_registration_weekly_unfenced.js.
+//    _test_registration_weekly_unfenced.js. Since later on 10 Aug the
+//    STARTERS dashboard mirrors this exact model too (Bec explicitly
+//    REVERSED the 2026-08-07 "count Starters from the database" switch —
+//    actuals come from Activity Log commencement events + the Targets-tab
+//    baseline again; the Commencements database now only drives Confirmed
+//    Future + the pipeline forecasts). Do not "fix" Starters back to
+//    database-sourced actuals without her asking — both directions have
+//    now been requested once. See computeCommencementRecovery_'s
+//    2026-08-10 sourcing comment and _test_commencement_recovery_*.js.
 //  - "Team can't save the weekly reflection" (three stacked causes: save
 //    confirmation only ever appeared in the top status bar, off-screen at
 //    the reflection card; reflection boxes are keyed to the week of S.date
@@ -3075,7 +3083,7 @@ function downloadCommencementExcel_() {
       ["% Achieved", t.pctAchieved+"%"], ["Required This Week", t.requiredWeekly],
       ["Achieved This Week", t.thisWeekActual], ["Weekly Variance", t.weeklyVariance],
       ["Req. Run Rate to Year End", t.requiredWeeklyRunRateToYearEnd+"/wk"],
-      ["Confirmed Future", t.confirmedFutureTotal],
+      ["Achieved Last Week", t.lastWeekActual ?? "\u2014"], ["Confirmed Future", t.confirmedFutureTotal],
       ["Forecast Year End (Run-Rate)", t.runRateForecastYearEnd], ["Forecast Variance (Run-Rate)", t.runRateForecastVariance],
       ["Open Enrolment Pipeline", t.openEnrolmentPipelineCount],
       ["Forecast Year End (Pipeline)", t.pipelineForecastYearEnd], ["Forecast Variance (Pipeline)", t.pipelineForecastVariance],
@@ -3113,7 +3121,7 @@ function downloadCommencementExcel_() {
 
     // ── Individual CR Starter Contribution sheet ──
     const ws3 = wb.addWorksheet("CR Contribution");
-    const crHeaders = ["CR","State","Starters This Week","Starters MTD","Starters YTD","Confirmed Future"];
+    const crHeaders = ["CR","State","Starters This Week","Last Wk","Starters MTD","Starters YTD","Confirmed Future"];
     crHeaders.forEach(function(h,i){ ws3.getColumn(i+1).width = i===0?22:16; });
     const hRow3 = ws3.getRow(1);
     crHeaders.forEach(function(h,i){ const c=hRow3.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
@@ -3121,7 +3129,7 @@ function downloadCommencementExcel_() {
     d.perCR.forEach(function(cr, i){
       const row = ws3.getRow(rr3);
       const fill = i%2===0?ALT:{type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
-      [cr.coord, cr.state, cr.thisWeekActual, cr.thisMonthActual, cr.ytdActual, cr.confirmedFutureTotal].forEach(function(v,ci){ const c=row.getCell(ci+1); c.value=v; c.fill=fill; });
+      [cr.coord, cr.state, cr.thisWeekActual, cr.lastWeekActual ?? "\u2014", cr.thisMonthActual, cr.ytdActual, cr.confirmedFutureTotal].forEach(function(v,ci){ const c=row.getCell(ci+1); c.value=v; c.fill=fill; });
       rr3++;
     });
 
@@ -3443,6 +3451,7 @@ function downloadCommencementPDF_() {
   const summaryTiles = [
     {lbl:"2026 Starter Target", val:t.annualTarget}, {lbl:"YTD Actual", val:t.ytdActual}, {lbl:"Remaining", val:t.remaining},
     {lbl:"% Achieved", val:t.pctAchieved+"%"}, {lbl:"Required This Week", val:t.requiredWeekly}, {lbl:"Achieved This Week", val:t.thisWeekActual},
+    {lbl:"Achieved Last Week", val:t.lastWeekActual ?? "\u2014"},
     {lbl:"Weekly Variance", val:pdfFmtVar_(t.weeklyVariance), cls:pdfVarCls_(t.weeklyVariance)},
     {lbl:"Req. Run Rate to YE", val:t.requiredWeeklyRunRateToYearEnd+"/wk"}, {lbl:"Confirmed Future", val:t.confirmedFutureTotal},
     {lbl:"Forecast Year End", val:t.runRateForecastYearEnd},
@@ -3473,10 +3482,10 @@ function downloadCommencementPDF_() {
   </div>
   <div class="rpt-section">
     <div class="rpt-section-hdr">Individual CR Starter Contribution</div>
-    <table class="rpt-table"><thead><tr><th>CR</th><th>State</th><th>Starters This Week</th><th>Starters MTD</th><th>Starters YTD</th><th>Confirmed Future</th></tr></thead>
-    <tbody>${d.perCR.map(function(cr){ return `<tr><td>${cr.coord}</td><td>${cr.state}</td><td>${cr.thisWeekActual}</td><td>${cr.thisMonthActual}</td>
+    <table class="rpt-table"><thead><tr><th>CR</th><th>State</th><th>Starters This Week</th><th>Last Wk</th><th>Starters MTD</th><th>Starters YTD</th><th>Confirmed Future</th></tr></thead>
+    <tbody>${d.perCR.map(function(cr){ return `<tr><td>${cr.coord}</td><td>${cr.state}</td><td>${cr.thisWeekActual}</td><td>${cr.lastWeekActual ?? "\u2014"}</td><td>${cr.thisMonthActual}</td>
       <td>${cr.ytdActual}</td><td>${cr.confirmedFutureTotal}</td></tr>`; }).join("")}</tbody></table>
-    <div class="rpt-note">CR YTD is sourced from the Commencements WIP database (Induction Status Active/Active-reported, dated on/before today) — sums exactly to the state's own YTD Actual above.</div>
+    <div class="rpt-note">This Week/Last Wk/MTD count commencement activities from each CR's own activity log. CR YTD counts that CR's logged commencements from the baseline cutover date onward — the shared YTD Baseline isn't attributable to one CR, so CR YTDs sum to the state's YTD Actual minus that baseline.</div>
   </div>
   <div class="rpt-section">
     <div class="rpt-section-hdr">Confirmed Future Starters</div>
@@ -6172,6 +6181,10 @@ function renderCommencementRecovery_(){
     {lbl:"% Achieved",           val:t.pctAchieved+"%"},
     {lbl:"Required This Week",   val:t.requiredWeekly},
     {lbl:"Achieved This Week",   val:t.thisWeekActual},
+    // 2026-08-10: Starters now mirrors Registration — log-sourced weekly
+    // counts + an Achieved Last Week tile for Monday reporting (?? "—"
+    // tolerates a pre-v33 backend payload).
+    {lbl:"Achieved Last Week",   val:t.lastWeekActual ?? "—"},
     {lbl:"Weekly Variance",      val:fmtVar(t.weeklyVariance), cls:varClass(t.weeklyVariance)},
     {lbl:"Req. Run Rate to YE",  val:t.requiredWeeklyRunRateToYearEnd+"/wk"},
     {lbl:"Confirmed Future",     val:t.confirmedFutureTotal},
@@ -6264,6 +6277,7 @@ function renderCommencementRecovery_(){
         <th style="text-align:left;padding:6px 6px">CR</th>
         <th style="text-align:left;padding:6px 6px">State</th>
         <th style="text-align:right;padding:6px 6px">Starters This Week</th>
+        <th style="text-align:right;padding:6px 6px">Last Wk</th>
         <th style="text-align:right;padding:6px 6px">Starters MTD</th>
         <th style="text-align:right;padding:6px 6px">Starters YTD</th>
         <th style="text-align:right;padding:6px 6px">Confirmed Future</th>
@@ -6273,6 +6287,7 @@ function renderCommencementRecovery_(){
           <td style="text-align:left;padding:6px 6px">${cr.coord}</td>
           <td style="text-align:left;padding:6px 6px">${cr.state}</td>
           <td style="text-align:right;padding:6px 6px">${cr.thisWeekActual}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.lastWeekActual ?? "—"}</td>
           <td style="text-align:right;padding:6px 6px">${cr.thisMonthActual}</td>
           <td style="text-align:right;padding:6px 6px">${cr.ytdActual}</td>
           <td style="text-align:right;padding:6px 6px">${cr.confirmedFutureTotal}</td>
@@ -6280,7 +6295,7 @@ function renderCommencementRecovery_(){
       </tbody>
     </table>
     </div>
-    <div style="font-size:10px;color:var(--tm);margin-top:8px">CR YTD is sourced from the Commencements WIP database (Induction Status Active/Active-reported, dated on/before today) — sums exactly to the state's own YTD Actual above.</div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px">This Week/Last Wk/MTD count commencement activities from each CR's own activity log. CR YTD counts that CR's logged commencements from the baseline cutover date onward — the shared YTD Baseline (maintained in the Commencement Targets 2026 tab) isn't attributable to one CR, so CR YTDs sum to the state's YTD Actual minus that baseline.</div>
   </div>
 
   <div class="card">
