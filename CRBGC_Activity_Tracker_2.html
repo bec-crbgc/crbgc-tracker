@@ -152,6 +152,15 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - Registration dashboard weekly/monthly/per-CR "achieved" figures MUST
+//    count from the Activity Log with NO cutover fencing (the fence
+//    belongs ONLY to ytdActual — where it prevents double-counting against
+//    the fixed YTD baseline — and the forecast history). Re-fencing them
+//    re-hides logged registrations, which is exactly the "Achieved This
+//    Week reads 0 despite 10 logged registrations" report of 10 Aug. The
+//    "Achieved Last Week"/"Last Wk" figures exist for Monday reporting —
+//    see computeRegistrationRecovery_'s 2026-08-10 comment and
+//    _test_registration_weekly_unfenced.js.
 //  - "Team can't save the weekly reflection" (three stacked causes: save
 //    confirmation only ever appeared in the top status bar, off-screen at
 //    the reflection card; reflection boxes are keyed to the week of S.date
@@ -2949,7 +2958,8 @@ function downloadRegistrationExcel_() {
     const summaryRows = [
       ["2026 Target", t.annualTarget], ["YTD Actual", t.ytdActual], ["Remaining", t.remaining],
       ["% Achieved", t.pctAchieved+"%"], ["Required This Week", t.requiredWeekly],
-      ["Achieved This Week", t.thisWeekActual], ["Weekly Variance", t.weeklyVariance],
+      ["Achieved This Week", t.thisWeekActual], ["Achieved Last Week", t.lastWeekActual ?? "\u2014"],
+      ["Weekly Variance", t.weeklyVariance],
       ["Req. Run Rate to Year End", t.requiredWeeklyRunRateToYearEnd+"/wk"],
       ["Forecast Year End", t.forecastYearEnd], ["Forecast Variance", t.forecastVariance],
       ["National Status", t.status],
@@ -2983,7 +2993,7 @@ function downloadRegistrationExcel_() {
 
     // ── Individual CR Contribution sheet ──
     const ws3 = wb.addWorksheet("CR Contribution");
-    const crHeaders = ["CR","State","This Week","Weekly Target","Variance","MTD"];
+    const crHeaders = ["CR","State","This Week","Last Wk","Weekly Target","Variance","MTD"];
     crHeaders.forEach(function(h,i){ ws3.getColumn(i+1).width = i===0?22:14; });
     const hRow3 = ws3.getRow(1);
     crHeaders.forEach(function(h,i){ const c=hRow3.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
@@ -2991,7 +3001,7 @@ function downloadRegistrationExcel_() {
     d.perCR.forEach(function(cr, i){
       const row = ws3.getRow(rr3);
       const fill = i%2===0?ALT:{type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
-      [cr.coord, cr.state, cr.thisWeekActual, cr.weeklyTarget, cr.variance, cr.thisMonthActual].forEach(function(v,ci){ const c=row.getCell(ci+1); c.value=v; c.fill=fill; });
+      [cr.coord, cr.state, cr.thisWeekActual, cr.lastWeekActual ?? "\u2014", cr.weeklyTarget, cr.variance, cr.thisMonthActual].forEach(function(v,ci){ const c=row.getCell(ci+1); c.value=v; c.fill=fill; });
       rr3++;
     });
 
@@ -3369,6 +3379,7 @@ function downloadRegistrationPDF_() {
   const summaryTiles = [
     {lbl:"2026 Target", val:t.annualTarget}, {lbl:"YTD Actual", val:t.ytdActual}, {lbl:"Remaining", val:t.remaining},
     {lbl:"% Achieved", val:t.pctAchieved+"%"}, {lbl:"Required This Week", val:t.requiredWeekly}, {lbl:"Achieved This Week", val:t.thisWeekActual},
+    {lbl:"Achieved Last Week", val:t.lastWeekActual ?? "\u2014"},
     {lbl:"Weekly Variance", val:pdfFmtVar_(t.weeklyVariance), cls:pdfVarCls_(t.weeklyVariance)},
     {lbl:"Req. Run Rate to YE", val:t.requiredWeeklyRunRateToYearEnd+"/wk"}, {lbl:"Forecast Year End", val:t.forecastYearEnd},
     {lbl:"Forecast Variance", val:pdfFmtVar_(t.forecastVariance), cls:pdfVarCls_(t.forecastVariance)},
@@ -3398,8 +3409,8 @@ function downloadRegistrationPDF_() {
   </div>
   <div class="rpt-section">
     <div class="rpt-section-hdr">Individual CR Contribution</div>
-    <table class="rpt-table"><thead><tr><th>CR</th><th>State</th><th>This Week</th><th>Weekly Target</th><th>Variance</th><th>MTD</th></tr></thead>
-    <tbody>${d.perCR.map(function(cr){ return `<tr><td>${cr.coord}</td><td>${cr.state}</td><td>${cr.thisWeekActual}</td><td>${cr.weeklyTarget}</td>
+    <table class="rpt-table"><thead><tr><th>CR</th><th>State</th><th>This Week</th><th>Last Wk</th><th>Weekly Target</th><th>Variance</th><th>MTD</th></tr></thead>
+    <tbody>${d.perCR.map(function(cr){ return `<tr><td>${cr.coord}</td><td>${cr.state}</td><td>${cr.thisWeekActual}</td><td>${cr.lastWeekActual ?? "\u2014"}</td><td>${cr.weeklyTarget}</td>
       <td class="${pdfVarCls_(cr.variance)}">${pdfFmtVar_(cr.variance)}</td><td>${cr.thisMonthActual}</td></tr>`; }).join("")}</tbody></table>
     <div class="rpt-note">Forecast uses up to the last 4 completed weeks of tracker registration data per state (fewer if less history exists yet since each state's commencement date).</div>
   </div>`;
@@ -5931,6 +5942,13 @@ function renderRegistrationRecovery_(){
     {lbl:"% Achieved",         val:t.pctAchieved+"%"},
     {lbl:"Required This Week", val:t.requiredWeekly},
     {lbl:"Achieved This Week", val:t.thisWeekActual},
+    // 2026-08-10 (Bec): weekly/monthly/per-CR figures now come straight
+    // from the CR activity logs with no cutover fencing (backend change in
+    // computeRegistrationRecovery_), and "Achieved Last Week" was added so
+    // Monday reporting can still see the just-finished week after the
+    // This Week tile resets. `?? "—"` keeps the tile rendering if the
+    // frontend ships before the matching backend redeploy.
+    {lbl:"Achieved Last Week", val:t.lastWeekActual ?? "—"},
     {lbl:"Weekly Variance",    val:fmtVar(t.weeklyVariance), cls:varClass(t.weeklyVariance)},
     {lbl:"Req. Run Rate to YE",val:t.requiredWeeklyRunRateToYearEnd+"/wk"},
     {lbl:"Forecast Year End",  val:t.forecastYearEnd},
@@ -6019,6 +6037,7 @@ function renderRegistrationRecovery_(){
         <th style="text-align:left;padding:6px 6px">CR</th>
         <th style="text-align:left;padding:6px 6px">State</th>
         <th style="text-align:right;padding:6px 6px">This Week</th>
+        <th style="text-align:right;padding:6px 6px">Last Wk</th>
         <th style="text-align:right;padding:6px 6px">Weekly Target</th>
         <th style="text-align:right;padding:6px 6px">Variance</th>
         <th style="text-align:right;padding:6px 6px">MTD</th>
@@ -6028,6 +6047,7 @@ function renderRegistrationRecovery_(){
           <td style="text-align:left;padding:6px 6px">${cr.coord}</td>
           <td style="text-align:left;padding:6px 6px">${cr.state}</td>
           <td style="text-align:right;padding:6px 6px">${cr.thisWeekActual}</td>
+          <td style="text-align:right;padding:6px 6px">${cr.lastWeekActual ?? "—"}</td>
           <td style="text-align:right;padding:6px 6px">${cr.weeklyTarget}</td>
           <td style="text-align:right;padding:6px 6px" class="${varClass(cr.variance)}">${fmtVar(cr.variance)}</td>
           <td style="text-align:right;padding:6px 6px">${cr.thisMonthActual}</td>
