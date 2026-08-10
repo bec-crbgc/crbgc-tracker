@@ -152,6 +152,16 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - Registration/Starters dashboards must honour the SELECTED week (the
+//    date picker), not just the real current week — recoveryAsOf_() sends
+//    ?asOf= (past week → that week's Sunday; current/future → today) and
+//    the regRecoAttempted/commRecoAttempted gates are PER-ASOF KEY MAPS,
+//    not booleans. Reverting them to booleans silently kills the
+//    picker-driven refetch; removing them entirely brings back the retry
+//    storm. WEEKLY_TARGETS.registration must only ever be mutated from a
+//    CURRENT-week payload (asOf===TODAY guard) — a historical week's
+//    required-weekly figures must never repace today's team. See
+//    _test_dashboard_selected_week_asof.js.
 //  - Registration dashboard weekly/monthly/per-CR "achieved" figures MUST
 //    count from the Activity Log with NO cutover fencing (the fence
 //    belongs ONLY to ytdActual — where it prevents double-counting against
@@ -810,7 +820,11 @@ let S = {
   // bugfix comment on refreshRegistrationRecovery_).
   regReco: null,
   regRecoLoading: false,
-  regRecoAttempted: false,
+  // 2026-08-10: was a boolean; now a per-asOf-date key map so the picker
+  // can drive re-fetches for other weeks without reopening the retry-storm
+  // hole (one attempt per asOf date per session — same gate class).
+  regRecoAttempted: {},
+  regRecoAsOf: null,
   regRecoError: null,
 
   // 2026-08-07 SANDBOX — 2026 Commencement (Starter) Target & Recovery
@@ -818,7 +832,8 @@ let S = {
   // gate + surfaced error) applied from the start this time.
   commReco: null,
   commRecoLoading: false,
-  commRecoAttempted: false,
+  commRecoAttempted: {},  // 2026-08-10: per-asOf key map, see regRecoAttempted
+  commRecoAsOf: null,
   commRecoError: null,
 };
 
@@ -5872,7 +5887,24 @@ async function refreshPresence_(){
 // Target / YTD Baseline / Commencement Date inputs live in the new
 // "Registration Targets 2026" WIP tab, editable directly in Sheets.
 // ═══════════════════════════════════════════════════════════
+// 2026-08-10 (Bec: "i want to be able to see the dashboard as per the week
+// that i have selected, not as per the actual week"): the effective as-of
+// date both recovery fetches send to the backend. For the current (or a
+// future) week this is simply today — identical to the old behaviour. For
+// a PAST selected week it's that week's Sunday, so the whole card renders
+// as it would have looked at the end of that week: its "Achieved This
+// Week" is that week's full count, pace status is judged against the full
+// five elapsed working days, YTD/remaining/forecast are as-at then.
+function recoveryAsOf_(){
+  // (addDays_ with the trailing underscore — plain addDays only exists in
+  // appscript.js; using it here was the 10 Aug "addDays is not defined"
+  // crash-on-load.)
+  const wkSun = addDays_(mondayOf(S.date), 6);
+  return wkSun < TODAY ? wkSun : TODAY;
+}
+
 async function refreshRegistrationRecovery_(){
+  const asOf = recoveryAsOf_();
   S.regRecoLoading = true;
   // 2026-08-07 BUGFIX: renderRegistrationRecovery_'s "auto-fetch if nothing
   // loaded yet" check re-fires on EVERY render while S.regReco stays null —
@@ -5883,13 +5915,14 @@ async function refreshRegistrationRecovery_(){
   // error. regRecoAttempted gates that auto-fetch to a single try per
   // session; a real "Not loaded" state (with the server's own error
   // message, if any) is shown after that, with a manual Retry link.
-  S.regRecoAttempted = true;
+  S.regRecoAttempted[asOf] = true;
   if (S.dashView==="registration") render();
   try {
-    const url = WEBAPP_URL+"?action=get_registration_recovery";
+    const url = WEBAPP_URL+"?action=get_registration_recovery&asOf="+asOf;
     const data = await jsonpFetch(url);
     if (data && data.ok) {
       S.regReco = data;
+      S.regRecoAsOf = asOf;
       S.regRecoError = null;
       // 2026-08-07: the ONLY place WEEKLY_TARGETS.registration is mutated —
       // feeds this feature's dynamic per-state weekly target into every
@@ -5897,7 +5930,11 @@ async function refreshRegistrationRecovery_(){
       // tile, Daily Dashboard pace bars, the Focus system, Excel/PDF
       // exports) with no change needed to any of those ~30 call sites. Per
       // Bec's answer, KR 1.2 now tracks this dynamic recovery target too.
-      ["VIC","NSW","QLD"].forEach(function(s){
+      // 2026-08-10: only let a CURRENT-week payload set the live pace
+      // targets — a historical week's (asOf in the past) required-weekly
+      // figures describe THAT week, not the targets the team should be
+      // paced against today.
+      if (asOf === TODAY) ["VIC","NSW","QLD"].forEach(function(s){
         if (data.states && data.states[s]) WEEKLY_TARGETS.registration[s] = data.states[s].weeklyTarget;
       });
     } else {
@@ -5920,7 +5957,10 @@ function renderRegistrationRecovery_(){
   // comment in refreshRegistrationRecovery_ above for why re-firing this on
   // every render caused the tile to look permanently stuck on "Loading…"
   // whenever the server ever responded with anything other than success.
-  if (!S.regReco && !S.regRecoLoading && !S.regRecoAttempted) refreshRegistrationRecovery_();
+  // 2026-08-10: refetch whenever the loaded payload's as-of no longer
+  // matches the selected week (per-asOf attempted gate keeps this
+  // storm-proof; the stale card stays visible while the new week loads).
+  if (!S.regRecoLoading && !S.regRecoAttempted[recoveryAsOf_()] && (!S.regReco || S.regRecoAsOf !== recoveryAsOf_())) refreshRegistrationRecovery_();
   if (!S.regReco) {
     return `<div class="card"><div class="card-title"><i class="ti ti-target-arrow"></i> 2026 Registration Performance</div>
       ${S.regRecoLoading ? "Loading…" : `Not loaded${S.regRecoError?` — <span style="color:var(--redt)">${S.regRecoError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshRegistrationRecovery_()">Retry</a>`}</div>`;
@@ -6079,18 +6119,20 @@ function renderRegistrationRecovery_(){
 // stays purely additive; flag it if she wants that wired up too later.
 // ═══════════════════════════════════════════════════════════
 async function refreshCommencementRecovery_(){
+  const asOf = recoveryAsOf_();
   S.commRecoLoading = true;
   // Same attempted-once gate as refreshRegistrationRecovery_ — see that
   // function's 2026-08-07 bugfix comment for why re-firing this on every
   // render (instead of once per session) turns any non-success server
   // response into a tight retry loop that looks like a stuck spinner.
-  S.commRecoAttempted = true;
+  S.commRecoAttempted[asOf] = true;
   if (S.dashView==="starters") render();
   try {
-    const url = WEBAPP_URL+"?action=get_commencement_recovery";
+    const url = WEBAPP_URL+"?action=get_commencement_recovery&asOf="+asOf;
     const data = await jsonpFetch(url);
     if (data && data.ok) {
       S.commReco = data;
+      S.commRecoAsOf = asOf;
       S.commRecoError = null;
     } else {
       S.commRecoError = (data && data.msg) || "Unknown error";
@@ -6108,7 +6150,7 @@ async function refreshCommencementRecovery_(){
 // new server call needed for that comparison, and it can never disagree
 // with either individual dashboard since it reads the exact same objects).
 function renderCommencementRecovery_(){
-  if (!S.commReco && !S.commRecoLoading && !S.commRecoAttempted) refreshCommencementRecovery_();
+  if (!S.commRecoLoading && !S.commRecoAttempted[recoveryAsOf_()] && (!S.commReco || S.commRecoAsOf !== recoveryAsOf_())) refreshCommencementRecovery_();
   if (!S.commReco) {
     return `<div class="card"><div class="card-title"><i class="ti ti-school"></i> 2026 Starter Performance</div>
       ${S.commRecoLoading ? "Loading…" : `Not loaded${S.commRecoError?` — <span style="color:var(--redt)">${S.commRecoError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshCommencementRecovery_()">Retry</a>`}</div>`;
