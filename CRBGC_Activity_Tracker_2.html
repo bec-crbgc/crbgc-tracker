@@ -152,6 +152,18 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - Trainer Capacities tab: the per-trainer counts come from TWO EXTERNAL
+//    spreadsheets with messy free-text trainer names — matching goes
+//    through normTrainerCapName_ (strip parentheticals + non-letters) plus
+//    the Aliases column of the "Trainer Capacities Config" WIP tab
+//    ("Lucas Hanna" → Luke Hanna lives THERE, not in code). Data names with
+//    no config match are surfaced as amber rows + a warning, and
+//    unallocated placeholders ("Not Allocated"/"No Trainer"/"#REF!") are
+//    tallied per org — never silently dropped. BAA's second enrolment
+//    source is the "6. To be inducted 2026" tab referenced BY NAME (Bec's
+//    doc linked the CWBTS sheet there by mistake — verified directly). See
+//    appscript.js's TRAINER CAPACITIES section and
+//    _test_trainer_capacities.js.
 //  - Registration/Starters dashboards must honour the SELECTED week (the
 //    date picker), not just the real current week — recoveryAsOf_() sends
 //    ?asOf= (past week → that week's Sunday; current/future → today) and
@@ -843,6 +855,15 @@ let S = {
   commRecoAttempted: {},  // 2026-08-10: per-asOf key map, see regRecoAttempted
   commRecoAsOf: null,
   commRecoError: null,
+
+  // 2026-08-10 — Trainer Capacities (Bec's Trainer Capacities.docx brief).
+  // Same attempted-once + surfaced-error gate class as regReco/commReco
+  // (a plain boolean is right here: the data is a live snapshot with no
+  // week/asOf dependence, so there's nothing to key the gate by).
+  trainerCap: null,
+  trainerCapLoading: false,
+  trainerCapAttempted: false,
+  trainerCapError: null,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -3807,9 +3828,9 @@ function renderApp(){
   const CR_DETAIL_TABS = ["today","wknotes","notes","pipeline","calls","visits","thisweek","history"];
   const inCoordDetailMode = isManager && CR_DETAIL_TABS.includes(S.tab);
   const tabs = isManager
-    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend"])
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers"])
     : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"];
-  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend"};
+  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities"};
 
   let h=`<div class="hdr">
     <div class="hdr-top">
@@ -3869,6 +3890,7 @@ function renderApp(){
   if(S.tab==="weekly"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerWeeklyTab_(); }
   if(S.tab==="daily"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerDailyTab_();  }
   if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerTrendTab_();  }
+  if(S.tab==="trainers"){ h+=renderTrainerCapacities_(); }
 
   // Push FAB
   h+=`<button class="push-fab" onclick="pushData()" ${S.syncing?"disabled":""}>
@@ -9604,6 +9626,132 @@ async function pullAcaps(coord) {
 // own 2026-08-07 bugfix comment for the original instance of this exact bug
 // class) — S.dashDataAttempted is set synchronously here, before the first
 // await, so the gate is in place before any second render can re-check it.
+// ═══════════════════════════════════════════════════════════
+// TRAINER CAPACITIES (2026-08-10 — Bec's Trainer Capacities.docx brief)
+// ═══════════════════════════════════════════════════════════
+// Data comes from get_trainer_capacities (see appscript.js's TRAINER
+// CAPACITIES section for the full source mapping into the two external
+// spreadsheets). Trainer maximums/locations/days live in the editable
+// "Trainer Capacities Config" WIP tab — edits there show up on the next
+// refresh, no redeploy.
+async function refreshTrainerCapacities_(){
+  S.trainerCapLoading = true;
+  S.trainerCapAttempted = true;
+  if (S.tab==="trainers") render();
+  try {
+    const data = await jsonpFetch(WEBAPP_URL+"?action=get_trainer_capacities");
+    if (data && data.ok) {
+      S.trainerCap = data;
+      S.trainerCapError = null;
+    } else {
+      S.trainerCapError = (data && data.msg) || "Unknown error";
+    }
+  } catch(e) {
+    S.trainerCapError = "Network error: " + (e && e.message ? e.message : e);
+  }
+  S.trainerCapLoading = false;
+  render();
+}
+
+function trainerCapPct_(pct){
+  if (pct===null || pct===undefined) return `<span style="color:var(--tm)">—</span>`;
+  const col = pct>=100 ? "var(--redt)" : pct>=85 ? "var(--ambert)" : "var(--greent)";
+  return `<span style="font-weight:700;color:${col}">${pct}%</span>`;
+}
+
+function renderTrainerCapacities_(){
+  if (!S.trainerCap && !S.trainerCapLoading && !S.trainerCapAttempted) refreshTrainerCapacities_();
+  if (!S.trainerCap) {
+    return `<div class="card"><div class="card-title"><i class="ti ti-users-group"></i> Trainer Capacities</div>
+      ${S.trainerCapLoading ? "Loading…" : `Not loaded${S.trainerCapError?` — <span style="color:var(--redt)">${S.trainerCapError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshTrainerCapacities_()">Retry</a>`}</div>`;
+  }
+  const d = S.trainerCap;
+  let h = `<div class="card" style="padding:10px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <div class="card-title" style="margin:0"><i class="ti ti-users-group"></i> Trainer Capacities</div>
+      <div style="font-size:11px;color:var(--tm)">Snapshot ${d.asOf} · <a href="#" onclick="event.preventDefault();refreshTrainerCapacities_()">Refresh</a></div>
+    </div>
+    <div style="font-size:11px;color:var(--tm);margin-top:4px">Current = Active students per trainer · +Enrol = Enrolment Pipeline added · +Reg = Registration Pipeline added on top. Maximums, locations and working days are editable in the "Trainer Capacities Config" tab of the WIP sheet.</div>
+  </div>`;
+
+  ["BAA","CWBTS"].forEach(org=>{
+    const o = d.orgs && d.orgs[org];
+    if (!o) return;
+    const t = o.totals;
+    h += `<div class="card">
+      <div class="card-title"><i class="ti ti-building"></i> ${org}</div>
+      <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+        <thead>
+          <tr style="border-bottom:1px solid var(--bd);font-size:10px;color:var(--ts)">
+            <th></th><th></th><th></th><th></th>
+            <th colspan="3" style="text-align:center;padding:4px 6px;background:var(--o2);border-radius:6px 6px 0 0">Current students</th>
+            <th colspan="4" style="text-align:center;padding:4px 6px">+ Enrolment Pipeline</th>
+            <th colspan="4" style="text-align:center;padding:4px 6px;background:var(--o2);border-radius:6px 6px 0 0">+ Registration Pipeline</th>
+          </tr>
+          <tr style="border-bottom:1.5px solid var(--bd)">
+            <th style="text-align:left;padding:6px 6px">Trainer</th>
+            <th style="text-align:left;padding:6px 6px">Location</th>
+            <th style="text-align:right;padding:6px 6px">Days</th>
+            <th style="text-align:right;padding:6px 6px">Max</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">Now</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">At</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">Avail</th>
+            <th style="text-align:right;padding:6px 6px">Pipe</th>
+            <th style="text-align:right;padding:6px 6px">Total</th>
+            <th style="text-align:right;padding:6px 6px">At</th>
+            <th style="text-align:right;padding:6px 6px">Avail</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">Pipe</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">Total</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">At</th>
+            <th style="text-align:right;padding:6px 6px;background:var(--o2)">Avail</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${o.rows.map(r=>`<tr style="border-bottom:.5px solid var(--bd)${r.inConfig?"":";color:var(--ambert)"}">
+            <td style="text-align:left;padding:6px 6px;font-weight:600">${r.trainer}</td>
+            <td style="text-align:left;padding:6px 6px;font-size:11px;color:var(--ts)">${r.location||""}</td>
+            <td style="text-align:right;padding:6px 6px">${r.days||""}</td>
+            <td style="text-align:right;padding:6px 6px">${r.max||"—"}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2);font-weight:700">${r.current}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2)">${trainerCapPct_(r.currentPct)}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2)">${r.availNow??"—"}</td>
+            <td style="text-align:right;padding:6px 6px;color:var(--ts)">${r.enrol?"+"+r.enrol:"0"}</td>
+            <td style="text-align:right;padding:6px 6px;font-weight:700">${r.withEnrol}</td>
+            <td style="text-align:right;padding:6px 6px">${trainerCapPct_(r.withEnrolPct)}</td>
+            <td style="text-align:right;padding:6px 6px">${r.availAfterEnrol??"—"}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2);color:var(--ts)">${r.reg?"+"+r.reg:"0"}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2);font-weight:700">${r.withReg}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2)">${trainerCapPct_(r.withRegPct)}</td>
+            <td style="text-align:right;padding:6px 6px;background:var(--o2)">${r.availAfterReg??"—"}</td>
+          </tr>`).join("")}
+          <tr style="font-weight:700;background:var(--o2)">
+            <td style="text-align:left;padding:6px 6px">TOTAL</td>
+            <td></td><td></td>
+            <td style="text-align:right;padding:6px 6px">${t.max}</td>
+            <td style="text-align:right;padding:6px 6px">${t.current}</td>
+            <td style="text-align:right;padding:6px 6px">${trainerCapPct_(t.currentPct)}</td>
+            <td style="text-align:right;padding:6px 6px">${t.availNow}</td>
+            <td style="text-align:right;padding:6px 6px">${t.enrol?"+"+t.enrol:"0"}</td>
+            <td style="text-align:right;padding:6px 6px">${t.withEnrol}</td>
+            <td style="text-align:right;padding:6px 6px">${trainerCapPct_(t.withEnrolPct)}</td>
+            <td style="text-align:right;padding:6px 6px">${t.availAfterEnrol}</td>
+            <td style="text-align:right;padding:6px 6px">${t.reg?"+"+t.reg:"0"}</td>
+            <td style="text-align:right;padding:6px 6px">${t.withReg}</td>
+            <td style="text-align:right;padding:6px 6px">${trainerCapPct_(t.withRegPct)}</td>
+            <td style="text-align:right;padding:6px 6px">${t.availAfterReg}</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      ${(o.unallocated.current||o.unallocated.enrol||o.unallocated.reg) ? `<div style="font-size:10px;color:var(--tm);margin-top:8px">Not allocated to a trainer yet: ${o.unallocated.current} current student(s) · ${o.unallocated.enrol} enrolment pipeline · ${o.unallocated.reg} registration pipeline — these are excluded from the per-trainer rows above.</div>` : ""}
+      ${o.unknownTrainers && o.unknownTrainers.length ? `<div style="font-size:10px;color:var(--ambert);margin-top:4px">⚠ Trainer name(s) found in the source data with no matching row in the Trainer Capacities Config tab (shown in amber above with no maximum) — add them to the config tab, or as an alias of an existing trainer if it's a spelling variant.</div>` : ""}
+      ${(o.sourceMissing.current||o.sourceMissing.enrol||o.sourceMissing.reg) ? `<div style="font-size:10px;color:var(--redt);margin-top:4px">⚠ One or more ${org} source tabs could not be opened — the affected column(s) may be under-counted. Check the source spreadsheet links/permissions.</div>` : ""}
+    </div>`;
+  });
+  return h;
+}
+
 // 2026-08-10: manager Weekly/Daily tabs — fetch the SELECTED week for ALL
 // coordinators, not just the logged-in one. Root cause of "the weekly
 // dashboard is only showing Wayne's activity for last week": the only
