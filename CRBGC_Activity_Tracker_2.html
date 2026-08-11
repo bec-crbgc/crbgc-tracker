@@ -220,6 +220,16 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //  - A locally-closed follow-up reverting to "open" on the next cloud pull
 //    (dropped background sync, no retry) — see retryFollowupClose_ and
 //    pullFollowups's locallyClosedIds handling.
+//  - Org/business dropdown showing the SAME business as multiple options,
+//    with contacts split between them ("not showing all contacts
+//    associated when choosing one" — team report, 11 Aug) — groupByOrg's
+//    first pass keys by orgId/raw name, so duplicate org rows with
+//    different orgIds (or orgId + blank-orgId mixes, or spelling
+//    variants) fragment one business into several groups; the second
+//    coalescing pass (merge by normalizeNameForMatch_, union + de-dupe
+//    contacts) is what fixes it. Do not remove that pass or "simplify"
+//    the grouping back to a single keyBy — see groupByOrg's 2026-08-11
+//    comment and _test_org_dropdown_fragmentation.js.
 //  - Duplicate contact/org rows created instead of matching an existing
 //    one (name-matching too strict against real typing variance) — see
 //    sameOrgName_/normalizeNameForMatch_ and every `.find(g=>sameOrgName_(...))`
@@ -992,9 +1002,57 @@ function groupByOrg(list, nameField) {
     if (!groups[key]) { groups[key] = {orgId:e.orgId||"", name:e[nameField]||"", contacts:[]}; order.push(key); }
     groups[key].contacts.push(e);
   });
-  // Primary contact first within each group, so it's the sensible default.
+  // 2026-08-11 (team report: "the organization/business name drop down is
+  // broken... showing multiple options for the organization and not
+  // showing all contacts associated when choosing one"): the first pass
+  // above keys strictly by orgId (or raw lowercased name for pre-migration
+  // rows), so ONE real-world business fragmented into SEVERAL groups
+  // whenever its rows carried different orgIds (historical duplicate org
+  // rows), a mix of orgId and blank-orgId rows, or name spelling variants
+  // ("Pty Ltd"/"Pty. Ltd.", "&"/"and", double spaces). Every fragment
+  // rendered as its own dropdown option — the "multiple options" — and
+  // picking one showed only THAT fragment's contacts via
+  // sameOrgName_'s first-match .find() — the "not all contacts". This
+  // second pass coalesces fragments whose names match under
+  // normalizeNameForMatch_ (the same rule every picker's .find() already
+  // uses), unioning their contacts and de-duplicating identical contact
+  // names across fragments (keeping the row with the most data, primary
+  // rows preferred). Blank-named fragments keep their original key —
+  // never merged into each other.
+  const merged = {};
+  const mergedOrder = [];
   order.forEach(function(key){
-    groups[key].contacts.sort(function(a,b){ return (b.isPrimary==="Y")-(a.isPrimary==="Y"); });
+    const g = groups[key];
+    const nkey = normalizeNameForMatch_(g.name) || key;
+    if (!merged[nkey]) { merged[nkey] = {orgId:g.orgId||"", name:g.name, contacts:[]}; mergedOrder.push(nkey); }
+    const m = merged[nkey];
+    if (!m.orgId && g.orgId) m.orgId = g.orgId;
+    g.contacts.forEach(function(c){ m.contacts.push(c); });
+  });
+  const contactScore_ = function(x){ return (x.isPrimary==="Y"?100:0) + ["email","phone","mobile","position","empRelationship","relType","contactId"].filter(function(f){return x[f];}).length; };
+  mergedOrder.forEach(function(nkey){
+    const m = merged[nkey];
+    // Same contact name appearing in two fragments of the same business —
+    // keep whichever row is better (primary flag, then more filled
+    // fields), ordering stable at the FIRST occurrence. Built via slot
+    // objects rather than in-place swaps inside a filter(), because
+    // filter() captures each element the moment it's kept — a later swap
+    // into the source array can't change what was already emitted.
+    const best = {};
+    const slots = [];
+    m.contacts.forEach(function(c){
+      const ck = normalizeNameForMatch_(c.contactName || c.name || "");
+      if (!ck) { slots.push({c:c}); return; } // unnamed rows kept as-is, never collapsed
+      if (!best[ck]) { best[ck] = {c:c}; slots.push(best[ck]); return; }
+      if (contactScore_(c) > contactScore_(best[ck].c)) best[ck].c = c;
+    });
+    m.contacts = slots.map(function(s){ return s.c; });
+  });
+  const finalOrder = mergedOrder;
+  const finalGroups = merged;
+  // Primary contact first within each group, so it's the sensible default.
+  finalOrder.forEach(function(key){
+    finalGroups[key].contacts.sort(function(a,b){ return (b.isPrimary==="Y")-(a.isPrimary==="Y"); });
   });
   // 2026-08-06 (backlog item 10 — "Employer Search"): groups used to come
   // back in raw sheet/cache insertion order, which has no relationship to
@@ -1004,7 +1062,7 @@ function groupByOrg(list, nameField) {
   // from groupByOrg's output (Employer Call, Site Visit, Intro Call, New
   // Employer, Registration/Student Lead's linked-employer picker) now gets
   // this ordering for free.
-  return order.map(function(key){ return groups[key]; })
+  return finalOrder.map(function(key){ return finalGroups[key]; })
     .sort(function(a,b){ return a.name.trim().toLowerCase().localeCompare(b.name.trim().toLowerCase()); });
 }
 
