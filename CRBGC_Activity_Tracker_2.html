@@ -220,6 +220,18 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //  - A locally-closed follow-up reverting to "open" on the next cloud pull
 //    (dropped background sync, no retry) — see retryFollowupClose_ and
 //    pullFollowups's locallyClosedIds handling.
+//  - The same activity appearing MULTIPLE times ("activities still logging
+//    multiple times" — team report, 11 Aug): duplicate AUTO follow-up
+//    reminder rows from appscript.js's two coexisting auto-id schemes
+//    (org-level auto_fu_<biz>_<date> vs per-contact
+//    auto_fu_<biz>_<contact>_<date>), each creation site only checking its
+//    own exact id, plus a "_2-suffix" fallback that created rather than
+//    skipped. Every creation site now goes through
+//    autoRowExistsForBizDate_ (cross-scheme, slug-boundary-safe, any
+//    contact/suffix) — do NOT revert any of them to an exact-id equality
+//    check. Existing duplicates are cleaned by the WIP Tools "de-dupe auto
+//    follow-up reminder rows" preview/apply pair. See
+//    _test_auto_followup_dedupe.js.
 //  - Org/business dropdown showing the SAME business as multiple options,
 //    with contacts split between them ("not showing all contacts
 //    associated when choosing one" — team report, 11 Aug) — groupByOrg's
