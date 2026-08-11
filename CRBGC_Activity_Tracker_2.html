@@ -220,6 +220,13 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //  - A locally-closed follow-up reverting to "open" on the next cloud pull
 //    (dropped background sync, no retry) — see retryFollowupClose_ and
 //    pullFollowups's locallyClosedIds handling.
+//  - Leave logged twice from one double-clicked Save (11 Aug, James) —
+//    submitLeave_ now has an in-flight guard + "Saving…" button state, and
+//    appscript.js's handleSubmitLeave is serialised under the script lock
+//    WITH an overlapping-Active duplicate reject. Do not remove either
+//    half: the server-side reject is what catches a double-POST that
+//    slips past the client guard (two tabs, two devices). See
+//    _test_leave_double_submit.js.
 //  - The same activity appearing MULTIPLE times ("activities still logging
 //    multiple times" — team report, 11 Aug): duplicate AUTO follow-up
 //    reminder rows from appscript.js's two coexisting auto-id schemes
@@ -5649,7 +5656,7 @@ function renderManagerWeeklyTab_(){
         ${!onLeaveNow&&leaveDaysThisWeek>0?`<span style="margin-left:8px;background:var(--o2);color:var(--o2t);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">${leaveDaysThisWeek} leave day${leaveDaysThisWeek>1?"s":""} this week</span>`:""}
         <button onclick="switchToCoord('${coord}')" style="margin-left:auto;font-size:11px;padding:3px 10px;background:var(--hdr);color:#fff;border:none;border-radius:var(--r);cursor:pointer">View & Edit →</button>
       </div>
-      ${leaveDaysThisWeek>0?`<div style="font-size:11px;color:var(--o2t);background:var(--o2);padding:5px 8px;border-radius:var(--r);margin-bottom:8px">Weekly targets below are reduced for ${leaveDaysThisWeek} single-day leave this week (SANDBOX — see Settings for details).</div>`:""}
+      ${leaveDaysThisWeek>0?`<div style="font-size:11px;color:var(--o2t);background:var(--o2);padding:5px 8px;border-radius:var(--r);margin-bottom:8px">Weekly targets below are reduced for ${leaveDaysThisWeek} single-day leave this week (see Settings for details).</div>`:""}
 
       <!-- Activity summary grid — 2026-08-06: matches the Daily Dashboard's
            14-tile set, accrued across the whole week (see weeklyTileMetrics) -->
@@ -6594,13 +6601,32 @@ function leaveActiveToday_(){
 }
 
 async function submitLeave_(){
+  // 2026-08-11 (Bec: "hitting the save button didn't do anything so I
+  // clicked again and it has logged his leave twice"): the submit takes
+  // several seconds server-side (it moves every affected follow-up) and
+  // gave NO feedback while in flight, with the button still clickable —
+  // the classic double-submit. In-flight guard + immediate status message,
+  // and the button label flips to "Saving…" via render(). The backend got
+  // a matching guard the same day (duplicate Active leave for the same
+  // coordinator + dates is rejected, and submissions are serialised under
+  // the script lock), so even a double-POST that slips past this can't
+  // create two records again.
+  if (S.leaveSubmitting) return;
   const coord = S.leaveForm.coord || S.user.coord;
   const startDate = S.leaveForm.startDate;
   const endDate = S.leaveForm.endDate || startDate;
   const reason = S.leaveForm.reason || "";
   if (!startDate) { alert("Pick a start date."); return; }
   if (endDate < startDate) { alert("End date can't be before the start date."); return; }
-  const r = await post("submit_leave", {coord, startDate, endDate, reason, requestedBy:S.user.coord});
+  S.leaveSubmitting = true;
+  S.status = {ok:true, msg:"Recording leave — this can take a few seconds while follow-ups are moved…"};
+  render();
+  let r;
+  try {
+    r = await post("submit_leave", {coord, startDate, endDate, reason, requestedBy:S.user.coord});
+  } finally {
+    S.leaveSubmitting = false;
+  }
   if (!r || !r.ok) { alert("Couldn't record leave: "+((r&&r.msg)||"unknown error")); return; }
   S.leaveForm = {coord:S.user.coord, startDate:"", endDate:"", reason:""};
   await refreshLeave_();
@@ -6725,7 +6751,7 @@ function renderLeavePanel_(){
         <input type="date" value="${S.leaveForm.endDate}" onchange="S.leaveForm.endDate=this.value;render()" style="font-size:12px"></div>
       <div style="flex:1;min-width:120px"><label style="font-size:11px;color:var(--ts);display:block">Reason (optional)</label>
         <input value="${S.leaveForm.reason}" onchange="S.leaveForm.reason=this.value" placeholder="Annual leave, sick, etc" style="font-size:12px;width:100%"></div>
-      <button onclick="submitLeave_()" class="btn-primary btn-sm">Mark leave</button>
+      <button onclick="submitLeave_()" class="btn-primary btn-sm"${S.leaveSubmitting?" disabled style=\"opacity:.6;pointer-events:none\"":""}>${S.leaveSubmitting?"Saving…":"Mark leave"}</button>
     </div>
     <div style="font-size:11px;color:var(--o2t);margin-bottom:8px;background:var(--o2);padding:6px 8px;border-radius:var(--r)">
       A single day moves that day's follow-ups straight to the next business day. Two or more days redistributes Employer/ACAP and Registration/Student Lead follow-ups across the normal 3/day spread (Registration ones recommence from the first day back), and lets you bulk-reassign any Enrolment Pipeline follow-ups in that window to a teammate.
@@ -6753,7 +6779,7 @@ function renderTeamLeaveBanner_(){
     .sort((a,b)=>a.startDate<b.startDate?-1:a.startDate>b.startDate?1:0);
   if (!relevant.length) return "";
   return `<div style="background:var(--o2);border:1px solid var(--bd);border-radius:var(--r);padding:8px 12px;margin-bottom:12px;font-size:12px">
-    <div style="font-weight:700;color:var(--o2t);margin-bottom:4px"><i class="ti ti-plane-departure"></i> Team leave (SANDBOX)</div>
+    <div style="font-weight:700;color:var(--o2t);margin-bottom:4px"><i class="ti ti-plane-departure"></i> Team leave</div>
     ${relevant.map(l=>{
       const current = l.startDate<=today && l.endDate>=today;
       const dateLabel = l.startDate===l.endDate ? fmtDMY_(l.startDate) : fmtDMY_(l.startDate)+" – "+fmtDMY_(l.endDate);
@@ -6793,7 +6819,7 @@ function renderSettingsModal(){
       ${renderPresencePanel_()}
     </div><hr class="divider">`:""}
     <div class="field">
-      <label>${S.user.isManager?"Team leave":"My leave"} <span style="font-weight:400;color:var(--ts);font-size:11px">(SANDBOX)</span></label>
+      <label>${S.user.isManager?"Team leave":"My leave"}</label>
       ${renderLeavePanel_()}
     </div><hr class="divider">
     ${S.user.isManager?`
