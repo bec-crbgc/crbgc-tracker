@@ -10083,6 +10083,7 @@ function renderTrainerCapacities_(){
       </div>
     </div>
     <div style="font-size:11px;color:var(--tm);margin-top:4px">Current = Active students per trainer · +Enrol = Enrolment Pipeline added · +Reg = Registration Pipeline added on top. Maximums, locations and working days are editable in the "Trainer Capacities Config" tab of the WIP sheet.</div>
+    ${d.sourceErrors && Object.keys(d.sourceErrors).length ? `<div style="font-size:11px;color:var(--redt);margin-top:6px">⚠ ${Object.keys(d.sourceErrors).map(k=>k+" spreadsheet couldn't be opened (Google returned: "+d.sourceErrors[k]+")").join(" · ")} — figures for that org show as zero. This is usually a transient Google Sheets error: hit Refresh.</div>` : ""}
   </div>`;
 
   h += renderTrainerMapSection_();
