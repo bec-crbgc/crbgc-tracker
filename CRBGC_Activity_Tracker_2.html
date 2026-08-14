@@ -135,6 +135,11 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 .divider{border:none;border-top:.5px solid var(--bd);margin:12px 0;}
 .w100{width:100%;}
 .text-red{color:var(--redt);} .text-green{color:var(--greent);} .text-amber{color:var(--ambert);}
+/* Trainer map colour key (2026-08-12): checkbox and name on one flex line,
+   vertically centred — fixes the misaligned tick boxes. */
+.leaflet-control-layers-overlays label{display:flex;align-items:center;margin:2px 0;}
+.leaflet-control-layers-overlays label > span{display:flex;align-items:center;gap:5px;}
+.leaflet-control-layers-overlays input[type="checkbox"]{margin:0 4px 0 0;flex:none;}
 </style>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
@@ -9888,11 +9893,25 @@ function renderTrainerMapSection_(){
   setTimeout(initTrainerMap_, 0);
   return `<div class="card">
     <div class="card-title"><i class="ti ti-map-2"></i> Trainer &amp; Student Map</div>
-    <div style="font-size:11px;color:var(--tm);margin-bottom:8px">Dots = current students at their employer's suburb/postcode (sized by student count, coloured by trainer). Flags = trainer bases — set each trainer's "Map Base (postcode or suburb)" in the Trainer Capacities Config tab to place them. The panel on the right of the map is the colour key — tick/untick a trainer to filter, or use All/None.</div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:8px">Dots = current students at their employer's suburb/postcode (sized by student count, coloured by trainer). Flags = trainer bases — set each trainer's "Map Base (postcode or suburb)" in the Trainer Capacities Config tab to place them. Click the layers icon (top right of the map) to open the colour key — tick/untick a trainer to filter, or use All/None.</div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:8px;cursor:pointer">
+      <input type="checkbox" ${S.trainerMapRadius?"checked":""} onchange="S.trainerMapRadius=this.checked;rebuildTrainerMap_()">
+      Show 75 km radius around each trainer base
+    </label>
     ${anyPoints ? `<div id="trainerMap" style="height:520px;border-radius:var(--r);border:1px solid var(--bd)"></div>` : `<div class="muted small">No mappable points yet.</div>`}
     ${geoDown ? `<div style="font-size:10px;color:var(--redt);margin-top:6px">⚠ The geocoding dataset couldn't be fetched on this load — locations are listed below instead of plotted. Try Refresh in a minute.</div>` : ""}
     ${unmapped.length ? `<div style="font-size:10px;color:var(--tm);margin-top:6px">Couldn't place: ${unmapped.slice(0,25).join(" · ")}${unmapped.length>25?" · +"+(unmapped.length-25)+" more":""}</div>` : ""}
   </div>`;
+}
+
+// 2026-08-12 (Bec: "option to show a 75km radius around that pin"):
+// destroys and re-creates the Leaflet map in place so the radius toggle
+// (and any future map option) applies without a full app re-render.
+function rebuildTrainerMap_(){
+  const el = document.getElementById("trainerMap");
+  if (el && el._leaflet_map) { el._leaflet_map.remove(); }
+  if (el) el._map_inited = false;
+  initTrainerMap_();
 }
 
 function initTrainerMap_(){
@@ -9911,6 +9930,7 @@ function initTrainerMap_(){
   if (el._map_inited) return;
   el._map_inited = true;
   const map = L.map(el).setView([-33.5, 148.5], 5);
+  el._leaflet_map = map;
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 18, attribution: "© OpenStreetMap contributors"
   }).addTo(map);
@@ -9947,20 +9967,32 @@ function initTrainerMap_(){
       L.marker([tp.lat,tp.lng], {icon: L.divIcon({className:"", html:`<div style="background:${t.color};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">⚑ ${tp.trainer.split(" ")[0]}</div>`, iconAnchor:[10,10]})})
         .bindPopup(`<b>${tp.trainer}</b><br>Base: ${tp.base} (${org})`)
         .addTo(t.group);
+      // 2026-08-12: optional 75 km service-radius ring around the base, in
+      // the trainer's colour — lives in the trainer's layer group so the
+      // per-trainer filter hides it too.
+      if (S.trainerMapRadius) {
+        L.circle([tp.lat,tp.lng], {radius:75000, color:t.color, weight:1.5, dashArray:"6 4", fillColor:t.color, fillOpacity:0.05, interactive:false})
+          .addTo(t.group);
+      }
       bounds.push([tp.lat,tp.lng]);
     });
   });
   const overlays = {};
-  let lastOrg = null;
   order.forEach(n=>{
     const t = trainers[n];
-    const orgTag = t.org !== lastOrg ? `<span style="display:block;font-size:9px;color:#888;font-weight:700;margin:${lastOrg?4:0}px 0 2px;letter-spacing:.05em">${t.org}</span>` : "";
-    lastOrg = t.org;
-    overlays[`${orgTag}<span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${t.color};margin-right:5px;vertical-align:-1px"></span>${n}${t.students?` <span style="color:#888">(${t.students})</span>`:""}`] = t.group;
+    // 2026-08-12 (Bec: tick boxes misaligned + key eats map space): each
+    // entry is ONE inline line — swatch, name, count, small org tag — with
+    // the flex alignment handled by the .leaflet-control-layers-overlays
+    // CSS in <head>. The old block-level org headings inside the labels
+    // were what threw the checkboxes off their rows.
+    overlays[`<span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${t.color};flex:none"></span><span>${n}</span>${t.students?`<span style="color:#888">(${t.students})</span>`:""}<span style="font-size:9px;color:#aaa;font-weight:700;letter-spacing:.04em">${t.org}</span>`] = t.group;
     t.group.addTo(map);
   });
   if (order.length) {
-    const ctl = L.control.layers(null, overlays, {collapsed:false}).addTo(map);
+    // collapsed:true minimises the key to the standard layers icon in the
+    // corner — click/hover it to open the full key, so the map keeps its
+    // space (Bec: "move/minimize the filter").
+    const ctl = L.control.layers(null, overlays, {collapsed:true}).addTo(map);
     // keep the key usable with many trainers: scroll instead of overflow
     const cel = ctl.getContainer();
     cel.style.maxHeight = "420px"; cel.style.overflowY = "auto"; cel.style.fontSize = "12px";
