@@ -136,6 +136,7 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 .w100{width:100%;}
 .text-red{color:var(--redt);} .text-green{color:var(--greent);} .text-amber{color:var(--ambert);}
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 </head>
 <body>
 <div id="app"></div>
@@ -9755,6 +9756,140 @@ function trainerCapPct_(pct){
   return `<span style="font-weight:700;color:${col}">${pct}%</span>`;
 }
 
+// 2026-08-11 (Bec: "can you add a map that shows our trainer location and
+// each student location (based off the employer address)?"): Leaflet map on
+// the Trainer Capacities tab. Student pins come pre-geocoded from the
+// backend payload (org.map.points — employer suburb/postcode aggregates,
+// coloured per trainer); trainer base pins (org.map.trainerPins) come from
+// the config tab's "Map Base (postcode or suburb)" column. Because render()
+// replaces the whole app subtree, the map is re-initialised after each
+// render of this tab via initTrainerMap_ (setTimeout 0) — renders on this
+// tab are rare (load + manual refresh), so the rebuild cost is fine.
+const TRAINER_MAP_COLORS_ = ["#1C3C6B","#C0392B","#1E8449","#B7950B","#7D3C98","#D35400","#148F77","#884EA0","#2E4053","#A93226","#196F3D","#B9770E"];
+function trainerMapColor_(idx){ return TRAINER_MAP_COLORS_[idx % TRAINER_MAP_COLORS_.length]; }
+
+function renderTrainerMapSection_(){
+  const d = S.trainerCap;
+  const anyMapObj = d && d.orgs && ["BAA","CWBTS"].some(o=>d.orgs[o] && d.orgs[o].map);
+  if (!anyMapObj) return ""; // pre-map backend payload — section simply absent
+  const anyPoints = ["BAA","CWBTS"].some(o=>d.orgs[o] && d.orgs[o].map && (d.orgs[o].map.points.length || d.orgs[o].map.trainerPins.length));
+  const unmapped = [].concat(...["BAA","CWBTS"].map(o=>(d.orgs[o]&&d.orgs[o].map)?d.orgs[o].map.unmapped:[]));
+  const geoDown = ["BAA","CWBTS"].some(o=>d.orgs[o]&&d.orgs[o].map&&!d.orgs[o].map.geoAvailable);
+  setTimeout(initTrainerMap_, 0);
+  return `<div class="card">
+    <div class="card-title"><i class="ti ti-map-2"></i> Trainer &amp; Student Map</div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:8px">Dots = current students at their employer's suburb/postcode (sized by student count, coloured by trainer). Flags = trainer bases — set each trainer's "Map Base (postcode or suburb)" in the Trainer Capacities Config tab to place them. Use the layers control (top right of the map) to show/hide each org.</div>
+    ${anyPoints ? `<div id="trainerMap" style="height:520px;border-radius:var(--r);border:1px solid var(--bd)"></div>` : `<div class="muted small">No mappable points yet.</div>`}
+    ${geoDown ? `<div style="font-size:10px;color:var(--redt);margin-top:6px">⚠ The geocoding dataset couldn't be fetched on this load — locations are listed below instead of plotted. Try Refresh in a minute.</div>` : ""}
+    ${unmapped.length ? `<div style="font-size:10px;color:var(--tm);margin-top:6px">Couldn't place: ${unmapped.slice(0,25).join(" · ")}${unmapped.length>25?" · +"+(unmapped.length-25)+" more":""}</div>` : ""}
+  </div>`;
+}
+
+function initTrainerMap_(){
+  const el = document.getElementById("trainerMap");
+  if (!el || !S.trainerCap) return;
+  if (typeof L === "undefined") {
+    // Lazy-load Leaflet JS once, then re-init.
+    if (window.__leafletLoading) return;
+    window.__leafletLoading = true;
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    s.onload = function(){ window.__leafletLoading = false; initTrainerMap_(); };
+    document.body.appendChild(s);
+    return;
+  }
+  if (el._map_inited) return;
+  el._map_inited = true;
+  const map = L.map(el).setView([-33.5, 148.5], 5);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18, attribution: "© OpenStreetMap contributors"
+  }).addTo(map);
+  const d = S.trainerCap;
+  const colorByTrainer = {};
+  let ci = 0;
+  const bounds = [];
+  const overlays = {};
+  ["BAA","CWBTS"].forEach(org=>{
+    const m = d.orgs[org] && d.orgs[org].map;
+    if (!m) return;
+    const group = L.layerGroup();
+    m.points.forEach(p=>{
+      if (colorByTrainer[p.trainer]===undefined) colorByTrainer[p.trainer]=trainerMapColor_(ci++);
+      const col = colorByTrainer[p.trainer];
+      const r = Math.min(4 + Math.sqrt(p.count)*3, 22);
+      L.circleMarker([p.lat,p.lng], {radius:r, color:col, weight:1.5, fillColor:col, fillOpacity:0.55})
+        .bindPopup(`<b>${p.label}</b><br>${p.trainer}<br>${p.count} student${p.count>1?"s":""} (${org})`)
+        .addTo(group);
+      bounds.push([p.lat,p.lng]);
+    });
+    m.trainerPins.forEach(t=>{
+      if (colorByTrainer[t.trainer]===undefined) colorByTrainer[t.trainer]=trainerMapColor_(ci++);
+      const col = colorByTrainer[t.trainer];
+      L.marker([t.lat,t.lng], {icon: L.divIcon({className:"", html:`<div style="background:${col};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">⚑ ${t.trainer.split(" ")[0]}</div>`, iconAnchor:[10,10]})})
+        .bindPopup(`<b>${t.trainer}</b><br>Base: ${t.base} (${org})`)
+        .addTo(group);
+      bounds.push([t.lat,t.lng]);
+    });
+    overlays[org+" ("+(m.points.reduce((s,p)=>s+p.count,0))+" students)"] = group;
+    group.addTo(map);
+  });
+  if (Object.keys(overlays).length) L.control.layers(null, overlays, {collapsed:false}).addTo(map);
+  if (bounds.length) map.fitBounds(bounds, {padding:[30,30]});
+}
+
+// 2026-08-11 (Bec: "for CWBTS can you give me another table that breaks
+// down the registration pipeline per trainer per location and number of
+// students"): renders the per-trainer-per-location Registration Pipeline
+// table from the payload's regBreakdown. Only appears for orgs whose reg
+// source declares a location column (CWBTS today) and tolerates an older
+// backend payload with no regBreakdown at all.
+function renderRegPipelineBreakdown_(o){
+  const rows = o.regBreakdown || [];
+  if (!rows.length) return "";
+  const total = rows.reduce((s,r)=>s+r.count,0);
+  // Per-trainer grouping: trainer named on its first row only, subtotal
+  // row when a trainer spans more than one location.
+  let body = "", i = 0;
+  while (i < rows.length) {
+    const trainer = rows[i].trainer;
+    const group = [];
+    while (i < rows.length && rows[i].trainer === trainer) { group.push(rows[i]); i++; }
+    const sub = group.reduce((s,r)=>s+r.count,0);
+    group.forEach((r,gi)=>{
+      body += `<tr style="border-bottom:.5px solid var(--bd)${trainer.indexOf("(not in config)")===0?";color:var(--ambert)":""}">
+        <td style="text-align:left;padding:5px 6px;font-weight:600">${gi===0?trainer:""}</td>
+        <td style="text-align:left;padding:5px 6px">${r.location}</td>
+        <td style="text-align:right;padding:5px 6px">${r.count}</td>
+      </tr>`;
+    });
+    if (group.length > 1) {
+      body += `<tr style="border-bottom:.5px solid var(--bd);background:var(--o2);font-size:11px">
+        <td style="text-align:left;padding:4px 6px"></td>
+        <td style="text-align:right;padding:4px 6px;color:var(--ts)">${trainer} total</td>
+        <td style="text-align:right;padding:4px 6px;font-weight:700">${sub}</td>
+      </tr>`;
+    }
+  }
+  return `<div style="margin-top:16px">
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px"><i class="ti ti-map-pin"></i> Registration Pipeline — by Trainer &amp; Location</div>
+    <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+      <thead><tr style="border-bottom:1.5px solid var(--bd)">
+        <th style="text-align:left;padding:5px 6px">Trainer</th>
+        <th style="text-align:left;padding:5px 6px">Location</th>
+        <th style="text-align:right;padding:5px 6px">Students</th>
+      </tr></thead>
+      <tbody>${body}
+        <tr style="font-weight:700;background:var(--o2)">
+          <td style="text-align:left;padding:5px 6px">TOTAL</td><td></td>
+          <td style="text-align:right;padding:5px 6px">${total}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </div>`;
+}
+
 function renderTrainerCapacities_(){
   if (!S.trainerCap && !S.trainerCapLoading && !S.trainerCapAttempted) refreshTrainerCapacities_();
   if (!S.trainerCap) {
@@ -9769,6 +9904,8 @@ function renderTrainerCapacities_(){
     </div>
     <div style="font-size:11px;color:var(--tm);margin-top:4px">Current = Active students per trainer · +Enrol = Enrolment Pipeline added · +Reg = Registration Pipeline added on top. Maximums, locations and working days are editable in the "Trainer Capacities Config" tab of the WIP sheet.</div>
   </div>`;
+
+  h += renderTrainerMapSection_();
 
   ["BAA","CWBTS"].forEach(org=>{
     const o = d.orgs && d.orgs[org];
@@ -9843,6 +9980,7 @@ function renderTrainerCapacities_(){
       ${(o.unallocated.current||o.unallocated.enrol||o.unallocated.reg) ? `<div style="font-size:10px;color:var(--tm);margin-top:8px">Not allocated to a trainer yet: ${o.unallocated.current} current student(s) · ${o.unallocated.enrol} enrolment pipeline · ${o.unallocated.reg} registration pipeline — these are excluded from the per-trainer rows above.</div>` : ""}
       ${o.unknownTrainers && o.unknownTrainers.length ? `<div style="font-size:10px;color:var(--ambert);margin-top:4px">⚠ Trainer name(s) found in the source data with no matching row in the Trainer Capacities Config tab (shown in amber above with no maximum) — add them to the config tab, or as an alias of an existing trainer if it's a spelling variant.</div>` : ""}
       ${(o.sourceMissing.current||o.sourceMissing.enrol||o.sourceMissing.reg) ? `<div style="font-size:10px;color:var(--redt);margin-top:4px">⚠ One or more ${org} source tabs could not be opened — the affected column(s) may be under-counted. Check the source spreadsheet links/permissions.</div>` : ""}
+      ${renderRegPipelineBreakdown_(o)}
     </div>`;
   });
   return h;
