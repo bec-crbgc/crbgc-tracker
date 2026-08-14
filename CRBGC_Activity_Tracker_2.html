@@ -9967,8 +9967,15 @@ function initTrainerMap_(){
       const t = trainers[p.trainer];
       t.students += p.count;
       const r = Math.min(4 + Math.sqrt(p.count)*3, 22);
+      // 2026-08-14 (Bec: "can the pins also show the student name and
+      // qualification?"): popup lists every student at this location with
+      // their qualification, scrollable when the list is long.
+      const esc = s=>String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      const stuList = (p.students&&p.students.length)
+        ? `<div style="max-height:160px;overflow-y:auto;margin-top:5px;padding-top:5px;border-top:1px solid #eee;font-size:11px;line-height:1.5">${p.students.map(s=>`<div><b>${esc(s.n)}</b>${s.q?`<span style="color:#777"> — ${esc(s.q)}</span>`:""}</div>`).join("")}</div>`
+        : "";
       L.circleMarker([p.lat,p.lng], {radius:r, color:t.color, weight:1.5, fillColor:t.color, fillOpacity:0.55})
-        .bindPopup(`<b>${p.label}</b><br>${p.trainer}<br>${p.count} student${p.count>1?"s":""} (${org})`)
+        .bindPopup(`<b>${p.label}</b><br>${p.trainer} · ${p.count} student${p.count>1?"s":""} (${org})${stuList}`, {maxWidth:320})
         .addTo(t.group);
       bounds.push([p.lat,p.lng]);
     });
