@@ -9756,6 +9756,116 @@ function trainerCapPct_(pct){
   return `<span style="font-weight:700;color:${col}">${pct}%</span>`;
 }
 
+// 2026-08-12 (Bec: "give every tab in the management dashboard the ability
+// to export via PDF/Excel"): Dashboard/Weekly/Daily/Trend already had both
+// exports — Trainer Capacities was the one tab without. Same conventions as
+// every other export: ExcelJS lazy-loaded from cdnjs for a real .xlsx (one
+// sheet per org + the CWBTS reg-by-location breakdown + map points), and
+// the PDF via the shared openPdfReportWindow_ print flow. The map itself
+// isn't printable — the PDF carries the tables; the map lives on screen.
+function downloadTrainerCapExcel_() {
+  if (!S.trainerCap) { alert("Trainer data hasn't loaded yet — open the Trainer Capacities tab first, then try exporting again."); return; }
+  const d = S.trainerCap;
+  const loadExcelJS = function(cb) {
+    if (window.ExcelJS) { cb(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
+    s.onload = cb;
+    s.onerror = function(){ alert("Could not load ExcelJS library"); };
+    document.head.appendChild(s);
+  };
+  loadExcelJS(function() {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "CRBGC Activity Tracker";
+    const HDR = {type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};
+    const ALT = {type:"pattern",pattern:"solid",fgColor:{argb:"FFF8F9FA"}};
+    const WHT = {type:"pattern",pattern:"solid",fgColor:{argb:"FFFFFFFF"}};
+    const TOT = {type:"pattern",pattern:"solid",fgColor:{argb:"FFD9E2F3"}};
+    ["BAA","CWBTS"].forEach(function(org){
+      const o = d.orgs[org];
+      if (!o) return;
+      const ws = wb.addWorksheet(org+" Capacity");
+      const headers = ["Trainer","Location","Days","Max","Current","At %","Avail","Enrol Pipe","Total (+Enrol)","At %","Avail","Reg Pipe","Total (+Reg)","At %","Avail"];
+      headers.forEach(function(h,i){ ws.getColumn(i+1).width = i===0?22:(i===1?26:11); });
+      const hr = ws.getRow(1);
+      headers.forEach(function(h,i){ const c=hr.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
+      let r = 2;
+      o.rows.forEach(function(row,i){
+        const fill = i%2===0?ALT:WHT;
+        [row.trainer,row.location,row.days,row.max||"",row.current,row.currentPct!==null?row.currentPct+"%":"",row.availNow??"",
+         row.enrol,row.withEnrol,row.withEnrolPct!==null?row.withEnrolPct+"%":"",row.availAfterEnrol??"",
+         row.reg,row.withReg,row.withRegPct!==null?row.withRegPct+"%":"",row.availAfterReg??""]
+          .forEach(function(v,ci){ const c=ws.getRow(r).getCell(ci+1); c.value=v; c.fill=fill; });
+        r++;
+      });
+      const t = o.totals;
+      ["TOTAL","","",t.max,t.current,t.currentPct!==null?t.currentPct+"%":"",t.availNow,
+       t.enrol,t.withEnrol,t.withEnrolPct!==null?t.withEnrolPct+"%":"",t.availAfterEnrol,
+       t.reg,t.withReg,t.withRegPct!==null?t.withRegPct+"%":"",t.availAfterReg]
+        .forEach(function(v,ci){ const c=ws.getRow(r).getCell(ci+1); c.value=v; c.fill=TOT; c.font={bold:true}; });
+      // reg-by-location breakdown sheet (CWBTS today)
+      if (o.regBreakdown && o.regBreakdown.length) {
+        const ws2 = wb.addWorksheet(org+" Reg by Location");
+        ["Trainer","Location","Students"].forEach(function(h,i){ const c=ws2.getRow(1).getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; ws2.getColumn(i+1).width=i===2?12:26; });
+        let r2=2;
+        o.regBreakdown.forEach(function(b,i){
+          const fill=i%2===0?ALT:WHT;
+          [b.trainer,b.location,b.count].forEach(function(v,ci){ const c=ws2.getRow(r2).getCell(ci+1); c.value=v; c.fill=fill; });
+          r2++;
+        });
+        ["TOTAL","",o.regBreakdown.reduce(function(s,b){return s+b.count;},0)].forEach(function(v,ci){ const c=ws2.getRow(r2).getCell(ci+1); c.value=v; c.fill=TOT; c.font={bold:true}; });
+      }
+      // map points sheet (student locations)
+      if (o.map && o.map.points && o.map.points.length) {
+        const ws3 = wb.addWorksheet(org+" Student Locations");
+        ["Trainer","Location","Students","Lat","Lng"].forEach(function(h,i){ const c=ws3.getRow(1).getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; ws3.getColumn(i+1).width=i<2?24:12; });
+        let r3=2;
+        o.map.points.slice().sort(function(a,b){ return a.trainer.localeCompare(b.trainer)||b.count-a.count; }).forEach(function(p,i){
+          const fill=i%2===0?ALT:WHT;
+          [p.trainer,p.label,p.count,p.lat,p.lng].forEach(function(v,ci){ const c=ws3.getRow(r3).getCell(ci+1); c.value=v; c.fill=fill; });
+          r3++;
+        });
+      }
+    });
+    wb.xlsx.writeBuffer().then(function(buffer) {
+      const blob = new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href=url; a.download="CRBGC_Trainer_Capacities_"+TODAY+".xlsx";
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    });
+  });
+}
+
+function downloadTrainerCapPDF_() {
+  if (!S.trainerCap) { alert("Trainer data hasn't loaded yet — open the Trainer Capacities tab first, then try exporting again."); return; }
+  const d = S.trainerCap;
+  let body = "";
+  ["BAA","CWBTS"].forEach(function(org){
+    const o = d.orgs[org];
+    if (!o) return;
+    const t = o.totals;
+    body += `<div class="rpt-section">
+      <div class="rpt-section-hdr">${org} — Trainer Capacities (snapshot ${d.asOf})</div>
+      <table class="rpt-table"><thead><tr><th>Trainer</th><th>Location</th><th>Days</th><th>Max</th><th>Current</th><th>At %</th><th>Avail</th><th>+Enrol</th><th>Total</th><th>At %</th><th>Avail</th><th>+Reg</th><th>Total</th><th>At %</th><th>Avail</th></tr></thead>
+      <tbody>
+        ${o.rows.map(function(r){ return `<tr><td>${r.trainer}</td><td>${r.location||""}</td><td>${r.days||""}</td><td>${r.max||"—"}</td><td>${r.current}</td><td>${r.currentPct!==null?r.currentPct+"%":"—"}</td><td>${r.availNow??"—"}</td><td>${r.enrol}</td><td>${r.withEnrol}</td><td>${r.withEnrolPct!==null?r.withEnrolPct+"%":"—"}</td><td>${r.availAfterEnrol??"—"}</td><td>${r.reg}</td><td>${r.withReg}</td><td>${r.withRegPct!==null?r.withRegPct+"%":"—"}</td><td>${r.availAfterReg??"—"}</td></tr>`; }).join("")}
+        <tr style="font-weight:700;background:#eef2f8"><td>TOTAL</td><td></td><td></td><td>${t.max}</td><td>${t.current}</td><td>${t.currentPct!==null?t.currentPct+"%":"—"}</td><td>${t.availNow}</td><td>${t.enrol}</td><td>${t.withEnrol}</td><td>${t.withEnrolPct!==null?t.withEnrolPct+"%":"—"}</td><td>${t.availAfterEnrol}</td><td>${t.reg}</td><td>${t.withReg}</td><td>${t.withRegPct!==null?t.withRegPct+"%":"—"}</td><td>${t.availAfterReg}</td></tr>
+      </tbody></table>
+    </div>`;
+    if (o.regBreakdown && o.regBreakdown.length) {
+      body += `<div class="rpt-section">
+        <div class="rpt-section-hdr">${org} — Registration Pipeline by Trainer &amp; Location</div>
+        <table class="rpt-table"><thead><tr><th>Trainer</th><th>Location</th><th>Students</th></tr></thead>
+        <tbody>${o.regBreakdown.map(function(b){ return `<tr><td>${b.trainer}</td><td>${b.location}</td><td>${b.count}</td></tr>`; }).join("")}
+        <tr style="font-weight:700;background:#eef2f8"><td>TOTAL</td><td></td><td>${o.regBreakdown.reduce(function(s,b){return s+b.count;},0)}</td></tr></tbody></table>
+      </div>`;
+    }
+  });
+  openPdfReportWindow_("Trainer Capacities Report — "+d.asOf, body);
+}
+
 // 2026-08-11 (Bec: "can you add a map that shows our trainer location and
 // each student location (based off the employer address)?"): Leaflet map on
 // the Trainer Capacities tab. Student pins come pre-geocoded from the
@@ -9778,7 +9888,7 @@ function renderTrainerMapSection_(){
   setTimeout(initTrainerMap_, 0);
   return `<div class="card">
     <div class="card-title"><i class="ti ti-map-2"></i> Trainer &amp; Student Map</div>
-    <div style="font-size:11px;color:var(--tm);margin-bottom:8px">Dots = current students at their employer's suburb/postcode (sized by student count, coloured by trainer). Flags = trainer bases — set each trainer's "Map Base (postcode or suburb)" in the Trainer Capacities Config tab to place them. Use the layers control (top right of the map) to show/hide each org.</div>
+    <div style="font-size:11px;color:var(--tm);margin-bottom:8px">Dots = current students at their employer's suburb/postcode (sized by student count, coloured by trainer). Flags = trainer bases — set each trainer's "Map Base (postcode or suburb)" in the Trainer Capacities Config tab to place them. The panel on the right of the map is the colour key — tick/untick a trainer to filter, or use All/None.</div>
     ${anyPoints ? `<div id="trainerMap" style="height:520px;border-radius:var(--r);border:1px solid var(--bd)"></div>` : `<div class="muted small">No mappable points yet.</div>`}
     ${geoDown ? `<div style="font-size:10px;color:var(--redt);margin-top:6px">⚠ The geocoding dataset couldn't be fetched on this load — locations are listed below instead of plotted. Try Refresh in a minute.</div>` : ""}
     ${unmapped.length ? `<div style="font-size:10px;color:var(--tm);margin-top:6px">Couldn't place: ${unmapped.slice(0,25).join(" · ")}${unmapped.length>25?" · +"+(unmapped.length-25)+" more":""}</div>` : ""}
@@ -9805,35 +9915,69 @@ function initTrainerMap_(){
     maxZoom: 18, attribution: "© OpenStreetMap contributors"
   }).addTo(map);
   const d = S.trainerCap;
-  const colorByTrainer = {};
-  let ci = 0;
+  // 2026-08-12 (Bec: "give a key to who is what colour and the ability to
+  // filter per trainer"): one layer group PER TRAINER, listed in the
+  // layers control with a colour swatch + student count — so the control
+  // is simultaneously the colour key and the per-trainer filter
+  // (tick/untick to show/hide a trainer). Colours are assigned in sorted
+  // org→trainer order so each trainer keeps the same colour between
+  // loads. The old whole-org toggles are covered by the "all/none" links
+  // added above the map.
   const bounds = [];
-  const overlays = {};
+  const trainers = {}; // name -> {org, color, group, students}
+  const order = [];
   ["BAA","CWBTS"].forEach(org=>{
     const m = d.orgs[org] && d.orgs[org].map;
     if (!m) return;
-    const group = L.layerGroup();
+    const names = [...new Set([].concat(m.points.map(p=>p.trainer), m.trainerPins.map(t=>t.trainer)))].sort((a,b)=>a.localeCompare(b));
+    names.forEach(n=>{
+      if (!trainers[n]) { trainers[n] = {org, color: trainerMapColor_(order.length), group: L.layerGroup(), students: 0}; order.push(n); }
+    });
     m.points.forEach(p=>{
-      if (colorByTrainer[p.trainer]===undefined) colorByTrainer[p.trainer]=trainerMapColor_(ci++);
-      const col = colorByTrainer[p.trainer];
+      const t = trainers[p.trainer];
+      t.students += p.count;
       const r = Math.min(4 + Math.sqrt(p.count)*3, 22);
-      L.circleMarker([p.lat,p.lng], {radius:r, color:col, weight:1.5, fillColor:col, fillOpacity:0.55})
+      L.circleMarker([p.lat,p.lng], {radius:r, color:t.color, weight:1.5, fillColor:t.color, fillOpacity:0.55})
         .bindPopup(`<b>${p.label}</b><br>${p.trainer}<br>${p.count} student${p.count>1?"s":""} (${org})`)
-        .addTo(group);
+        .addTo(t.group);
       bounds.push([p.lat,p.lng]);
     });
-    m.trainerPins.forEach(t=>{
-      if (colorByTrainer[t.trainer]===undefined) colorByTrainer[t.trainer]=trainerMapColor_(ci++);
-      const col = colorByTrainer[t.trainer];
-      L.marker([t.lat,t.lng], {icon: L.divIcon({className:"", html:`<div style="background:${col};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">⚑ ${t.trainer.split(" ")[0]}</div>`, iconAnchor:[10,10]})})
-        .bindPopup(`<b>${t.trainer}</b><br>Base: ${t.base} (${org})`)
-        .addTo(group);
-      bounds.push([t.lat,t.lng]);
+    m.trainerPins.forEach(tp=>{
+      const t = trainers[tp.trainer];
+      L.marker([tp.lat,tp.lng], {icon: L.divIcon({className:"", html:`<div style="background:${t.color};color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);white-space:nowrap">⚑ ${tp.trainer.split(" ")[0]}</div>`, iconAnchor:[10,10]})})
+        .bindPopup(`<b>${tp.trainer}</b><br>Base: ${tp.base} (${org})`)
+        .addTo(t.group);
+      bounds.push([tp.lat,tp.lng]);
     });
-    overlays[org+" ("+(m.points.reduce((s,p)=>s+p.count,0))+" students)"] = group;
-    group.addTo(map);
   });
-  if (Object.keys(overlays).length) L.control.layers(null, overlays, {collapsed:false}).addTo(map);
+  const overlays = {};
+  let lastOrg = null;
+  order.forEach(n=>{
+    const t = trainers[n];
+    const orgTag = t.org !== lastOrg ? `<span style="display:block;font-size:9px;color:#888;font-weight:700;margin:${lastOrg?4:0}px 0 2px;letter-spacing:.05em">${t.org}</span>` : "";
+    lastOrg = t.org;
+    overlays[`${orgTag}<span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${t.color};margin-right:5px;vertical-align:-1px"></span>${n}${t.students?` <span style="color:#888">(${t.students})</span>`:""}`] = t.group;
+    t.group.addTo(map);
+  });
+  if (order.length) {
+    const ctl = L.control.layers(null, overlays, {collapsed:false}).addTo(map);
+    // keep the key usable with many trainers: scroll instead of overflow
+    const cel = ctl.getContainer();
+    cel.style.maxHeight = "420px"; cel.style.overflowY = "auto"; cel.style.fontSize = "12px";
+    // all/none shortcuts at the top of the key
+    const bar = document.createElement("div");
+    bar.style.cssText = "padding:2px 4px 6px;border-bottom:1px solid #ddd;margin-bottom:4px;font-size:11px";
+    bar.innerHTML = `<a href="#" data-act="all" style="margin-right:10px">All</a><a href="#" data-act="none">None</a>`;
+    bar.addEventListener("click", function(ev){
+      ev.preventDefault();
+      const act = ev.target && ev.target.getAttribute("data-act");
+      if (!act) return;
+      order.forEach(n=>{ if (act==="all") trainers[n].group.addTo(map); else map.removeLayer(trainers[n].group); });
+      // sync the control's checkboxes
+      cel.querySelectorAll('input[type="checkbox"]').forEach(cb=>{ cb.checked = (act==="all"); });
+    });
+    cel.insertBefore(bar, cel.firstChild);
+  }
   if (bounds.length) map.fitBounds(bounds, {padding:[30,30]});
 }
 
@@ -9900,7 +10044,11 @@ function renderTrainerCapacities_(){
   let h = `<div class="card" style="padding:10px 14px">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
       <div class="card-title" style="margin:0"><i class="ti ti-users-group"></i> Trainer Capacities</div>
-      <div style="font-size:11px;color:var(--tm)">Snapshot ${d.asOf} · <a href="#" onclick="event.preventDefault();refreshTrainerCapacities_()">Refresh</a></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--tm)">Snapshot ${d.asOf} · <a href="#" onclick="event.preventDefault();refreshTrainerCapacities_()">Refresh</a></span>
+        <button onclick="downloadTrainerCapPDF_()" style="padding:6px 10px;border-radius:var(--r);border:1.5px solid #085041;background:#085041;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-download"></i> PDF</button>
+        <button onclick="downloadTrainerCapExcel_()" style="padding:6px 10px;border-radius:var(--r);border:1.5px solid #1d6f42;background:#1d6f42;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-table-export"></i> Excel</button>
+      </div>
     </div>
     <div style="font-size:11px;color:var(--tm);margin-top:4px">Current = Active students per trainer · +Enrol = Enrolment Pipeline added · +Reg = Registration Pipeline added on top. Maximums, locations and working days are editable in the "Trainer Capacities Config" tab of the WIP sheet.</div>
   </div>`;
