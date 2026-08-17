@@ -168,6 +168,17 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - QLD Growth tab (2026-08-17): the sprint scorecard/funnel/channels are
+//    ALL computed server-side in handleGetQldGrowth_ from milestone DATES
+//    in the "QLD Growth Pipeline" WIP tab — moving a stage stamps its date
+//    automatically ("The One Rule") and existing dates are NEVER
+//    overwritten. A pipeline entry reaching Registration ALSO counts in
+//    the main 2026 Registration dashboard under QLD (Bec: "count in
+//    both"), deduped by employer-name+week against activity-log
+//    registrations in mergeQldGrowthRegEvents_ — do not remove that dedupe
+//    or registrations logged in both places will double-count. Tab is
+//    manager + James/Johnson only (QLD_TEAM_). Test: _test_qld_growth.js.
+//
 //  - Trainer Capacities tab: the per-trainer counts come from TWO EXTERNAL
 //    spreadsheets with messy free-text trainer names — matching goes
 //    through normTrainerCapName_ (strip parentheticals + non-letters) plus
@@ -909,6 +920,16 @@ let S = {
   trainerCapLoading: false,
   trainerCapAttempted: false,
   trainerCapError: null,
+
+  // 2026-08-17 — QLD Growth 4-week sprint (Bec's brief + user guide).
+  // Same attempted-once gate class as trainerCap.
+  qldGrowth: null,
+  qldGrowthLoading: false,
+  qldGrowthAttempted: false,
+  qldGrowthError: null,
+  qldForm: null,        // employer add/edit form (null = closed)
+  qldCheckinWeek: null, // week selected in the check-in form
+  qldSaving: false,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -3920,10 +3941,13 @@ function renderApp(){
   // completely untouched.
   const CR_DETAIL_TABS = ["today","wknotes","notes","pipeline","calls","visits","thisweek","history"];
   const inCoordDetailMode = isManager && CR_DETAIL_TABS.includes(S.tab);
+  // 2026-08-17 (QLD Growth sprint): "qldgrowth" appears for the manager
+  // (full dashboard view) and for James & Johnson only (pipeline entry +
+  // weekly check-in) — Wayne's tab set is untouched per Bec's access choice.
   const tabs = isManager
-    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers"])
-    : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"];
-  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities"};
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers","qldgrowth"])
+    : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
+  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth"};
 
   let h=`<div class="hdr">
     <div class="hdr-top">
@@ -3984,6 +4008,7 @@ function renderApp(){
   if(S.tab==="daily"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerDailyTab_();  }
   if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerTrendTab_();  }
   if(S.tab==="trainers"){ h+=renderTrainerCapacities_(); }
+  if(S.tab==="qldgrowth"){ h+=renderQldGrowth_(); }
 
   // Push FAB
   h+=`<button class="push-fab" onclick="pushData()" ${S.syncing?"disabled":""}>
@@ -10455,6 +10480,401 @@ if (S.user) refreshCommencementRecovery_();
 setInterval(function(){
   if (S.modal && S.modal.type==="settings" && S.user && S.user.isManager && !S.presenceLoading) refreshPresence_();
 }, 15*1000);
+
+// ═══════════════════════════════════════════════════════════
+// QLD GROWTH 4-WEEK SPRINT (2026-08-17 — Bec's "QLD Growth – James &
+// Johnson Initial 4-Week Brief" + "QLD Growth Tracker User Guide")
+// ═══════════════════════════════════════════════════════════
+// Replaces the QLD_Growth_Automated_Tracker.xlsx workbook. James & Johnson
+// get a "QLD Growth" tab for pipeline entry + the weekly check-in; the
+// manager's "QLD Growth" tab shows the automated scorecard, funnel, channel
+// performance, actions & check-ins with PDF/Excel export. All data lives in
+// the WIP sheet ("QLD Growth Pipeline"/"Actions"/"Check-Ins" tabs) via
+// get_qld_growth / qld_employer / qld_action / qld_checkin (appscript.js).
+const QLD_TEAM_ = ["James Fox","Johnson Morgan"];
+
+function qldEsc_(s){ return String(s===undefined||s===null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+async function refreshQldGrowth_(){
+  // Same attempted-once gate class as trainerCap — set synchronously
+  // BEFORE the first await (see loadAllForDashboard's retry-storm comment).
+  S.qldGrowthLoading = true;
+  S.qldGrowthAttempted = true;
+  if (S.tab==="qldgrowth") render();
+  try {
+    const data = await jsonpFetch(WEBAPP_URL+"?action=get_qld_growth");
+    if (data && data.ok) { S.qldGrowth = data; S.qldGrowthError = null; }
+    else S.qldGrowthError = (data && data.msg) || "Unknown error";
+  } catch(e) {
+    S.qldGrowthError = "Network error: " + (e && e.message ? e.message : e);
+  }
+  S.qldGrowthLoading = false;
+  render();
+}
+
+function qldStageChip_(stage){
+  const map = {
+    "New Contact":       ["#F0F2F5","#555"],
+    "Contacted":         ["#E6F1FB","#0C447C"],
+    "Qualified Opportunity":["#FAEEDA","#633806"],
+    "Vacancy / Matching":["#FFEB9C","#7D6608"],
+    "Matched":           ["#E1F5EE","#085041"],
+    "Registration":      ["#C6EFCE","#375623"],
+    "Closed / Not Proceeding":["#FFC7CE","#9C0006"]
+  };
+  const c = map[stage] || map["New Contact"];
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;background:${c[0]};color:${c[1]};white-space:nowrap">${qldEsc_(stage)}</span>`;
+}
+
+function qldFupFlag_(r, today){
+  const open = r.stage!=="Registration" && r.stage!=="Closed / Not Proceeding";
+  if (!open) return "";
+  if (!r.followUpDate) return `<span style="font-size:10px;font-weight:700;color:var(--redt)">NO FOLLOW-UP</span>`;
+  if (r.followUpDate < today) return `<span style="font-size:10px;font-weight:700;color:var(--redt)">OVERDUE ${qldEsc_(r.followUpDate)}</span>`;
+  if (r.followUpDate === today) return `<span style="font-size:10px;font-weight:700;color:var(--ambert)">DUE TODAY</span>`;
+  return `<span style="font-size:10px;color:var(--tm)">Follow-up ${qldEsc_(r.followUpDate)}</span>`;
+}
+
+function qldTile_(lbl, actual, target){
+  const pct = target>0 ? Math.round(actual/target*100) : 0;
+  const col = pct>=100 ? "var(--greent)" : pct>=70 ? "var(--ambert)" : "var(--redt)";
+  return `<div style="flex:1 1 110px;text-align:center;padding:10px 6px;background:var(--s1);border-radius:var(--r)">
+    <div style="font-size:10px;color:var(--tm);margin-bottom:3px">${lbl}</div>
+    <div style="font-size:20px;font-weight:700">${actual}<span style="font-size:12px;color:var(--tm);font-weight:400"> / ${target}</span></div>
+    <div style="height:5px;background:var(--bd);border-radius:3px;margin-top:6px;overflow:hidden"><div style="height:100%;width:${Math.min(pct,100)}%;background:${col}"></div></div>
+  </div>`;
+}
+
+function renderQldGrowth_(){
+  if (!S.qldGrowth && !S.qldGrowthLoading && !S.qldGrowthAttempted) refreshQldGrowth_();
+  if (!S.qldGrowth) {
+    return `<div class="card"><div class="card-title"><i class="ti ti-trending-up"></i> QLD Growth — 4-Week Sprint</div>
+      ${S.qldGrowthLoading ? "Loading…" : `Not loaded${S.qldGrowthError?` — <span style="color:var(--redt)">${qldEsc_(S.qldGrowthError)}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshQldGrowth_()">Retry</a>`}</div>`;
+  }
+  const d = S.qldGrowth, isMgr = S.user.isManager, today = d.today;
+  const curWeek = d.scorecard.find(w=>w.current);
+
+  let h = `<div class="card" style="padding:10px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <div class="card-title" style="margin:0"><i class="ti ti-trending-up"></i> QLD Growth — 4-Week Sprint</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--tm)"><a href="#" onclick="event.preventDefault();refreshQldGrowth_()">Refresh</a></span>
+        ${isMgr?`<button onclick="downloadQldPDF_()" style="padding:6px 10px;border-radius:var(--r);border:1.5px solid #085041;background:#085041;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-download"></i> PDF</button>
+        <button onclick="downloadQldExcel_()" style="padding:6px 10px;border-radius:var(--r);border:1.5px solid #1d6f42;background:#1d6f42;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-table-export"></i> Excel</button>`:""}
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--tm);margin-top:4px">17 Aug – 11 Sep 2026 · James &amp; Johnson · Enter employer activity below — the scorecard, funnel and channel reporting update automatically.${curWeek?` Currently <b>${curWeek.label}</b> (${curWeek.display}).`:""}</div>
+  </div>`;
+
+  // ── Sprint KPI tiles (everyone) ──
+  h += `<div class="card"><div class="card-title" style="font-size:13px">Sprint progress vs targets</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${qldTile_("Employer Contacts", d.totals.contacts, d.totals.targets.contacts)}
+      ${qldTile_("Qualified Opps", d.totals.qualified, d.totals.targets.qualified)}
+      ${qldTile_("Vacancy / Matching", d.totals.vacancy, d.totals.targets.vacancy)}
+      ${qldTile_("Registrations", d.totals.registrations, d.totals.targets.registrations)}
+    </div>
+    <div style="font-size:11px;color:var(--ts);margin-top:8px;text-align:center">
+      ${d.totals.contacts} contacts → ${d.totals.qualified} qualified → ${d.totals.vacancy} vacancies → ${d.totals.matched} matched → <b>${d.totals.registrations} registrations</b>
+    </div>
+    ${d.flags.overdue||d.flags.noFollowUp?`<div style="font-size:11px;color:var(--redt);margin-top:6px;text-align:center">⚠ ${d.flags.overdue?d.flags.overdue+" overdue follow-up"+(d.flags.overdue>1?"s":""):""}${d.flags.overdue&&d.flags.noFollowUp?" · ":""}${d.flags.noFollowUp?d.flags.noFollowUp+" active without a follow-up date":""}</div>`:""}
+  </div>`;
+
+  // ── Weekly scorecard (everyone) ──
+  h += `<div class="card"><div class="card-title" style="font-size:13px">Weekly scorecard</div>
+  <div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:520px">
+    <tr style="color:var(--tm)"><th style="text-align:left;padding:4px 6px">Week</th><th style="padding:4px 6px">Contacts</th><th style="padding:4px 6px">Qualified</th><th style="padding:4px 6px">Vacancy</th><th style="padding:4px 6px">Registrations</th><th style="padding:4px 6px">C→Q</th><th style="padding:4px 6px">Q→V</th><th style="padding:4px 6px">V→R</th></tr>
+    ${d.scorecard.map(w=>{
+      const cell=(a,t)=>`<td style="text-align:center;padding:5px 6px;font-weight:700;color:${a>=t?"var(--greent)":a>=t*0.7?"var(--ambert)":"var(--redt)"}">${a}<span style="font-weight:400;color:var(--tm)">/${t}</span></td>`;
+      return `<tr style="${w.current?"background:var(--o2);":""}border-top:1px solid var(--bd)">
+        <td style="padding:5px 6px;white-space:nowrap">${w.current?"▶ ":""}<b>${w.label}</b> <span style="color:var(--tm)">${w.display}</span></td>
+        ${cell(w.contacts,w.targets.contacts)}${cell(w.qualified,w.targets.qualified)}${cell(w.vacancy,w.targets.vacancy)}${cell(w.registrations,w.targets.registrations)}
+        <td style="text-align:center;padding:5px 6px;color:var(--ts)">${w.convContactQual}%</td>
+        <td style="text-align:center;padding:5px 6px;color:var(--ts)">${w.convQualVac}%</td>
+        <td style="text-align:center;padding:5px 6px;color:var(--ts)">${w.convVacReg}%</td>
+      </tr>`;
+    }).join("")}
+  </table></div></div>`;
+
+  // ── Channel performance (manager) ──
+  if (isMgr) {
+    const chRows = Object.keys(d.channels).filter(k=>d.channels[k].contacts>0);
+    h += `<div class="card"><div class="card-title" style="font-size:13px">Channel performance</div>
+    ${chRows.length?`<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <tr style="color:var(--tm)"><th style="text-align:left;padding:4px 6px">Channel</th><th style="padding:4px 6px">Contacts</th><th style="padding:4px 6px">Qualified</th><th style="padding:4px 6px">Registrations</th></tr>
+      ${chRows.map(k=>`<tr style="border-top:1px solid var(--bd)"><td style="padding:5px 6px">${qldEsc_(k)}</td>
+        <td style="text-align:center;padding:5px 6px">${d.channels[k].contacts}</td>
+        <td style="text-align:center;padding:5px 6px">${d.channels[k].qualified}</td>
+        <td style="text-align:center;padding:5px 6px;font-weight:700">${d.channels[k].registrations}</td></tr>`).join("")}
+    </table>`:`<div style="font-size:12px;color:var(--tm)">No pipeline entries yet — channel comparison appears as employers are added.</div>`}</div>`;
+  }
+
+  // ── Employer Pipeline (everyone; team can add/edit) ──
+  const canEdit = isMgr || QLD_TEAM_.includes(S.user.coord);
+  const open = d.pipeline.filter(r=>r.stage!=="Registration" && r.stage!=="Closed / Not Proceeding");
+  const closed = d.pipeline.filter(r=>r.stage==="Registration" || r.stage==="Closed / Not Proceeding");
+  h += `<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <div class="card-title" style="margin:0;font-size:13px">Employer Pipeline <span style="font-weight:400;color:var(--tm)">(${d.flags.active} active)</span></div>
+    ${canEdit?`<button onclick="qldOpenForm_()" style="padding:6px 12px;border-radius:var(--r);border:none;background:var(--hdr);color:#fff;font-size:12px;font-weight:600;cursor:pointer"><i class="ti ti-plus"></i> Add employer</button>`:""}
+  </div>`;
+  if (S.qldForm) h += renderQldForm_(d);
+  if (!d.pipeline.length) h += `<div style="font-size:12px;color:var(--tm);margin-top:8px">No employers in the pipeline yet. Add an employer as soon as you've identified them as someone you're actively going to pursue.</div>`;
+  const rowHtml = r=>{
+    const stageSel = canEdit ? `<select onchange="qldUpdateStage_('${qldEsc_(r.id)}',this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:auto;max-width:170px">
+      ${d.stages.map(s=>`<option${s===r.stage?" selected":""}>${qldEsc_(s)}</option>`).join("")}</select>` : "";
+    return `<div style="border-top:1px solid var(--bd);padding:8px 0">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <b style="font-size:13px">${qldEsc_(r.employer)}</b>
+        ${qldStageChip_(r.stage)}
+        ${r.priority?`<span style="font-size:10px;font-weight:700;color:${r.priority==="High"?"var(--redt)":r.priority==="Medium"?"var(--ambert)":"var(--tm)"}">${qldEsc_(r.priority.toUpperCase())}</span>`:""}
+        <span style="flex:1"></span>
+        ${qldFupFlag_(r, today)}
+      </div>
+      <div style="font-size:11px;color:var(--ts);margin-top:3px">
+        ${qldEsc_(r.owner)}${r.location?` · ${qldEsc_(r.location)}`:""}${r.source?` · ${qldEsc_(r.source)}`:""}${r.contactPerson?` · ${qldEsc_(r.contactPerson)}`:""}${r.contactDetails?` (${qldEsc_(r.contactDetails)})`:""}
+      </div>
+      ${r.nextAction?`<div style="font-size:11px;margin-top:3px"><span style="color:var(--tm)">Next:</span> ${qldEsc_(r.nextAction)}</div>`:""}
+      ${r.apprenticeNeed?`<div style="font-size:11px;margin-top:2px"><span style="color:var(--tm)">Need:</span> ${qldEsc_(r.apprenticeNeed)}${r.potentialStudents?` · <span style="color:var(--tm)">Students:</span> ${qldEsc_(r.potentialStudents)}`:""}</div>`:""}
+      ${canEdit?`<div style="display:flex;gap:8px;margin-top:5px;align-items:center">${stageSel}
+        <button onclick="qldOpenForm_('${qldEsc_(r.id)}')" style="padding:3px 10px;font-size:11px;border:1px solid var(--bd);border-radius:4px;background:none;cursor:pointer;color:var(--ts)">Edit</button></div>`:""}
+    </div>`;
+  };
+  h += open.map(rowHtml).join("");
+  if (closed.length) h += `<details style="margin-top:8px"><summary style="font-size:11px;color:var(--tm);cursor:pointer">Registered / closed (${closed.length})</summary>${closed.map(rowHtml).join("")}</details>`;
+  h += `</div>`;
+
+  // ── Weekly Check-In ──
+  h += `<div class="card"><div class="card-title" style="font-size:13px">Weekly check-in</div>`;
+  if (canEdit && !isMgr) {
+    const wk = S.qldCheckinWeek || (curWeek?curWeek.label:d.sprint.weeks[0].label);
+    const ex = d.checkins.find(c=>c.week===wk) || {};
+    h += `<div style="font-size:11px;color:var(--tm);margin-bottom:6px">Answer the five questions at the end of the week — the tracker already knows the numbers; this is the story behind them.</div>
+    <label style="font-size:11px;color:var(--tm)">Week</label>
+    <select id="qci_week" onchange="S.qldCheckinWeek=this.value;render()" style="margin-bottom:6px">${d.sprint.weeks.map(w=>`<option${w.label===wk?" selected":""}>${w.label}</option>`).join("")}</select>
+    ${[["qci_created","What did we create?",ex.created],["qci_moved","What moved?",ex.moved],["qci_converted","What converted?",ex.converted],["qci_stuck","What is stuck?",ex.stuck],["qci_next","What happens next?",ex.next],["qci_support","Support / escalation needed from Bec",ex.support]].map(f=>
+      `<label style="font-size:11px;color:var(--tm)">${f[1]}</label><textarea id="${f[0]}" rows="2" style="width:100%;margin-bottom:6px;font-size:12px;padding:6px;border:1px solid var(--bd);border-radius:6px">${qldEsc_(f[2]||"")}</textarea>`).join("")}
+    <button onclick="qldSaveCheckin_()" ${S.qldSaving?"disabled":""} style="padding:8px 16px;border-radius:var(--r);border:none;background:var(--hdr);color:#fff;font-size:12px;font-weight:600;cursor:pointer">${S.qldSaving?"Saving…":"Save check-in"}</button>`;
+  }
+  if (d.checkins.length) {
+    h += d.checkins.map(c=>`<div style="border-top:1px solid var(--bd);margin-top:8px;padding-top:8px">
+      <b style="font-size:12px">${qldEsc_(c.week)}</b> <span style="font-size:10px;color:var(--tm)">— ${qldEsc_(c.submittedBy)} ${qldEsc_(c.submittedAt)}</span>
+      ${[["Created",c.created],["Moved",c.moved],["Converted",c.converted],["Stuck",c.stuck],["Next",c.next],["Support needed",c.support]].filter(x=>x[1]).map(x=>`<div style="font-size:11px;margin-top:3px"><span style="color:var(--tm)">${x[0]}:</span> ${qldEsc_(x[1])}</div>`).join("")}
+    </div>`).join("");
+  } else if (isMgr) {
+    h += `<div style="font-size:12px;color:var(--tm)">No check-ins submitted yet.</div>`;
+  }
+  h += `</div>`;
+
+  // ── Actions & Milestones ──
+  h += `<div class="card"><div class="card-title" style="font-size:13px">Actions &amp; milestones</div>
+    ${d.actions.map(a=>{
+      const overdue = a.status!=="Complete" && a.dueDate && a.dueDate < today;
+      return `<div style="border-top:1px solid var(--bd);padding:7px 0;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:12px;font-weight:600">${qldEsc_(a.action)}</div>
+          <div style="font-size:10px;color:${overdue?"var(--redt)":"var(--tm)"};margin-top:2px">Due ${qldEsc_(a.dueDate)}${overdue?" — OVERDUE":""} · ${qldEsc_(a.owner)}${a.completedDate?` · Completed ${qldEsc_(a.completedDate)}`:""}</div>
+          <div style="font-size:10px;color:var(--tm)">${qldEsc_(a.outcome)}</div>
+        </div>
+        ${canEdit?`<select onchange="qldSetActionStatus_(${a.row},this.value)" style="font-size:11px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;width:auto">
+          ${d.actionStatuses.map(s=>`<option${s===a.status?" selected":""}>${qldEsc_(s)}</option>`).join("")}</select>`
+        :`<span style="font-size:11px;font-weight:700;color:${a.status==="Complete"?"var(--greent)":a.status==="Blocked"||a.status==="At Risk"?"var(--redt)":"var(--ts)"}">${qldEsc_(a.status)}</span>`}
+      </div>`;
+    }).join("")}
+  </div>`;
+
+  return h;
+}
+
+function renderQldForm_(d){
+  const f = S.qldForm || {};
+  const isNew = !f.id;
+  const defOwner = f.owner || (S.user.coord==="James Fox"?"James":S.user.coord==="Johnson Morgan"?"Johnson":"James + Johnson");
+  const sel=(id,opts,cur,blank)=>`<select id="${id}">${blank?`<option value=""></option>`:""}${opts.map(o=>`<option${o===cur?" selected":""}>${qldEsc_(o)}</option>`).join("")}</select>`;
+  const inp=(id,val,ph,type)=>`<input id="${id}" type="${type||"text"}" value="${qldEsc_(val||"")}" placeholder="${qldEsc_(ph||"")}" style="margin-bottom:6px">`;
+  return `<div style="background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);padding:10px;margin-top:8px">
+    <div style="font-weight:700;font-size:12px;margin-bottom:6px">${isNew?"Add employer to the QLD pipeline":"Edit "+qldEsc_(f.employer||"")}</div>
+    <label style="font-size:11px;color:var(--tm)">Employer / Business *</label>${inp("qgf_employer",f.employer,"ABC Carpentry")}
+    <label style="font-size:11px;color:var(--tm)">Location</label>${inp("qgf_location",f.location,"Southport")}
+    <div style="display:flex;gap:8px"><div style="flex:1"><label style="font-size:11px;color:var(--tm)">Owner</label>${sel("qgf_owner",d.owners,defOwner)}</div>
+    <div style="flex:1"><label style="font-size:11px;color:var(--tm)">Source / Channel</label>${sel("qgf_source",d.sources,f.source||"Outbound Prospecting")}</div></div>
+    <div style="display:flex;gap:8px;margin-top:6px"><div style="flex:1"><label style="font-size:11px;color:var(--tm)">Contact Person</label>${inp("qgf_contact",f.contactPerson,"John Smith")}</div>
+    <div style="flex:1"><label style="font-size:11px;color:var(--tm)">Contact Details</label>${inp("qgf_details",f.contactDetails,"04XX XXX XXX")}</div></div>
+    <div style="display:flex;gap:8px"><div style="flex:1"><label style="font-size:11px;color:var(--tm)">Current Stage</label>${sel("qgf_stage",d.stages,f.stage||"New Contact")}</div>
+    <div style="flex:1"><label style="font-size:11px;color:var(--tm)">Priority</label>${sel("qgf_priority",d.priorities,f.priority||"Medium")}</div></div>
+    <label style="font-size:11px;color:var(--tm)">Apprentice Need / Vacancy</label>${inp("qgf_need",f.apprenticeNeed,"1 x Carpentry Apprentice – Gold Coast")}
+    <label style="font-size:11px;color:var(--tm)">Potential Students</label>${inp("qgf_students",f.potentialStudents,"Tom Brown – Southport – Carpentry")}
+    <label style="font-size:11px;color:var(--tm)">Next Action (be specific)</label>${inp("qgf_next",f.nextAction,"Call John Thursday to confirm apprentice requirements")}
+    <label style="font-size:11px;color:var(--tm)">Follow-Up Date</label>${inp("qgf_fup",f.followUpDate,"","date")}
+    <label style="font-size:11px;color:var(--tm)">Outcome / Notes</label>${inp("qgf_notes",f.notes,"")}
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="qldSaveEmployer_()" ${S.qldSaving?"disabled":""} style="padding:8px 16px;border-radius:var(--r);border:none;background:var(--hdr);color:#fff;font-size:12px;font-weight:600;cursor:pointer">${S.qldSaving?"Saving…":(isNew?"Add to pipeline":"Save changes")}</button>
+      <button onclick="S.qldForm=null;render()" style="padding:8px 16px;border-radius:var(--r);border:1px solid var(--bd);background:none;font-size:12px;cursor:pointer;color:var(--ts)">Cancel</button>
+    </div>
+  </div>`;
+}
+
+function qldOpenForm_(id){
+  if (id && S.qldGrowth) {
+    const r = S.qldGrowth.pipeline.find(x=>x.id===id);
+    S.qldForm = r ? Object.assign({}, r) : {};
+  } else {
+    S.qldForm = {};
+  }
+  render();
+}
+
+async function qldSaveEmployer_(){
+  if (S.qldSaving) return;
+  const v = id=>{ const el=document.getElementById(id); return el?el.value.trim():undefined; };
+  const employer = v("qgf_employer");
+  if (!employer) { alert("Employer / Business name is required."); return; }
+  const payload = {
+    id: S.qldForm && S.qldForm.id ? S.qldForm.id : undefined,
+    employer: employer, location: v("qgf_location"), owner: v("qgf_owner"), source: v("qgf_source"),
+    contactPerson: v("qgf_contact"), contactDetails: v("qgf_details"), stage: v("qgf_stage"),
+    priority: v("qgf_priority"), apprenticeNeed: v("qgf_need"), potentialStudents: v("qgf_students"),
+    nextAction: v("qgf_next"), followUpDate: v("qgf_fup"), notes: v("qgf_notes"),
+    updatedBy: S.user.coord
+  };
+  S.qldSaving = true; render();
+  try {
+    const r = await post("qld_employer", payload);
+    if (r && r.ok) {
+      S.qldForm = null;
+      S.status = {ok:true, msg:"QLD pipeline saved."};
+      await refreshQldGrowth_();
+    } else {
+      alert((r && r.msg) || "Could not save — please try again.");
+    }
+  } catch(e) {
+    alert("Network error saving — please try again. ("+(e&&e.message?e.message:e)+")");
+  } finally {
+    S.qldSaving = false; render();
+  }
+}
+
+async function qldUpdateStage_(id, stage){
+  if (S.qldSaving) return;
+  S.qldSaving = true; render();
+  try {
+    const r = await post("qld_employer", {id:id, stage:stage, updatedBy:S.user.coord});
+    if (r && r.ok) {
+      S.status = {ok:true, msg:"Stage updated — milestone date stamped automatically."};
+      await refreshQldGrowth_();
+    } else {
+      alert((r && r.msg) || "Could not update stage.");
+    }
+  } catch(e) {
+    alert("Network error — please try again.");
+  } finally {
+    S.qldSaving = false; render();
+  }
+}
+
+async function qldSetActionStatus_(row, status){
+  try {
+    const r = await post("qld_action", {row:row, status:status});
+    if (r && r.ok) await refreshQldGrowth_();
+    else alert((r && r.msg) || "Could not update the action.");
+  } catch(e) { alert("Network error — please try again."); }
+}
+
+async function qldSaveCheckin_(){
+  if (S.qldSaving) return;
+  const v = id=>{ const el=document.getElementById(id); return el?el.value.trim():""; };
+  const week = v("qci_week");
+  S.qldSaving = true; render();
+  try {
+    const r = await post("qld_checkin", {week:week, created:v("qci_created"), moved:v("qci_moved"),
+      converted:v("qci_converted"), stuck:v("qci_stuck"), next:v("qci_next"), support:v("qci_support"),
+      submittedBy:S.user.coord});
+    if (r && r.ok) {
+      S.status = {ok:true, msg:"Weekly check-in saved."};
+      await refreshQldGrowth_();
+    } else {
+      alert((r && r.msg) || "Could not save the check-in.");
+    }
+  } catch(e) {
+    alert("Network error saving the check-in — please try again.");
+  } finally {
+    S.qldSaving = false; render();
+  }
+}
+
+// ── Exports (same conventions as every other management tab) ──
+function downloadQldPDF_(){
+  if (!S.qldGrowth) { alert("QLD Growth data hasn't loaded yet — open the tab first, then try again."); return; }
+  const d = S.qldGrowth;
+  const tiles = `<div class="rpt-section"><div class="rpt-section-hdr">Sprint Progress (17 Aug – 11 Sep 2026)</div><div class="rpt-tiles">
+    ${[["Employer Contacts",d.totals.contacts,d.totals.targets.contacts],["Qualified Opportunities",d.totals.qualified,d.totals.targets.qualified],["Vacancy / Matching",d.totals.vacancy,d.totals.targets.vacancy],["Registrations",d.totals.registrations,d.totals.targets.registrations]]
+      .map(t=>`<div class="rpt-tile"><div class="lbl">${t[0]}</div><div class="val">${t[1]} / ${t[2]}</div></div>`).join("")}
+  </div><div class="rpt-note">Funnel: ${d.totals.contacts} contacts → ${d.totals.qualified} qualified → ${d.totals.vacancy} vacancies → ${d.totals.matched} matched → ${d.totals.registrations} registrations · ${d.flags.overdue} overdue follow-ups · ${d.flags.noFollowUp} active with no follow-up date</div></div>`;
+  const score = `<div class="rpt-section"><div class="rpt-section-hdr">Weekly Scorecard</div><table class="rpt-table">
+    <tr><th>Week</th><th>Contacts</th><th>Qualified</th><th>Vacancy</th><th>Registrations</th><th>C→Q</th><th>Q→V</th><th>V→R</th></tr>
+    ${d.scorecard.map(w=>`<tr><td>${w.label} (${w.display})${w.current?" ◀ current":""}</td>
+      <td>${w.contacts} / ${w.targets.contacts}</td><td>${w.qualified} / ${w.targets.qualified}</td>
+      <td>${w.vacancy} / ${w.targets.vacancy}</td><td>${w.registrations} / ${w.targets.registrations}</td>
+      <td>${w.convContactQual}%</td><td>${w.convQualVac}%</td><td>${w.convVacReg}%</td></tr>`).join("")}
+  </table></div>`;
+  const chans = `<div class="rpt-section"><div class="rpt-section-hdr">Channel Performance</div><table class="rpt-table">
+    <tr><th>Channel</th><th>Contacts</th><th>Qualified</th><th>Registrations</th></tr>
+    ${Object.keys(d.channels).filter(k=>d.channels[k].contacts>0).map(k=>`<tr><td>${qldEsc_(k)}</td><td>${d.channels[k].contacts}</td><td>${d.channels[k].qualified}</td><td>${d.channels[k].registrations}</td></tr>`).join("")||`<tr><td colspan="4">No entries yet</td></tr>`}
+  </table></div>`;
+  const pipe = `<div class="rpt-section"><div class="rpt-section-hdr">Employer Pipeline (${d.pipeline.length})</div><table class="rpt-table">
+    <tr><th>Employer</th><th>Owner</th><th>Location</th><th>Source</th><th>Stage</th><th>Priority</th><th>Next Action</th><th>Follow-Up</th></tr>
+    ${d.pipeline.map(r=>`<tr><td>${qldEsc_(r.employer)}</td><td>${qldEsc_(r.owner)}</td><td>${qldEsc_(r.location)}</td><td>${qldEsc_(r.source)}</td><td>${qldEsc_(r.stage)}</td><td>${qldEsc_(r.priority)}</td><td>${qldEsc_(r.nextAction)}</td><td>${qldEsc_(r.followUpDate)}</td></tr>`).join("")||`<tr><td colspan="8">No entries yet</td></tr>`}
+  </table></div>`;
+  const acts = `<div class="rpt-section"><div class="rpt-section-hdr">Actions &amp; Milestones</div><table class="rpt-table">
+    <tr><th>Due</th><th>Action</th><th>Owner</th><th>Status</th><th>Completed</th></tr>
+    ${d.actions.map(a=>`<tr><td>${qldEsc_(a.dueDate)}</td><td>${qldEsc_(a.action)}</td><td>${qldEsc_(a.owner)}</td><td>${qldEsc_(a.status)}</td><td>${qldEsc_(a.completedDate)}</td></tr>`).join("")}
+  </table></div>`;
+  const cis = d.checkins.length ? `<div class="rpt-section"><div class="rpt-section-hdr">Weekly Check-Ins</div>${d.checkins.map(c=>
+    `<div style="padding:8px 16px;border-bottom:1px solid #f0f0f0"><b>${qldEsc_(c.week)}</b> — ${qldEsc_(c.submittedBy)} ${qldEsc_(c.submittedAt)}<br>
+    ${[["Created",c.created],["Moved",c.moved],["Converted",c.converted],["Stuck",c.stuck],["Next",c.next],["Support",c.support]].filter(x=>x[1]).map(x=>`<span style="color:#888">${x[0]}:</span> ${qldEsc_(x[1])}`).join("<br>")}</div>`).join("")}</div>` : "";
+  openPdfReportWindow_("QLD Growth — 4-Week Sprint", tiles+score+chans+pipe+acts+cis);
+}
+
+function downloadQldExcel_(){
+  if (!S.qldGrowth) { alert("QLD Growth data hasn't loaded yet — open the tab first, then try again."); return; }
+  const d = S.qldGrowth;
+  const loadExcelJS = function(cb) {
+    if (window.ExcelJS) { cb(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
+    s.onload = cb;
+    s.onerror = function(){ alert("Could not load ExcelJS library"); };
+    document.head.appendChild(s);
+  };
+  loadExcelJS(async function(){
+    const wb = new ExcelJS.Workbook();
+    const hdr = (ws,cols)=>{ const r=ws.addRow(cols); r.font={bold:true,color:{argb:"FFFFFFFF"}}; r.eachCell(c=>{c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};}); };
+    const s1 = wb.addWorksheet("Scorecard");
+    hdr(s1,["Week","Dates","Contacts","Target","Qualified","Target","Vacancy","Target","Registrations","Target","C→Q %","Q→V %","V→R %"]);
+    d.scorecard.forEach(w=>s1.addRow([w.label,w.display,w.contacts,w.targets.contacts,w.qualified,w.targets.qualified,w.vacancy,w.targets.vacancy,w.registrations,w.targets.registrations,w.convContactQual,w.convQualVac,w.convVacReg]));
+    s1.addRow(["Sprint total","",d.totals.contacts,d.totals.targets.contacts,d.totals.qualified,d.totals.targets.qualified,d.totals.vacancy,d.totals.targets.vacancy,d.totals.registrations,d.totals.targets.registrations,"","",""]).font={bold:true};
+    const s2 = wb.addWorksheet("Employer Pipeline");
+    hdr(s2,["Date Added","Owner","Employer","Location","Source","Contact Person","Contact Details","Stage","Apprentice Need","Potential Students","Next Action","Follow-Up","Priority","Qualified","Vacancy","Matched","Registration","Closed","Notes"]);
+    d.pipeline.forEach(r=>s2.addRow([r.dateAdded,r.owner,r.employer,r.location,r.source,r.contactPerson,r.contactDetails,r.stage,r.apprenticeNeed,r.potentialStudents,r.nextAction,r.followUpDate,r.priority,r.qualifiedDate,r.vacancyDate,r.matchedDate,r.registrationDate,r.closedDate,r.notes]));
+    const s3 = wb.addWorksheet("Channels");
+    hdr(s3,["Channel","Contacts","Qualified","Registrations"]);
+    Object.keys(d.channels).forEach(k=>{ if(d.channels[k].contacts>0) s3.addRow([k,d.channels[k].contacts,d.channels[k].qualified,d.channels[k].registrations]); });
+    const s4 = wb.addWorksheet("Actions");
+    hdr(s4,["Due Date","Action","Owner","Status","Expected Outcome","Completed","Notes"]);
+    d.actions.forEach(a=>s4.addRow([a.dueDate,a.action,a.owner,a.status,a.outcome,a.completedDate,a.notes]));
+    const s5 = wb.addWorksheet("Check-Ins");
+    hdr(s5,["Week","Created","Moved","Converted","Stuck","Next","Support","Submitted By","Submitted At"]);
+    d.checkins.forEach(c=>s5.addRow([c.week,c.created,c.moved,c.converted,c.stuck,c.next,c.support,c.submittedBy,c.submittedAt]));
+    [s1,s2,s3,s4,s5].forEach(ws=>ws.columns.forEach(col=>{ let m=10; col.eachCell({includeEmpty:false},c=>{ m=Math.max(m,String(c.value||"").length+2); }); col.width=Math.min(m,40); }));
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "QLD_Growth_Sprint_"+(S.qldGrowth.today||"").replace(/-/g,"")+".xlsx";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  });
+}
+
 </script>
 </body>
 </html>
