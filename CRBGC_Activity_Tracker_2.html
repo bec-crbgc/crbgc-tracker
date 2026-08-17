@@ -539,6 +539,16 @@ const PFX = "baa2_";
 
 const COORDS = ["Wayne Mallia","James Fox","Johnson Morgan"];
 const STATES = {"Wayne Mallia":"VIC","James Fox":"NSW","Johnson Morgan":"QLD"};
+// 2026-08-17 QLD Growth sprint — who gets the "QLD Growth" tab (besides the
+// manager). MUST live up here with COORDS/STATES, NOT down in the QLD
+// Growth section at the bottom of the file: renderApp() reads it on the
+// very first render, and a `const` declared later in the same script block
+// is in the temporal dead zone at that point ("Cannot access 'QLD_TEAM_'
+// before initialization" — crashed the whole app on load, reported by Bec
+// 2026-08-17). Same bug class as the recoveryAsOf_/addDays crash on the
+// REGRESSION WATCH-LIST: top-level startup code runs before bottom-of-file
+// const/let declarations exist.
+const QLD_TEAM_ = ["James Fox","Johnson Morgan"];
 const MANAGER_CODE = "manager2026";
 
 const PRIMARY_FOCUS = [
@@ -10491,7 +10501,8 @@ setInterval(function(){
 // performance, actions & check-ins with PDF/Excel export. All data lives in
 // the WIP sheet ("QLD Growth Pipeline"/"Actions"/"Check-Ins" tabs) via
 // get_qld_growth / qld_employer / qld_action / qld_checkin (appscript.js).
-const QLD_TEAM_ = ["James Fox","Johnson Morgan"];
+// NOTE: QLD_TEAM_ is declared at the TOP of the file with COORDS/STATES —
+// see the TDZ crash comment there. Do not re-declare it here.
 
 function qldEsc_(s){ return String(s===undefined||s===null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 
