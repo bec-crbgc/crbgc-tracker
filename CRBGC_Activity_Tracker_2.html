@@ -1981,7 +1981,7 @@ function weeklyPaceActuals(coord, ds){
       const effType = effContactType(a);
       if(a.type==="commencement") T.commencement++;
       if(isRegistrationReached_(a)) T.registration++;
-      if(a.type==="enrolment") T.enrolment++;
+      // 2026-08-19 per Bec: Enrolments count ONLY Enrolment Pipeline entries moved to stage "Enrolled" — the standalone "enrolment" activity type no longer counts (was double-crediting the same enrolment when both were logged).
       if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled") T.enrolment++;
       if(effType==="acap_contact"||effType==="acap_f2f") T.acap_contact_attempted++;
       if(effType==="event") T.event++;
@@ -2321,7 +2321,7 @@ function weeklyTotals(coord,ds){
       if(isRegistrationReached_(a)) T.registration++;
       if(a.type==="registration" && a.contactOutcome==="Registered"){ T.reg_submitted++; }
       if(a.type==="registration" && a.newStage==="Sign-up booked") T.signup_booked++;
-      if(a.type==="enrolment") T.enrolment++;
+      // 2026-08-19 per Bec: Enrolments count ONLY Enrolment Pipeline entries moved to stage "Enrolled" — the standalone "enrolment" activity type no longer counts (was double-crediting the same enrolment when both were logged).
       if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled") T.enrolment++;
       if(a.type==="intro_call"){
         T.intro_call_due++;
@@ -5124,7 +5124,8 @@ function weeklyTileMetrics(coord, targetDate){
     // the full rationale. An existing lead being progressed through the
     // pipeline no longer inflates this tile.
     registrations:       acts.filter(isRegistrationReached_).length,
-    enrolments:          acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length,
+    // 2026-08-19 per Bec: Enrolments count ONLY Enrolment Pipeline entries moved to stage "Enrolled" — the standalone "enrolment" activity type no longer counts (was double-crediting the same enrolment when both were logged).
+    enrolments:          acts.filter(a=>a.type==="enrolment_pipeline"&&a.newStage==="Enrolled").length,
     // FIXED 2026-08-06 per Bec: "Pipeline progression attempts should show
     // any pipeline (enrolment/registrations) that have been logged in the
     // individuals pipeline tab regardless of whether they are marked as
@@ -5229,7 +5230,8 @@ function renderDailyDashboard(){
     // wrong signal — that's the outcome of TODAY's contact, not whether
     // this was a brand-new person).
     const registrations       = acts.filter(isRegistrationReached_).length;
-    const enrolments          = acts.filter(a=>a.type==="enrolment"||(a.type==="enrolment_pipeline"&&a.newStage==="Enrolled")).length; // marked as enrolled, or a standalone Enrolment record added
+    // 2026-08-19 per Bec: Enrolments count ONLY Enrolment Pipeline entries moved to stage "Enrolled" — the standalone "enrolment" activity type no longer counts (was double-crediting the same enrolment when both were logged).
+    const enrolments          = acts.filter(a=>a.type==="enrolment_pipeline"&&a.newStage==="Enrolled").length;
     // FIXED 2026-08-05 per Bec: "Pipeline Progression Attempts" only ever
     // counted the "pipeline" activity type (Registration Pipeline, i.e.
     // pre-registration lead progression) — it silently excluded
