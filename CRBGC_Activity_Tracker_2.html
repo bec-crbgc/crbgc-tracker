@@ -168,6 +168,13 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - Trend tab metrics (2026-08-17, Bec: "make it pull the same as the
+//    weekly"): the Trend tab + its Excel/PDF exports share ONE metric list
+//    (SHARED_TREND_METRICS_) computed by the SAME weeklyTileMetrics() the
+//    Weekly per-CR cards use. Do NOT re-add per-export metric lists or the
+//    old weeklyTotals-based definitions — that divergence is exactly what
+//    made Weekly and Trend disagree. Test: _test_trend_matches_weekly.js.
+//
 //  - QLD Growth tab (2026-08-17): the sprint scorecard/funnel/channels are
 //    ALL computed server-side in handleGetQldGrowth_ from milestone DATES
 //    in the "QLD Growth Pipeline" WIP tab — moving a stage stamps its date
@@ -2875,6 +2882,46 @@ function downloadWeeklyExcel() {
 }
 
 
+// 2026-08-17 (Bec: "can you make it pull the same as the weekly"): ONE
+// shared metric list for the Trend tab AND its Excel/PDF exports, using the
+// EXACT same definitions (and labels, and order) as the manager Weekly
+// per-CR cards — computed by the very same weeklyTileMetrics() those cards
+// use, so the two tabs can never disagree tile-for-tile again. Previously
+// Trend kept its own parallel definitions ("Calls attempted" = all employer
+// calls vs Weekly's Existing/New split; "Site visits" excluded
+// new-employer-met; "Student leads" and "Registrations" had subtly
+// different rules), which is why the numbers never reconciled. Overdue
+// follow-ups (live snapshot) and Productive days stay from weeklyTotals —
+// they have no Weekly-card tile equivalent. tgtKey names the
+// WEEKLY_TARGETS field used for the per-coordinator target column,
+// matching the Weekly card's own pace-target sources.
+const SHARED_TREND_METRICS_ = [
+  {label:"Registrations",                fn:function(T){return T.tiles.registrations;},         tgtKey:"registration"},
+  {label:"Enrolments",                   fn:function(T){return T.tiles.enrolments;},            tgtKey:"enrolment"},
+  {label:"Commencements",                fn:function(T){return T.tiles.commencements;},         tgtKey:"commencement"},
+  {label:"Pipeline Progression Attempts",fn:function(T){return T.tiles.pipelineContacted;}},
+  {label:"ACAP Contacts",                fn:function(T){return T.tiles.acapContacts;},          tgtKey:"acap_contact"},
+  {label:"Site Visits",                  fn:function(T){return T.tiles.siteVisits;},            tgtKey:"site_visit"},
+  {label:"Existing Employer Calls",      fn:function(T){return T.tiles.existingEmployerCalls;}, tgtKey:"employer_call"},
+  {label:"New Employer Calls",           fn:function(T){return T.tiles.newEmployerCalls;}},
+  {label:"New Employers Added",          fn:function(T){return T.tiles.newEmployersAdded;},     tgtKey:"new_employer_db"},
+  {label:"Total Contacts Attempted",     fn:function(T){return T.tiles.totalContactsAttempted;}},
+  {label:"Meaningful Contacts",          fn:function(T){return T.tiles.callsMeaningful;}},
+  {label:"New Student Leads",            fn:function(T){return T.tiles.leads;},                 tgtKey:"lead_generated"},
+  {label:"Events",                       fn:function(T){return T.tiles.events;},                tgtKey:"event"},
+  {label:"New Opportunity",              fn:function(T){return T.tiles.newOpportunity;}},
+  {label:"Overdue follow-ups",           fn:function(T){return T.followup_overdue;}, warn:true},
+  {label:"Productive days",              fn:function(T){return T.days_productive;}},
+];
+function trendWeekTotals_(coord, mon){
+  return Object.assign({}, weeklyTotals(coord, mon), {tiles: weeklyTileMetrics(coord, mon)});
+}
+function trendWeeklyTgt_(metric, state, coord){
+  if (metric.warn || !metric.tgtKey) return 0;
+  var t = WEEKLY_TARGETS[metric.tgtKey];
+  return t ? weeklyTargetFor_(t[state], coord, S.date) : 0;
+}
+
 function downloadTrendExcel() {
   const coordsToShow = S.dashFilter.coord==="all" ? COORDS : [S.dashFilter.coord];
   const tF = mondayOf(S.trendFrom || addWeeks(S.date,-7));
@@ -2888,39 +2935,18 @@ function downloadTrendExcel() {
   }
   const weekLabels = weeks.map(function(mon){ return fmtDateShort(mon); });
 
-  const TREND_METRICS = [
-    {label:"Commencements",           fn:function(T){return T.commencement;},         key:"commencement"},
-    {label:"Registrations",           fn:function(T){return T.registration;},         key:"registration"},
-    {label:"Calls attempted",         fn:function(T){return T.call_attempted;},       key:"call_attempted"},
-    {label:"Meaningful conversations",fn:function(T){return T.call_meaningful;}},
-    {label:"Site visits",             fn:function(T){return T.site_employers;},       key:"site_employers"},
-    {label:"ACAP contacts",           fn:function(T){return T.acap_contact_attempted;},key:"acap_contact"},
-    {label:"Opportunities",           fn:function(T){return T.opp_generated;}},
-    {label:"Pipeline progressed",     fn:function(T){return T.pipeline_progressed;}},
-    {label:"Pipeline no movement",    fn:function(T){return T.pipeline_no_movement;}, warn:true},
-    {label:"Pipeline overdue",        fn:function(T){return T.pipeline_overdue;},     warn:true},
-    {label:"New employers met",       fn:function(T){return T.new_employer_met;},     key:"new_employer_met"},
-    {label:"Student leads",           fn:function(T){return T.lead;},                key:"lead"},
-    {label:"Overdue follow-ups",      fn:function(T){return T.followup_overdue;},    warn:true},
-    {label:"Productive days",         fn:function(T){return T.days_productive;}},
-  ];
+  const TREND_METRICS = SHARED_TREND_METRICS_; // 2026-08-17: shared with the Weekly card — see SHARED_TREND_METRICS_
 
   const data = {};
   coordsToShow.forEach(function(coord) {
     data[coord] = {};
-    weeks.forEach(function(mon){ data[coord][mon] = weeklyTotals(coord, mon); });
+    weeks.forEach(function(mon){ data[coord][mon] = trendWeekTotals_(coord, mon); });
   });
 
-  function getWeeklyTgt(metricKey, warn, state, coord) {
-    if (warn || !metricKey) return 0;
-    const t = WEEKLY_TARGETS;
-    return metricKey==="commencement"?weeklyTargetFor_(t.commencement[state],coord,S.date):
-           metricKey==="registration"?weeklyTargetFor_(t.registration[state],coord,S.date):
-           metricKey==="call_attempted"?weeklyTargetFor_(t.employer_call[state],coord,S.date):
-           metricKey==="site_employers"?weeklyTargetFor_(t.site_visit[state],coord,S.date):
-           metricKey==="acap_contact"?weeklyTargetFor_(t.acap_contact[state],coord,S.date):
-           metricKey==="new_employer_met"?weeklyTargetFor_(t.new_employer_met[state],coord,S.date):
-           metricKey==="lead"?weeklyTargetFor_(t.lead_generated[state],coord,S.date):0;
+  function getWeeklyTgt(metric, state, coord) {
+    // 2026-08-17: delegates to the shared target lookup so Excel matches
+    // the on-screen Trend/Weekly targets exactly.
+    return trendWeeklyTgt_(metric, state, coord);
   }
 
   function ragFill(v, tgt, warn) {
@@ -3012,7 +3038,7 @@ function downloadTrendExcel() {
 
         // Combined weekly target
         const combinedTgt = coordList.reduce(function(sum,coord){
-          return sum + getWeeklyTgt(metric.key, metric.warn, STATES[coord], coord);
+          return sum + getWeeklyTgt(metric, STATES[coord], coord);
         },0);
 
         const latest = vals[0]||0, prev = vals[1]||0;
@@ -3366,25 +3392,12 @@ function downloadTrendPDF() {
     weeks.push(cur_.toISOString().substring(0,10));
     cur_.setDate(cur_.getDate()-7);
   }
-  const TREND_METRICS = [
-    {label:"Commencements",          fn:function(T){return T.commencement;},        key:"commencement"},
-    {label:"Registrations",          fn:function(T){return T.registration;},        key:"registration"},
-    {label:"Calls attempted",        fn:function(T){return T.call_attempted;},      key:"call_attempted"},
-    {label:"Meaningful conversations",fn:function(T){return T.call_meaningful;}},
-    {label:"Site visits",            fn:function(T){return T.site_employers;},      key:"site_employers"},
-    {label:"ACAP contacts",          fn:function(T){return T.acap_contact_attempted;},key:"acap_contact"},
-    {label:"Opportunities",          fn:function(T){return T.opp_generated;}},
-    {label:"Pipeline progressed",    fn:function(T){return T.pipeline_progressed;}},
-    {label:"New employers met",      fn:function(T){return T.new_employer_met;},    key:"new_employer_met"},
-    {label:"Student leads",          fn:function(T){return T.lead;},               key:"lead"},
-    {label:"Overdue follow-ups",     fn:function(T){return T.followup_overdue;},   warn:true},
-    {label:"Productive days",        fn:function(T){return T.days_productive;}},
-  ];
+  const TREND_METRICS = SHARED_TREND_METRICS_; // 2026-08-17: shared with the Weekly card
 
   const data = {};
   coordsToShow.forEach(function(coord) {
     data[coord] = {};
-    weeks.forEach(function(mon) { data[coord][mon] = weeklyTotals(coord, mon); });
+    weeks.forEach(function(mon) { data[coord][mon] = trendWeekTotals_(coord, mon); });
   });
 
   const weekHdrs = weeks.map(function(w){return fmtDateShort(w);}).join("</th><th>");
@@ -3429,13 +3442,7 @@ function downloadTrendPDF() {
         const trend = latest>prev?"↑":latest<prev?"↓":"→";
         const tCol  = metric.warn?(latest>prev?"#9C0006":latest<prev?"#375623":"#888"):(latest>prev?"#375623":latest<prev?"#9C0006":"#888");
         const rowBg = mi%2===0?"#f8f9fa":"#fff";
-        const weeklyTgt = metric.key==="commencement"?weeklyTargetFor_(tgt.commencement[state],coord,S.date):
-                          metric.key==="registration"?weeklyTargetFor_(tgt.registration[state],coord,S.date):
-                          metric.key==="call_attempted"?weeklyTargetFor_(tgt.employer_call[state],coord,S.date):
-                          metric.key==="site_employers"?weeklyTargetFor_(tgt.site_visit[state],coord,S.date):
-                          metric.key==="acap_contact"?weeklyTargetFor_(tgt.acap_contact[state],coord,S.date):
-                          metric.key==="new_employer_met"?weeklyTargetFor_(tgt.new_employer_met[state],coord,S.date):
-                          metric.key==="lead"?weeklyTargetFor_(tgt.lead_generated[state],coord,S.date):0;
+        const weeklyTgt = trendWeeklyTgt_(metric, state, coord); // 2026-08-17: shared lookup
         return `<tr style="background:${rowBg}">
           <td style="font-weight:600;color:${metric.warn?"#9C0006":"#1a1a1a"}">${metric.label}</td>
           <td style="font-weight:700;font-size:16px;color:${tCol};text-align:center">${trend}</td>
@@ -5407,28 +5414,15 @@ function renderTrendDashboard() {
     cur.setDate(cur.getDate()-7);
   }
 
-  // Key metrics to trend
-  const TREND_METRICS = [
-    {key:"commencement",    label:"Commencements",         fn:function(T){return T.commencement;}},
-    {key:"registration",    label:"Registrations",         fn:function(T){return T.registration;}},
-    {key:"call_attempted",  label:"Calls attempted",       fn:function(T){return T.call_attempted;}},
-    {key:"call_meaningful", label:"Meaningful convs",      fn:function(T){return T.call_meaningful;}},
-    {key:"site_employers",  label:"Site visits",           fn:function(T){return T.site_employers;}},
-    {key:"acap_contact",    label:"ACAP contacts",         fn:function(T){return T.acap_contact_attempted;}},
-    {key:"opp_generated",   label:"Opportunities",         fn:function(T){return T.opp_generated;}},
-    {key:"pipeline_prog",   label:"Pipeline progressed",   fn:function(T){return T.pipeline_progressed;}},
-    {key:"new_employer_met",label:"New employers met",     fn:function(T){return T.new_employer_met;}},
-    {key:"lead",            label:"Student leads",         fn:function(T){return T.lead;}},
-    {key:"followup_overdue",label:"Overdue follow-ups",    fn:function(T){return T.followup_overdue;}, warn:true},
-    {key:"days_productive", label:"Productive days",       fn:function(T){return T.days_productive;}},
-  ];
+  // 2026-08-17: same metrics/definitions as the Weekly per-CR cards.
+  const TREND_METRICS = SHARED_TREND_METRICS_;
 
   // Pre-calculate totals for each coord and week
   const data = {};
   coordsToShow.forEach(function(coord) {
     data[coord] = {};
     weeks.forEach(function(mon) {
-      data[coord][mon] = weeklyTotals(coord, mon);
+      data[coord][mon] = trendWeekTotals_(coord, mon);
     });
   });
 
@@ -5532,13 +5526,7 @@ function renderTrendDashboard() {
             : (latest>prev?"var(--greent)":latest<prev?"var(--redt)":"var(--tm)");
           const max = Math.max(...vals, 1);
           const tgt = WEEKLY_TARGETS;
-          const weeklyTgt = metric.key==="commencement"?weeklyTargetFor_(tgt.commencement[state],coord,S.date):
-                            metric.key==="registration"?weeklyTargetFor_(tgt.registration[state],coord,S.date):
-                            metric.key==="call_attempted"?weeklyTargetFor_(tgt.employer_call[state],coord,S.date):
-                            metric.key==="site_employers"?weeklyTargetFor_(tgt.site_visit[state],coord,S.date):
-                            metric.key==="acap_contact"?weeklyTargetFor_(tgt.acap_contact[state],coord,S.date):
-                            metric.key==="new_employer_met"?weeklyTargetFor_(tgt.new_employer_met[state],coord,S.date):
-                            metric.key==="lead"?weeklyTargetFor_(tgt.lead_generated[state],coord,S.date):0;
+          const weeklyTgt = trendWeeklyTgt_(metric, state, coord); // 2026-08-17: shared lookup
 
           return `<tr>
             <td style="padding:6px 8px;font-weight:600;background:${rowBg};color:${metric.warn?"var(--redt)":"var(--tp)"}">${metric.label}${weeklyTgt?`<div style="font-size:10px;color:var(--tm);font-weight:400">target: ${weeklyTgt}</div>`:""}
