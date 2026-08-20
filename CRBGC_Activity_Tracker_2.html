@@ -168,6 +168,15 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 // file, not just tests you think are related — several of these bugs
 // were reintroduced by edits that looked unrelated at the time.
 //
+//  - OKR Scorecard tab (2026-08-19, Bec's CRBGC_2026 OKRs.docx): computed
+//    ENTIRELY server-side by computeOkrScorecard_ (appscript.js) — lead
+//    SLA from Student Leads Date Added + open status; intro-call
+//    compliance from intro_call within24h; ACAP coverage matched by
+//    normalized org name against this month's/quarter's acap activities;
+//    employer DB growth counts ACTIVE rows only. Weekly KRs follow
+//    recoveryAsOf_ (the date picker); month/quarter/YTD are as-at.
+//    Test: _test_okr_scorecard.js.
+//
 //  - Trend tab metrics (2026-08-17, Bec: "make it pull the same as the
 //    weekly"): the Trend tab + its Excel/PDF exports share ONE metric list
 //    (SHARED_TREND_METRICS_) computed by the SAME weeklyTileMetrics() the
@@ -947,6 +956,13 @@ let S = {
   qldForm: null,        // employer add/edit form (null = closed)
   qldCheckinWeek: null, // week selected in the check-in form
   qldSaving: false,
+
+  // 2026-08-19 — OKR Scorecard (Bec's CRBGC_2026 OKRs.docx). Per-asOf
+  // attempted map, same gate class as regReco/commReco.
+  okr: null,
+  okrLoading: false,
+  okrAttempted: {},
+  okrError: null,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -3962,9 +3978,9 @@ function renderApp(){
   // (full dashboard view) and for James & Johnson only (pipeline entry +
   // weekly check-in) — Wayne's tab set is untouched per Bec's access choice.
   const tabs = isManager
-    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers","qldgrowth"])
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers","qldgrowth","okr"])
     : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
-  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth"};
+  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth",okr:"OKR Scorecard"};
 
   let h=`<div class="hdr">
     <div class="hdr-top">
@@ -4026,6 +4042,7 @@ function renderApp(){
   if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerTrendTab_();  }
   if(S.tab==="trainers"){ h+=renderTrainerCapacities_(); }
   if(S.tab==="qldgrowth"){ h+=renderQldGrowth_(); }
+  if(S.tab==="okr"){ h+=renderOkrScorecard_(); }
 
   // Push FAB
   h+=`<button class="push-fab" onclick="pushData()" ${S.syncing?"disabled":""}>
@@ -10871,6 +10888,269 @@ function downloadQldExcel_(){
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "QLD_Growth_Sprint_"+(S.qldGrowth.today||"").replace(/-/g,"")+".xlsx";
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// OKR SCORECARD (2026-08-19 — Bec's "CRBGC_2026 OKRs.docx")
+// ═══════════════════════════════════════════════════════════
+// Manager-only tab mirroring the Annual OKR & Performance Scorecard section
+// by section, computed server-side by get_okr_scorecard (see appscript.js's
+// OKR SCORECARD block for each KR's exact rule). Follows the recoveryAsOf_
+// convention: pick a past week with the date field and the weekly KRs
+// recalculate as at that week. Same attempted-once gate class as
+// regReco/commReco (keyed per asOf).
+
+async function refreshOkrScorecard_(){
+  const asOf = recoveryAsOf_();
+  S.okrLoading = true;
+  S.okrAttempted[asOf] = true;
+  if (S.tab==="okr") render();
+  try {
+    const data = await jsonpFetch(WEBAPP_URL+"?action=get_okr_scorecard&asOf="+encodeURIComponent(asOf));
+    if (data && data.ok) { S.okr = data; S.okrError = null; }
+    else S.okrError = (data && data.msg) || "Unknown error";
+  } catch(e) {
+    S.okrError = "Network error: " + (e && e.message ? e.message : e);
+  }
+  S.okrLoading = false;
+  render();
+}
+
+function okrVar_(v){
+  if (v === null || v === undefined) return "—";
+  const col = v > 0 ? "var(--greent)" : v < 0 ? "var(--redt)" : "var(--tm)";
+  return `<span style="font-weight:700;color:${col}">${v>0?"+":""}${v}</span>`;
+}
+
+function okrTable_(headers, rows){
+  return `<div style="overflow-x:auto;overscroll-behavior:contain;touch-action:pan-x pan-y">
+  <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px">
+    <tr>${headers.map((h,i)=>`<th style="padding:5px 6px;background:var(--hdr);color:#fff;text-align:${i===0?"left":"center"};white-space:nowrap">${h}</th>`).join("")}</tr>
+    ${rows.map((r,ri)=>`<tr style="background:${ri%2===0?"var(--s1)":"#fff"};${r.total?"font-weight:700;":""}">${r.cells.map((c,i)=>`<td style="padding:5px 6px;text-align:${i===0?"left":"center"};border-bottom:1px solid var(--bd)">${c}</td>`).join("")}</tr>`).join("")}
+  </table></div>`;
+}
+
+function okrSection_(title, sub, inner){
+  return `<div class="card"><div class="card-title" style="font-size:13px">${title}</div>
+    ${sub?`<div style="font-size:11px;color:var(--tm);margin-bottom:6px">${sub}</div>`:""}
+    ${inner}</div>`;
+}
+
+function renderOkrScorecard_(){
+  const asOf = recoveryAsOf_();
+  if ((!S.okr || S.okr.asOf!==asOf) && !S.okrLoading && !S.okrAttempted[asOf]) refreshOkrScorecard_();
+  if (!S.okr) {
+    return `<div class="card"><div class="card-title"><i class="ti ti-target-arrow"></i> OKR Scorecard</div>
+      ${S.okrLoading ? "Loading…" : `Not loaded${S.okrError?` — <span style="color:var(--redt)">${S.okrError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshOkrScorecard_()">Retry</a>`}</div>`;
+  }
+  const d = S.okr, STATES3 = ["VIC","NSW","QLD"];
+  const s3 = k => STATES3.map(st=>d.states[st][k]);
+
+  let h = `<div class="card" style="padding:10px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <div class="card-title" style="margin:0"><i class="ti ti-target-arrow"></i> OKR Scorecard</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--tm)">As at ${d.asOf} · Week ${fmtDate(d.week.start)} · Q${d.quarter} · <a href="#" onclick="event.preventDefault();refreshOkrScorecard_()">Refresh</a></span>
+        <button onclick="downloadOkrPDF_()" style="padding:6px 10px;border-radius:var(--r);border:1.5px solid #085041;background:#085041;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-download"></i> PDF</button>
+        <button onclick="downloadOkrExcel_()" style="padding:6px 10px;border-radius:var(--r);border:1.5px solid #1d6f42;background:#1d6f42;color:#fff;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap"><i class="ti ti-table-export"></i> Excel</button>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--tm);margin-top:4px">Mirrors the CRBGC 2026 Annual OKR &amp; Performance Scorecard. Weekly KRs follow the week selected in the date field; monthly/quarterly/YTD KRs are as at the date shown.</div>
+  </div>`;
+
+  // ── OBJECTIVE 1 ──
+  h += `<div class="card" style="padding:8px 14px;background:var(--hdr)"><div style="color:#fff;font-weight:700;font-size:13px">OBJECTIVE 1 — Eliminate Pipeline Leakage &amp; Accelerate Conversion Velocity</div></div>`;
+
+  h += okrSection_("KR 1.1 — State Performance Snapshots",
+    "Registrations vs weekly target, YTD budget position (pro-rata of annual target) and annual progress.",
+    okrTable_(["State","This Wk","Wk Target","Wk Var","YTD Actual","YTD Budget","YTD Var","Annual Tgt","% Done","Remaining","Forecast"],
+      STATES3.map(st=>{ const k=d.states[st].kr11; return {cells: k ? [st,k.thisWeekActual,k.weeklyTarget,okrVar_(k.weeklyVariance),k.ytdActual,k.ytdBudget,okrVar_(k.ytdVariance),k.annualTarget,k.pctAchieved+"%",k.remaining,k.forecastYearEnd] : [st,"—","—","—","—","—","—","—","—","—","—"]}; })));
+
+  h += okrSection_("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)",
+    "Open student leads by age since Date Added — a lead older than "+d.slaDays+" days without converting has breached the SLA.",
+    okrTable_(["State","Within SLA","Breached (>"+d.slaDays+"d)","Total Active Leads"],
+      STATES3.map(st=>{ const k=d.states[st].kr12; return {cells:[st, `${k.withinPct}% (${k.withinSla})`, `<span style="color:${k.breached?"var(--redt)":"var(--greent)"};font-weight:700">${k.breachedPct}% (${k.breached})</span>`, k.totalActive]}; })));
+
+  h += okrSection_("KR 1.3 — Employer Introduction Call Compliance",
+    "Intro calls logged year-to-date: contacted within 24 hours of registration vs missed. Registrations shown for context.",
+    okrTable_(["State","Registrations YTD","Intro Calls","≤24hrs","Missed SLA","Completion %"],
+      STATES3.map(st=>{ const k=d.states[st].kr13; return {cells:[st,k.regsYtd,k.ytd.calls,k.ytd.within24,k.ytd.missed,`<b>${k.ytd.pct}%</b>`]}; })));
+
+  // ── OBJECTIVE 2 ──
+  h += `<div class="card" style="padding:8px 14px;background:var(--hdr)"><div style="color:#fff;font-weight:700;font-size:13px">OBJECTIVE 2 — Deepen ACAP Partner Engagement</div></div>`;
+
+  h += okrSection_("KR 2.1 — ACAP Contact Discipline (this month)",
+    "Every active ACAP partner should receive at least one phone/contact engagement per calendar month.",
+    okrTable_(["State","Active ACAPs","Monthly Target","Contacted This Month","Variance"],
+      STATES3.map(st=>{ const k=d.states[st].kr21; return {cells:[st,k.activeAcaps,k.target,k.completed,okrVar_(k.variance)]}; })
+      .concat([{total:true, cells:["Total",d.totals.kr21.activeAcaps,d.totals.kr21.activeAcaps,d.totals.kr21.completed,okrVar_(d.totals.kr21.variance)]}])));
+
+  h += okrSection_("KR 2.2 — Face-to-Face Partner Engagement (this quarter)",
+    "Every active ACAP partner should receive at least one F2F visit per quarter.",
+    okrTable_(["State","Active ACAPs","Quarterly Target","F2F This Quarter","Variance"],
+      STATES3.map(st=>{ const k=d.states[st].kr22; return {cells:[st,k.activeAcaps,k.target,k.completed,okrVar_(k.variance)]}; })
+      .concat([{total:true, cells:["Total",d.totals.kr22.activeAcaps,d.totals.kr22.activeAcaps,d.totals.kr22.completed,okrVar_(d.totals.kr22.variance)]}])));
+
+  h += okrSection_("KR 2.3 — Event & Activation Strategy",
+    "Minimum one activation per state per quarter (4 per year).",
+    okrTable_(["State","Qtr Target","Qtr Actual","Annual Target","Annual Actual","Variance","Events"],
+      STATES3.map(st=>{ const k=d.states[st].kr23; return {cells:[st,k.qtrTarget,k.qtrActual,k.annualTarget,k.annualActual,okrVar_(k.variance),`<span style="font-size:10px">${k.notes||"—"}</span>`]}; })
+      .concat([{total:true, cells:["Total",3,d.totals.kr23.qtrActual,12,d.totals.kr23.annualActual,okrVar_(d.totals.kr23.variance),""]}])));
+
+  h += okrSection_("KR 2.4 — ACAP Data Integrity & Coverage",
+    "% of active ACAP records with a contact name and at least one of email/phone on file.",
+    okrTable_(["State","Active ACAPs","Database Completion %"],
+      STATES3.map(st=>{ const k=d.states[st].kr24; return {cells:[st,k.activeAcaps,`<b>${k.completePct}%</b>`]}; })));
+
+  // ── OBJECTIVE 3 ──
+  h += `<div class="card" style="padding:8px 14px;background:var(--hdr)"><div style="color:#fff;font-weight:700;font-size:13px">OBJECTIVE 3 — Accelerate Employer Growth</div></div>`;
+
+  h += okrSection_("KR 3.1 — Existing Employer Site Engagement (this week)", "",
+    okrTable_(["State","Visits","Employers Engaged","Site Locations"],
+      STATES3.map(st=>{ const k=d.states[st].kr31; return {cells:[st,k.visits,k.employersEngaged,k.locations]}; })
+      .concat([{total:true, cells:["Total",d.totals.kr31.visits,d.totals.kr31.employersEngaged,d.totals.kr31.locations]}])));
+
+  h += okrSection_("KR 3.2 — New Employer Acquisition (this week)", "",
+    okrTable_(["State","New Employers Met","Added to Database","Qualified Opportunities"],
+      STATES3.map(st=>{ const k=d.states[st].kr32; return {cells:[st,k.met,k.addedToDb,k.qualifiedOpps]}; })
+      .concat([{total:true, cells:["Total",d.totals.kr32.met,d.totals.kr32.addedToDb,d.totals.kr32.qualifiedOpps]}])));
+
+  h += okrSection_("KR 3.3 — Employer Database Growth Momentum (this week)",
+    "Active employer records only — inactive (Active = No) excluded.",
+    okrTable_(["State","Opening Database","New Added","Total Database","Weekly Growth %"],
+      STATES3.map(st=>{ const k=d.states[st].kr33; return {cells:[st,k.opening,k.added,k.total,`<b>${k.growthPct}%</b>`]}; })
+      .concat([{total:true, cells:["Total",d.totals.kr33.opening,d.totals.kr33.added,d.totals.kr33.total,`<b>${d.totals.kr33.growthPct}%</b>`]}])));
+
+  h += okrSection_("KR 3.4 — Lead Conversion from Employer Engagement (this week)", "",
+    okrTable_(["State","New Leads","Registrations","Enrolments","Commencements"],
+      STATES3.map(st=>{ const k=d.states[st].kr34; return {cells:[st,k.leads,k.registrations,k.enrolments,k.commencements]}; })
+      .concat([{total:true, cells:["Total",d.totals.kr34.leads,d.totals.kr34.registrations,d.totals.kr34.enrolments,d.totals.kr34.commencements]}])));
+
+  h += okrSection_("KR 3.5 — Strategic Relationship Management & Growth Activation",
+    "The manager's monthly narrative — not computed by the tracker. The PDF export includes the template headings (Key Stakeholder Engagement Activity · Commercial Opportunities Created · Strategic Growth Initiatives in Motion) ready to fill in.", "");
+
+  return h;
+}
+
+// ── Exports ──
+function downloadOkrPDF_(){
+  if (!S.okr) { alert("OKR data hasn't loaded yet — open the tab first, then try again."); return; }
+  const d = S.okr, STATES3 = ["VIC","NSW","QLD"];
+  const tbl = (title, sub, headers, rows) => `<div class="rpt-section"><div class="rpt-section-hdr">${title}</div>
+    ${sub?`<div class="rpt-note">${sub}</div>`:""}
+    <table class="rpt-table"><tr>${headers.map(x=>`<th>${x}</th>`).join("")}</tr>
+    ${rows.map(r=>`<tr${r.total?' class="total"':''}>${r.cells.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</table></div>`;
+  const obj = t => `<div class="rpt-section"><div class="rpt-section-hdr">${t}</div></div>`;
+  const v = x => (x>0?"+":"")+x;
+  let body = obj("OBJECTIVE 1 — Eliminate Pipeline Leakage & Accelerate Conversion Velocity");
+  body += tbl("KR 1.1 — State Performance Snapshots","YTD Budget = pro-rata of annual target by elapsed days.",
+    ["State","This Wk","Wk Target","Wk Var","YTD Actual","YTD Budget","YTD Var","Annual Tgt","% Done","Remaining","Forecast"],
+    STATES3.map(st=>{ const k=d.states[st].kr11||{}; return {cells:[st,k.thisWeekActual,k.weeklyTarget,v(k.weeklyVariance||0),k.ytdActual,k.ytdBudget,v(k.ytdVariance||0),k.annualTarget,(k.pctAchieved||0)+"%",k.remaining,k.forecastYearEnd]}; }));
+  body += tbl("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)","Open student leads by age since Date Added.",
+    ["State","Within SLA","Breached","Total Active Leads"],
+    STATES3.map(st=>{ const k=d.states[st].kr12; return {cells:[st,`${k.withinPct}% (${k.withinSla})`,`${k.breachedPct}% (${k.breached})`,k.totalActive]}; }));
+  body += tbl("KR 1.3 — Employer Introduction Call Compliance (YTD)","",
+    ["State","Registrations","Intro Calls","≤24hrs","Missed SLA","Completion %"],
+    STATES3.map(st=>{ const k=d.states[st].kr13; return {cells:[st,k.regsYtd,k.ytd.calls,k.ytd.within24,k.ytd.missed,k.ytd.pct+"%"]}; }));
+  body += obj("OBJECTIVE 2 — Deepen ACAP Partner Engagement");
+  body += tbl("KR 2.1 — ACAP Contact Discipline (this month)","",["State","Active ACAPs","Target","Completed","Variance"],
+    STATES3.map(st=>{ const k=d.states[st].kr21; return {cells:[st,k.activeAcaps,k.target,k.completed,v(k.variance)]}; })
+    .concat([{total:true,cells:["Total",d.totals.kr21.activeAcaps,d.totals.kr21.activeAcaps,d.totals.kr21.completed,v(d.totals.kr21.variance)]}]));
+  body += tbl("KR 2.2 — Face-to-Face Partner Engagement (this quarter)","",["State","Active ACAPs","Target","F2F Visits","Variance"],
+    STATES3.map(st=>{ const k=d.states[st].kr22; return {cells:[st,k.activeAcaps,k.target,k.completed,v(k.variance)]}; })
+    .concat([{total:true,cells:["Total",d.totals.kr22.activeAcaps,d.totals.kr22.activeAcaps,d.totals.kr22.completed,v(d.totals.kr22.variance)]}]));
+  body += tbl("KR 2.3 — Event & Activation Strategy","",["State","Qtr Tgt","Qtr Act","Annual Tgt","Annual Act","Variance","Events"],
+    STATES3.map(st=>{ const k=d.states[st].kr23; return {cells:[st,k.qtrTarget,k.qtrActual,k.annualTarget,k.annualActual,v(k.variance),k.notes||"—"]}; }));
+  body += tbl("KR 2.4 — ACAP Data Integrity & Coverage","",["State","Active ACAPs","Database Completion %"],
+    STATES3.map(st=>{ const k=d.states[st].kr24; return {cells:[st,k.activeAcaps,k.completePct+"%"]}; }));
+  body += obj("OBJECTIVE 3 — Accelerate Employer Growth");
+  body += tbl("KR 3.1 — Existing Employer Site Engagement (this week)","",["State","Visits","Employers Engaged","Site Locations"],
+    STATES3.map(st=>{ const k=d.states[st].kr31; return {cells:[st,k.visits,k.employersEngaged,k.locations]}; }));
+  body += tbl("KR 3.2 — New Employer Acquisition (this week)","",["State","Met","Added to DB","Qualified Opps"],
+    STATES3.map(st=>{ const k=d.states[st].kr32; return {cells:[st,k.met,k.addedToDb,k.qualifiedOpps]}; }));
+  body += tbl("KR 3.3 — Employer Database Growth","",["State","Opening","Added","Total","Growth %"],
+    STATES3.map(st=>{ const k=d.states[st].kr33; return {cells:[st,k.opening,k.added,k.total,k.growthPct+"%"]}; }));
+  body += tbl("KR 3.4 — Lead Conversion from Employer Engagement (this week)","",["State","Leads","Registrations","Enrolments","Commencements"],
+    STATES3.map(st=>{ const k=d.states[st].kr34; return {cells:[st,k.leads,k.registrations,k.enrolments,k.commencements]}; }));
+  body += `<div class="rpt-section"><div class="rpt-section-hdr">KR 3.5 — Strategic Relationship Management & Growth Activation (monthly narrative)</div>
+    <div style="padding:10px 16px;font-size:11px">
+      <b>1. Key Stakeholder Engagement Activity</b><br><br><br>
+      <b>2. Commercial Opportunities Created</b><br><br><br>
+      <b>3. Strategic Growth Initiatives in Motion</b><br><br><br>
+    </div></div>`;
+  openPdfReportWindow_("OKR Scorecard — as at "+d.asOf+" (Q"+d.quarter+")", body);
+}
+
+function downloadOkrExcel_(){
+  if (!S.okr) { alert("OKR data hasn't loaded yet — open the tab first, then try again."); return; }
+  const d = S.okr, STATES3 = ["VIC","NSW","QLD"];
+  const loadExcelJS = function(cb) {
+    if (window.ExcelJS) { cb(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
+    s.onload = cb;
+    s.onerror = function(){ alert("Could not load ExcelJS library"); };
+    document.head.appendChild(s);
+  };
+  loadExcelJS(async function(){
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("OKR Scorecard");
+    const hdr = cols => { const r = ws.addRow(cols); r.font={bold:true,color:{argb:"FFFFFFFF"}}; r.eachCell(c=>{c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};}); };
+    const sec = t => { const r = ws.addRow([t]); r.font={bold:true,size:12,color:{argb:"FF085041"}}; ws.addRow([]); };
+    ws.addRow(["CRBGC OKR Scorecard — as at "+d.asOf+" (Week "+d.week.start+", Q"+d.quarter+")"]).font={bold:true,size:14};
+    ws.addRow([]);
+    sec("KR 1.1 — State Performance Snapshots");
+    hdr(["State","This Wk","Wk Target","Wk Var","YTD Actual","YTD Budget","YTD Var","Annual Tgt","% Done","Remaining","Forecast"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr11||{}; ws.addRow([st,k.thisWeekActual,k.weeklyTarget,k.weeklyVariance,k.ytdActual,k.ytdBudget,k.ytdVariance,k.annualTarget,k.pctAchieved,k.remaining,k.forecastYearEnd]); });
+    ws.addRow([]);
+    sec("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)");
+    hdr(["State","Within SLA","Within %","Breached","Breached %","Total Active Leads"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr12; ws.addRow([st,k.withinSla,k.withinPct,k.breached,k.breachedPct,k.totalActive]); });
+    ws.addRow([]);
+    sec("KR 1.3 — Intro Call Compliance (YTD)");
+    hdr(["State","Registrations","Intro Calls","<=24hrs","Missed","Completion %"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr13; ws.addRow([st,k.regsYtd,k.ytd.calls,k.ytd.within24,k.ytd.missed,k.ytd.pct]); });
+    ws.addRow([]);
+    sec("KR 2.1 — ACAP Contact Discipline (this month)");
+    hdr(["State","Active ACAPs","Target","Completed","Variance"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr21; ws.addRow([st,k.activeAcaps,k.target,k.completed,k.variance]); });
+    ws.addRow([]);
+    sec("KR 2.2 — F2F Partner Engagement (this quarter)");
+    hdr(["State","Active ACAPs","Target","F2F Visits","Variance"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr22; ws.addRow([st,k.activeAcaps,k.target,k.completed,k.variance]); });
+    ws.addRow([]);
+    sec("KR 2.3 — Event & Activation Strategy");
+    hdr(["State","Qtr Target","Qtr Actual","Annual Target","Annual Actual","Variance","Events"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr23; ws.addRow([st,k.qtrTarget,k.qtrActual,k.annualTarget,k.annualActual,k.variance,k.notes]); });
+    ws.addRow([]);
+    sec("KR 2.4 — ACAP Data Integrity");
+    hdr(["State","Active ACAPs","Completion %"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr24; ws.addRow([st,k.activeAcaps,k.completePct]); });
+    ws.addRow([]);
+    sec("KR 3.1 — Site Engagement (this week)");
+    hdr(["State","Visits","Employers Engaged","Site Locations"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr31; ws.addRow([st,k.visits,k.employersEngaged,k.locations]); });
+    ws.addRow([]);
+    sec("KR 3.2 — New Employer Acquisition (this week)");
+    hdr(["State","Met","Added to DB","Qualified Opps"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr32; ws.addRow([st,k.met,k.addedToDb,k.qualifiedOpps]); });
+    ws.addRow([]);
+    sec("KR 3.3 — Employer Database Growth");
+    hdr(["State","Opening","Added","Total","Growth %"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr33; ws.addRow([st,k.opening,k.added,k.total,k.growthPct]); });
+    ws.addRow([]);
+    sec("KR 3.4 — Lead Conversion (this week)");
+    hdr(["State","Leads","Registrations","Enrolments","Commencements"]);
+    STATES3.forEach(st=>{ const k=d.states[st].kr34; ws.addRow([st,k.leads,k.registrations,k.enrolments,k.commencements]); });
+    ws.columns.forEach(col=>{ let m=10; col.eachCell({includeEmpty:false},c=>{ m=Math.max(m,String(c.value||"").length+2); }); col.width=Math.min(m,42); });
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "OKR_Scorecard_"+d.asOf.replace(/-/g,"")+".xlsx";
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),5000);
   });
