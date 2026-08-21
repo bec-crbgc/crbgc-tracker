@@ -7119,7 +7119,10 @@ function renderActivityModal(type,data){
 
   let fields=``;
   const needsOutcome=!["commencement","registration","enrolment"].includes(type);
-  const needsFollowup=!["commencement","enrolment","intro_call"].includes(type);
+  // 2026-08-21 (Bec fix #3): "event" added — the Event log no longer has a
+  // Next action / Follow-up date / Status block at all. Any lead met at an
+  // event is logged (and followed up) as its own Student Lead entry.
+  const needsFollowup=!["commencement","enrolment","intro_call","event"].includes(type);
 
   // ── STUDENT/COMMENCEMENT TYPES ─────────────────────────────────────────
   if(type==="commencement"){
@@ -8139,11 +8142,47 @@ function saveActivityFromModal_(type){
       }
       saveDay(origDay);
     }
+    // 2026-08-21 (Bec fixes #4/#5): closing ONE follow-up also clears every
+    // OTHER open, due-today-or-earlier follow-up for the same business /
+    // ACAP org / student from this device immediately — the server does
+    // the same to the underlying rows (closeSiblingFollowupRows_ +
+    // all-rows student update), so nothing reappears on the next refresh.
+    // Future-dated follow-ups (a scheduled next cycle) are left alone.
+    const entityKind = (type==="acap_contact"||type==="acap_f2f") ? "acap"
+      : (type==="lead"||type==="pipeline"||type==="registration"||type==="enrolment_pipeline") ? "student" : "employer";
+    const entityNorm = normalizeNameForMatch_(
+      entityKind==="acap" ? (act.acapOrg||"") :
+      entityKind==="student" ? (act.studentName||act.leadName||"") : (act.bizName||""));
+    const todayCut = S.date||TODAY;
+    const isSibling = function(a){
+      if (!a || a.id===closingFollowup.id) return false;
+      if (a.status==="Completed"||a.status==="Closed") return false;
+      if (!a.followUpDate || a.followUpDate > todayCut) return false;
+      const aKind = (a.type==="acap_contact"||a.type==="acap_f2f"||String(a.id||"").indexOf("auto_acap_")===0) ? "acap"
+        : (a.type==="lead"||a.type==="pipeline"||a.type==="registration"||a.type==="enrolment_pipeline"||String(a.id||"").indexOf("sl_")===0) ? "student" : "employer";
+      if (aKind !== entityKind) return false;
+      const aNorm = normalizeNameForMatch_(
+        aKind==="acap" ? (a.acapOrg||"") :
+        aKind==="student" ? (a.studentName||a.leadName||"") : (a.bizName||""));
+      return !!entityNorm && aNorm === entityNorm;
+    };
+    if (!rescheduled && entityNorm) {
+      try {
+        allDays(closingFollowup.coord).forEach(function(d){
+          const dd = loadDay(closingFollowup.coord, d);
+          let changed = false;
+          (dd.activities||[]).forEach(function(a){
+            if (isSibling(a)) { a.status="Completed"; a.closedDate=todayCut; changed = true; }
+          });
+          if (changed) saveDay(dd);
+        });
+      } catch(e_) {}
+    }
     try {
       const cacheKey = PFX+"followups:"+closingFollowup.coord;
       const cf_ = localStorage.getItem(cacheKey);
       let followups = cf_ ? JSON.parse(cf_) : [];
-      followups = followups.filter(a=>a.id!==closingFollowup.id);
+      followups = followups.filter(a=>a.id!==closingFollowup.id && !(!rescheduled && isSibling(a)));
       if (rescheduled && origAct) followups.push({...origAct});
       localStorage.setItem(cacheKey, JSON.stringify(followups));
     } catch(e_) {}
@@ -8261,6 +8300,26 @@ function openCloseFollowupModal(id, date, coord, name) {
     postcode: act.postcode||"", prevStage: act.prevStage||"", newStage: act.newStage||"",
     position: act.position||"", address: act.address||"", website: act.website||"",
   };
+  // 2026-08-21 (Bec fix #1): the mandatory Email field must pre-populate
+  // when closing a student-lead follow-up. The server now sends email on
+  // synthesized follow-ups; as a fallback (older cached entries, or a
+  // tracker-row follow-up that never carried it), pull the most recent
+  // email/phone this device has ever logged for the same student.
+  if ((!prefill.email || !prefill.mobile) && prefill.studentName) {
+    try {
+      const wantNorm = normalizeNameForMatch_(prefill.studentName);
+      let bestDate = "";
+      allDays(coord).forEach(function(d){
+        (loadDay(coord, d).activities||[]).forEach(function(a){
+          if (a.type!=="lead" && a.type!=="registration" && a.type!=="enrolment_pipeline") return;
+          if (normalizeNameForMatch_(a.studentName||a.leadName||"") !== wantNorm) return;
+          if (d < bestDate) return;
+          if (a.email && !act.email) { prefill.email = a.email; bestDate = d; }
+          if (a.mobile && !act.mobile) { prefill.mobile = prefill.mobile || a.mobile; }
+        });
+      });
+    } catch(e_) {}
+  }
   S.modal = {type:"activity", actType:origType, data:prefill,
     closingFollowup:{id, date, coord}};
   render();
@@ -8499,12 +8558,13 @@ function getAllOpenFollowupsForDash(coord) {
   allDays(coord).forEach(function(d) {
     const day = loadDay(coord, d);
     (day.activities||[]).forEach(function(a) {
+      if (a.type==="event") return; // 2026-08-21 (Bec fix #2): events never show as follow-ups
       if (a.followUpDate && a.status!=="Completed" && a.status!=="Closed" && !seen.has(a.id)) {
         seen.add(a.id); result.push(a);
       }
     });
   });
-  return result;
+  return result.filter(function(a){ return a.type!=="event"; }); // belt-and-braces for the cloud cache path too
 }
 
 function switchToCoord(coord){
