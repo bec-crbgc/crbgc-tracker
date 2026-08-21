@@ -531,6 +531,17 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    baseline+cutover, untouched. See the updated
 //    _test_commencement_recovery_backend.js /
 //    _test_commencement_recovery_runtime.js.
+//  - (2026-08-21, Bec: "if moved to a 'completed' status in the outcome
+//    section can you auto-populate in the status section"): picking a
+//    terminal outcome on any log form auto-sets the common Status field
+//    (cm_status) — see OUTCOME_AUTO_STATUS + the document-level "change"
+//    listener next to it. Success terminals (Enrolled/Registered/Sign-up
+//    completed/Registration completed) → "Completed"; dead ends (Not
+//    interested/Do not contact/Not suitable-closed) → "Closed". It NEVER
+//    overrides a manually chosen Status (data-autoset flag), and reverting
+//    the outcome reverts an auto-set Status to "Open". If you add a new
+//    outcome select id, add it to OUTCOME_SELECT_IDS_ or the new form
+//    silently misses this behaviour. See _test_outcome_auto_status.js.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -689,6 +700,34 @@ const ACT_OUTCOME_NEEDS_FOLLOWUP = [
   "Follow-up required","Apprentice vacancy identified","Student lead identified",
   "Employer meeting booked","Candidate referred to employer","Sign-up booked","Future opportunity"
 ];
+
+// 2026-08-21 per Bec: "if moved to a 'completed' status in the outcome
+// section can you auto-populate in the status section" — picking a terminal
+// outcome on any log form auto-sets the common Status field, so a finished
+// matter doesn't sit "Open" and keep generating follow-ups. Success
+// terminals → "Completed"; dead-end terminals → "Closed" (both drop out of
+// the follow-up lists). The rule never overrides a manual Status choice:
+// it only fires while Status is at the default "Open" or at a value this
+// rule itself set (tracked via data-autoset), and changing the outcome
+// back to a non-terminal one reverts an auto-set Status to "Open".
+const OUTCOME_AUTO_STATUS = {
+  "Enrolled":"Completed","Registered":"Completed",
+  "Sign-up completed":"Completed","Registration completed":"Completed",
+  "Not interested":"Closed","Do not contact — removed from list":"Closed",
+  "Not suitable/closed":"Closed",
+};
+const OUTCOME_SELECT_IDS_ = ["slead_outcome","reg_contact","acap_outcome",
+  "ec_outcome","ec_actout","sv_outcome","ne_outcome","ep_contact","pl_contact"];
+document.addEventListener("change", function(e){
+  const t=e.target; if(!t||!t.id) return;
+  if(t.id==="cm_status"){ t.dataset.autoset=""; return; } // manual pick — stop auto-managing
+  if(!OUTCOME_SELECT_IDS_.includes(t.id)) return;
+  const st=document.getElementById("cm_status"); if(!st) return;
+  const mapped=OUTCOME_AUTO_STATUS[t.value]||"";
+  if(mapped){
+    if(st.value==="Open"||st.dataset.autoset==="1"){ st.value=mapped; st.dataset.autoset="1"; }
+  } else if(st.dataset.autoset==="1"){ st.value="Open"; st.dataset.autoset=""; }
+});
 
 // Productive day thresholds per primary focus.
 // OVERHAULED per Bec, 2026-08: the original model (a flat "log at least N
