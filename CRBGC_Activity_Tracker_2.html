@@ -2004,9 +2004,10 @@ function weeklyPaceActuals(coord, ds){
       if(effType==="employer_call") T.call_attempted++;
       if(effType==="site_visit") T.site_employers++;
       if(effType==="new_employer_met") T.new_employer_met++;
-      if(a.type==="lead") T.lead++;
+      // 2026-08-20: T.lead set below via uniqueNewLeadCount_ (unique first-time students).
     });
   });
+  T.lead = uniqueNewLeadCount_(coord, days[0], days[days.length-1]);
   return T;
 }
 
@@ -2373,7 +2374,7 @@ function weeklyTotals(coord,ds){
       if((effRelType(a)||"")==="New employer acquired") T.new_employer_acq++;
       // Fresh-only per Bec: "student leads should only count new leads
       // added to database on that day" — same carve-out as the dashboards.
-      if(a.type==="lead") T.lead++;
+      // 2026-08-20: T.lead set AFTER the loop via uniqueNewLeadCount_ — see below.
       if(a.activityOutcome&&["Apprentice vacancy identified","Student lead identified","Employer meeting booked","Sign-up booked"].includes(a.activityOutcome)) T.opp_generated++;
       // FIXED 2026-08-06 per Bec: "Pipeline progressed should show any
       // pipeline (enrolment/registrations) that have had movement and are
@@ -2429,6 +2430,9 @@ function weeklyTotals(coord,ds){
   // show today's live count for every past week rather than a distinct
   // per-week value, since no historical snapshot of past open counts was
   // ever captured to begin with.
+  // 2026-08-20 per Bec: unique first-time students, not raw lead rows.
+  T.lead = uniqueNewLeadCount_(coord, days[0], days[days.length-1]);
+
   const allOpenFu = getAllOpenFollowupsForDash(coord);
   T.followup_open = allOpenFu.length;
   T.followup_overdue = allOpenFu.filter(function(f){ return f.followUpDate && isOverdue(f.followUpDate); }).length;
@@ -2577,7 +2581,7 @@ function downloadDailyExcel() {
         {label:"Meaningful conversations",val:acts.filter(isMeaningfulCall).length,                                   tgt:0,                                             obj:"o3"},
         {label:"Site visits",            val:acts.filter(function(a){return a.type==="site_visit";}).length,          tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.site_visit[s],coord,date))),    obj:"o3"},
         {label:"New employers met",      val:acts.filter(function(a){return a.type==="new_employer_met";}).length,    tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.new_employer_met[s],coord,date))),obj:"o3"},
-        {label:"Student leads",          val:acts.filter(function(a){return a.type==="lead";}).length,                tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.lead_generated[s],coord,date))),obj:"o3"},
+        {label:"Student leads",          val:uniqueNewLeadCount_(coord, date, date),                tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.lead_generated[s],coord,date))),obj:"o3"},
         {label:"Pipeline contacted",     val:acts.filter(function(a){return a.type==="pipeline";}).length,            tgt:0,                                             obj:"o3"},
         // 2026-08-06: widened to match renderPipeline()'s own definition —
         // pipeline + registration + enrolment_pipeline, see weeklyTotals().
@@ -3743,7 +3747,7 @@ function downloadDashboardPDF() {
       const callsMeaningful  = acts.filter(isMeaningfulCall).length;
       const siteVisits       = acts.filter(a=>a.type==="site_visit").length;
       const newEmployers     = acts.filter(a=>a.type==="new_employer_met"||a.type==="new_employer_db").length;
-      const leads            = acts.filter(a=>a.type==="lead").length;
+      const leads            = uniqueNewLeadCount_(coord, date, date); // 2026-08-20: unique first-time students
       const pipelineContacted= acts.filter(a=>a.type==="pipeline").length;
       // 2026-08-06: widened to match renderPipeline()'s own definition —
       // pipeline + registration + enrolment_pipeline, see weeklyTotals().
@@ -5108,6 +5112,30 @@ function renderHistory(coord,state){
 // every Mon-Fri day of the selected week instead of a single day, so a
 // closed follow-up logged on Tuesday still credits the correct tile in the
 // weekly card exactly as it would in that day's own Daily Dashboard card.
+// 2026-08-20 per Bec ("make New Student Leads tile count unique students"):
+// New Student Leads now counts UNIQUE STUDENTS whose FIRST-EVER lead entry
+// falls inside the given date range — not raw "Add Student Lead" activity
+// rows. A same-week double-log (Charlie Coy / Isaak Penman / Bodhi on
+// James's 17-21 Aug week) counts once, and re-logging a student first
+// added in an EARLIER week counts zero (that touch shows under Pipeline
+// Progression instead, where applicable). Scans this coordinator's full
+// locally-cached history to find each student's first lead date — same
+// all-time-scan convention as getAllOpenFollowupsForDash/origActLookup.
+function uniqueNewLeadCount_(coord, startDs, endDs){
+  const firstLeadByStu = {};
+  allDays(coord).forEach(function(d){
+    (loadDay(coord, d).activities||[]).forEach(function(a){
+      if (a.type!=="lead") return;
+      const k = normalizeNameForMatch_(a.studentName||a.leadName||"");
+      if (!k) return;
+      if (!firstLeadByStu[k] || d < firstLeadByStu[k]) firstLeadByStu[k] = d;
+    });
+  });
+  return Object.keys(firstLeadByStu).filter(function(k){
+    return firstLeadByStu[k] >= startDs && firstLeadByStu[k] <= endDs;
+  }).length;
+}
+
 function weeklyTileMetrics(coord, targetDate){
   const days = weekDaysMF(targetDate);
   const acts = days.reduce((all,d)=>all.concat(realDayActivities(loadDay(coord,d))), []);
@@ -5165,7 +5193,7 @@ function weeklyTileMetrics(coord, targetDate){
       || !["site_visit","new_employer_met","event"].includes(a.type)
     ).length,
     callsMeaningful:     acts.filter(isMeaningfulCall).length,
-    leads:               acts.filter(a=>a.type==="lead").length,
+    leads:               uniqueNewLeadCount_(coord, days[0], days[days.length-1]), // 2026-08-20: unique first-time students, see uniqueNewLeadCount_
     events:              acts.filter(a=>effContactType(a)==="event").length,
     newOpportunity: acts.filter(a=>
       OPPORTUNITY_OUTCOMES.includes(a.activityOutcome)
@@ -5303,7 +5331,7 @@ function renderDailyDashboard(){
     // a closed follow-up is a RE-contact with an already-existing lead,
     // not a brand-new lead being added to the database, so it should never
     // count here regardless of what its origType resolves to.
-    const leads                = acts.filter(a=>a.type==="lead").length; // ONLY genuinely new leads added to the database today — closed follow-ups never count here, even if their original activity was a "lead"
+    const leads                = uniqueNewLeadCount_(coord, date, date); // 2026-08-20: unique students whose FIRST-ever lead entry is today — double-logs and re-logs of existing leads never count (see uniqueNewLeadCount_)
     const events                = acts.filter(a=>effContactType(a)==="event").length; // now including closed Event follow-ups
     // 2026-08-05 per Bec: "New Opportunity" tile — any opportunity logged
     // against ANY contact type (employer calls, site visits, events, new
