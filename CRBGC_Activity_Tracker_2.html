@@ -8081,12 +8081,20 @@ function saveActivityFromModal_(type){
   // and Intro Call — those have no next-action concept) — previously only
   // required when the chosen outcome happened to be in
   // ACT_OUTCOME_NEEDS_FOLLOWUP, which left it optional for most entries.
-  if(!["commencement","enrolment","intro_call"].includes(type) && !act.nextAction) errors.push("Next action is required");
+  // 2026-08-25 (Bec's screenshot, James logging NSW Training Awards): the
+  // Event form lost its Next action/Follow-up date/Status block in the
+  // 2026-08-21 fix batch (item 3 — events don't generate follow-ups), but
+  // these two validation rules were not updated to match, so an event with
+  // an ACT_OUTCOME_NEEDS_FOLLOWUP outcome (e.g. "Future opportunity") was
+  // UNSAVEABLE — the errors named fields the form no longer has. "event"
+  // is now excluded from both checks; keep this list in sync with
+  // needsFollowup's own exclusion list in renderActivityModal.
+  if(!["commencement","enrolment","intro_call","event"].includes(type) && !act.nextAction) errors.push("Next action is required");
   // Action Completed Today — mandatory on the 3 forms that already have
   // this field (Registration, Pipeline, Enrolment Pipeline). Not added to
   // other types, which don't have this field on their form at all.
   if(["registration","pipeline","enrolment_pipeline"].includes(type) && !act.actionToday) errors.push("Action completed today is required");
-  if(ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
+  if(type!=="event" && ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
   // 2026-07-28: basic format checks — none of these existed before.
   if(!isValidEmail_(act.email)) errors.push("Email address doesn't look valid");
   if(!isValidPhone_(act.mobile)) errors.push("Mobile number doesn't look valid");
