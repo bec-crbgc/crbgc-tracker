@@ -542,6 +542,27 @@ button{padding:8px 16px;min-height:38px;border-radius:var(--r);border:1.5px soli
 //    the outcome reverts an auto-set Status to "Open". If you add a new
 //    outcome select id, add it to OUTCOME_SELECT_IDS_ or the new form
 //    silently misses this behaviour. See _test_outcome_auto_status.js.
+//  - (2026-09-14, Bec issues 1+2: "weekly review is wigging out … save
+//    button on weekly not saving"): render() now snapshots and restores
+//    in-progress typing in the known free-text fields (PRESERVE_FIELD_IDS_
+//    — wr1–3, the four daily-note boxes, focus fields) plus focus/caret,
+//    because every innerHTML rebuild used to wipe uncommitted text (the
+//    reflection boxes only persist on Save; daily notes only onchange).
+//    Restoration is context-keyed (coord|date|tab) so navigation never
+//    transplants text. If you add a new free-text field that isn't saved
+//    oninput, add its id to PRESERVE_FIELD_IDS_. Separately, pushData now
+//    pushes EVERY dirty reflection week (localStorage wkrefDirty list),
+//    not just the currently-viewed week. See _test_wknotes_fixes_batch.js.
+//  - (2026-09-14, Bec item 4): "On hold — no capacity" outcome on the
+//    Employer Call form parks an employer: Status auto-sets to "On hold",
+//    and "On hold" rows are EXCLUDED from every follow-up/overdue list,
+//    local sibling sweep, and pull-reconciliation close on both frontend
+//    and backend (search `"On hold"` at the status filters). The backend
+//    also sets the employer's Follow-Up Required to "No" and clears Next
+//    Contact Date (updateEmployerDatabase's onHoldNoCap_ branch) so auto
+//    reminders stop regenerating. An explicit follow-up date on the same
+//    form overrides the park ("on hold until <date>"). Do not add
+//    "On hold" to any close/dedupe sweep as a closable status.
 //
 // ═══════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -601,7 +622,17 @@ const CALL_OUTCOMES = [
 // Lead and Pipeline's own Outcome dropdowns — widening CALL_OUTCOMES
 // itself would have silently added this option to those two unrelated
 // forms as well).
-const EMPLOYER_CALL_OUTCOMES = CALL_OUTCOMES.concat(["Future opportunity"]);
+// 2026-09-14 per Bec (handwritten list item 4): "Option to put new
+// employer follow-ups 'on hold' due to 'no capacity'" — same scoping
+// decision as "Future opportunity" above: added to the Employer Call
+// form's primary Outcome dropdown only (the form every employer follow-up
+// closes through), not the shared CALL_OUTCOMES list. Picking it auto-sets
+// Status to "On hold" (see OUTCOME_AUTO_STATUS), and "On hold" rows are
+// excluded from every follow-up/overdue list on both frontend and backend
+// — parked, not chased. The backend also flips the employer's Follow-Up
+// Required to "No" and clears their Next Contact Date so no new auto
+// reminder regenerates (see updateEmployerDatabase's onHoldNoCap block).
+const EMPLOYER_CALL_OUTCOMES = CALL_OUTCOMES.concat(["Future opportunity","On hold — no capacity"]);
 
 const ENROLMENT_CONTACT_OUTCOMES = [
   "Enrolled","Connected – meaningful conversation","Connected – no current opportunity",
@@ -715,6 +746,7 @@ const OUTCOME_AUTO_STATUS = {
   "Sign-up completed":"Completed","Registration completed":"Completed",
   "Not interested":"Closed","Do not contact — removed from list":"Closed",
   "Not suitable/closed":"Closed",
+  "On hold — no capacity":"On hold", // 2026-09-14 Bec item 4 — parked, not chased
 };
 const OUTCOME_SELECT_IDS_ = ["slead_outcome","reg_contact","acap_outcome",
   "ec_outcome","ec_actout","sv_outcome","ne_outcome","ep_contact","pl_contact"];
@@ -2440,7 +2472,7 @@ function weeklyTotals(coord,ds){
         if(a.newStage&&a.prevStage&&a.newStage===a.prevStage) T.pipeline_no_movement++;
         // 2026-07-28: pipeline-specific overdue, distinct from the general
         // T.followup_overdue (which also includes non-pipeline activities).
-        if(a.followUpDate && a.status!=="Completed" && a.status!=="Closed" && isOverdue(a.followUpDate)) T.pipeline_overdue++;
+        if(a.followUpDate && a.status!=="Completed" && a.status!=="Closed" && a.status!=="On hold" && isOverdue(a.followUpDate)) T.pipeline_overdue++;
         if(a.newStage==="Sign-up booked") T.signup_booked++;
         if(a.newStage==="Sign-up completed") T.signup_done++;
         if(a.newStage==="Registration submitted") T.reg_submitted++;
@@ -3990,11 +4022,55 @@ function downloadDashboardPDF() {
 // ═══════════════════════════════════════════════════════════
 // RENDER ENGINE
 // ═══════════════════════════════════════════════════════════
+// 2026-09-14 (Bec issue 1: "weekly review is wigging out, daily could be a
+// sync issue" + issue 2: "save button on weekly not saving"): the real
+// cause was never the sync CADENCE — it's that render() rebuilds the whole
+// page with innerHTML, and none of the free-text boxes on Wk Notes (wr1–3,
+// which only persist on the Save button) or Daily Notes (nwins etc., which
+// only persist onchange, i.e. on blur) survive that. Every sync
+// start/finish, cloud pull, or status update re-renders — so text being
+// typed VANISHED mid-word ("wigging out"), and by the time the coordinator
+// hit Save the box had already been wiped ("save does nothing"). Fix:
+// render() now snapshots in-progress values of these known free-text
+// fields (plus focus + caret of whichever one is active) and restores them
+// into the rebuilt DOM. Restoration is skipped whenever the render context
+// (coord / date / tab) changed, so switching week, day, or tab still shows
+// that context's own stored values, never a transplant of half-typed text.
+const PRESERVE_FIELD_IDS_=["wr1","wr2","wr3","nwins","nblockers","npipeline","ncampaign","focus_outline","focus_shortfall","focus_other"];
+let _lastRenderCtx_=null;
 function render(){
   const app=document.getElementById("app");
   if(!S.user){ app.innerHTML=renderUserSetup(); return; }
-  if(S.modal){ app.innerHTML=renderApp()+renderModal(); return; }
+  const ctx=S.user.coord+"|"+S.date+"|"+S.tab;
+  const sameCtx=(_lastRenderCtx_===ctx);
+  _lastRenderCtx_=ctx;
+  const keep={};
+  let focusInfo=null;
+  if(sameCtx){
+    PRESERVE_FIELD_IDS_.forEach(id=>{
+      const el=document.getElementById(id);
+      // defaultValue = the value the last render put there — a difference
+      // means uncommitted typing that must survive this rebuild.
+      if(el && el.value!==el.defaultValue) keep[id]=el.value;
+    });
+    const ae=document.activeElement;
+    if(ae && ae.id && (ae.tagName==="TEXTAREA"||ae.tagName==="INPUT") && PRESERVE_FIELD_IDS_.includes(ae.id)){
+      focusInfo={id:ae.id,ss:ae.selectionStart,se:ae.selectionEnd};
+    }
+  }
+  const restore=()=>{
+    Object.keys(keep).forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value=keep[id];
+    });
+    if(focusInfo && !S.modal){
+      const el=document.getElementById(focusInfo.id);
+      if(el){ try{ el.focus(); el.setSelectionRange(focusInfo.ss,focusInfo.se); }catch(e){} }
+    }
+  };
+  if(S.modal){ app.innerHTML=renderApp()+renderModal(); restore(); return; }
   app.innerHTML=renderApp();
+  restore();
   // Re-attach dynamic handlers
   attachHandlers();
 }
@@ -4862,7 +4938,7 @@ function renderThisWeek(coord,state){
         <div style="display:flex;align-items:center;gap:8px">
           ${getDayStatusLabel(status)}
           ${overdueCnt>0?`<span class="overdue-badge">⚠ ${overdueCnt} overdue</span>`:""}
-          ${(()=>{const due=(day.activities||[]).filter(a=>a.followUpDate===d&&a.status!=="Completed"&&a.status!=="Closed").length;return due>0?`<span style="background:#E8F0FE;color:#1a73e8;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">📋 ${due} due</span>`:""})()}
+          ${(()=>{const due=(day.activities||[]).filter(a=>a.followUpDate===d&&a.status!=="Completed"&&a.status!=="Closed"&&a.status!=="On hold").length;return due>0?`<span style="background:#E8F0FE;color:#1a73e8;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600">📋 ${due} due</span>`:""})()}
           <i class="ti ${expanded?"ti-chevron-up":"ti-chevron-down"}" style="font-size:12px;color:var(--tm)"></i>
         </div>
       </div>
@@ -5973,7 +6049,7 @@ function getFilteredDashboardActivities(coordsToShow, dates){
         if (ds.outcome && a.activityOutcome!==ds.outcome) return;
         if (ds.relType && a.relType!==ds.relType) return;
         if (ds.pipelineStage && a.newStage!==ds.pipelineStage && a.prevStage!==ds.pipelineStage) return;
-        if (ds.overdueOnly && !(a.followUpDate && isOverdue(a.followUpDate) && a.status!=="Completed" && a.status!=="Closed")) return;
+        if (ds.overdueOnly && !(a.followUpDate && isOverdue(a.followUpDate) && a.status!=="Completed" && a.status!=="Closed" && a.status!=="On hold")) return;
         out.push({coord:coord, act:a});
       });
     });
@@ -7820,6 +7896,16 @@ function saveWeeklyReflection(){
     wr3:document.getElementById("wr3")?.value||"",
   };
   try{localStorage.setItem(PFX+"wkref:"+S.user.coord+":"+wkMon,JSON.stringify(obj));}catch(e){}
+  // 2026-09-14 (Bec issue 2): mark WHICH week was saved. pushData used to
+  // push only the currently-viewed week's reflection — saving for one week
+  // then switching the selector before the 3s debounce fired meant that
+  // save was NEVER pushed. The dirty list survives in localStorage so even
+  // a closed tab pushes it on the next session.
+  try{
+    const dk=PFX+"wkrefDirty:"+S.user.coord;
+    const dirty=JSON.parse(localStorage.getItem(dk)||"[]");
+    if(!dirty.includes(wkMon)){ dirty.push(wkMon); localStorage.setItem(dk,JSON.stringify(dirty)); }
+  }catch(e){}
   // FIXED 2026-08-03: this never set S.unsyncedChanges, so a reflection
   // saved with nothing else logged that session was invisible to BOTH the
   // 3-second debounced push AND the 5-minute fallback timer (which only
@@ -8203,7 +8289,7 @@ function saveActivityFromModal_(type){
     const todayCut = S.date||TODAY;
     const isSibling = function(a){
       if (!a || a.id===closingFollowup.id) return false;
-      if (a.status==="Completed"||a.status==="Closed") return false;
+      if (a.status==="Completed"||a.status==="Closed"||a.status==="On hold") return false;
       if (!a.followUpDate || a.followUpDate > todayCut) return false;
       const aKind = (a.type==="acap_contact"||a.type==="acap_f2f"||String(a.id||"").indexOf("auto_acap_")===0) ? "acap"
         : (a.type==="lead"||a.type==="pipeline"||a.type==="registration"||a.type==="enrolment_pipeline"||String(a.id||"").indexOf("sl_")===0) ? "student" : "employer";
@@ -8540,7 +8626,7 @@ function getAllDueToday(coord){
   allDays(coord).forEach(d=>{
     const day=loadDay(coord,d);
     (day.activities||[]).forEach(a=>{
-      if(a.followUpDate===viewDate && a.status!=="Completed" && a.status!=="Closed" && !isOverdue(a.followUpDate) && (a.snoozeCount||0)<3){
+      if(a.followUpDate===viewDate && a.status!=="Completed" && a.status!=="Closed" && a.status!=="On hold" && !isOverdue(a.followUpDate) && (a.snoozeCount||0)<3){
         result.push({...a,_date:d});
       }
     });
@@ -8548,7 +8634,7 @@ function getAllDueToday(coord){
   try{
     const _cf=localStorage.getItem(PFX+"followups:"+coord);
     if(_cf) JSON.parse(_cf).forEach(function(a){
-      if(a.followUpDate===viewDate && a.status!=="Completed" && a.status!=="Closed" && !isOverdue(a.followUpDate) && (a.snoozeCount||0)<3){
+      if(a.followUpDate===viewDate && a.status!=="Completed" && a.status!=="Closed" && a.status!=="On hold" && !isOverdue(a.followUpDate) && (a.snoozeCount||0)<3){
         if(!result.find(function(r){return r.id===a.id;})) result.push(a);
       }
     });
@@ -8596,7 +8682,7 @@ function getAllOpenFollowupsForDash(coord) {
   try {
     const cf = localStorage.getItem(PFX+"followups:"+coord);
     if (cf) JSON.parse(cf).forEach(function(a) {
-      if (a.status!=="Completed" && a.status!=="Closed" && !seen.has(a.id)) {
+      if (a.status!=="Completed" && a.status!=="Closed" && a.status!=="On hold" && !seen.has(a.id)) {
         seen.add(a.id); result.push(a);
       }
     });
@@ -8606,7 +8692,7 @@ function getAllOpenFollowupsForDash(coord) {
     const day = loadDay(coord, d);
     (day.activities||[]).forEach(function(a) {
       if (a.type==="event") return; // 2026-08-21 (Bec fix #2): events never show as follow-ups
-      if (a.followUpDate && a.status!=="Completed" && a.status!=="Closed" && !seen.has(a.id)) {
+      if (a.followUpDate && a.status!=="Completed" && a.status!=="Closed" && a.status!=="On hold" && !seen.has(a.id)) {
         seen.add(a.id); result.push(a);
       }
     });
@@ -9364,15 +9450,28 @@ async function pushData() {
     if(!r.ok) errors.push("Employers: "+r.msg);
   } catch(e){ errors.push("Employers: "+friendlyError_(e)); }
 
-  // Push weekly reflection
+  // Push weekly reflection(s)
+  // 2026-09-14 (Bec issue 2): pushes EVERY week on the dirty list (see
+  // saveWeeklyReflection), not just the currently-viewed week — a save
+  // made for another week before the debounce fired is no longer lost.
+  // Each week clears from the list only after ITS push succeeds.
   try {
-    const wkMon=mondayOf(S.date);
-    let ref={wr1:"",wr2:"",wr3:""};
-    try{const rv=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(rv)ref=JSON.parse(rv);}catch(e){}
-    if(ref.wr1||ref.wr2||ref.wr3){
-      const r=await post("push_reflection",{coord,weekMonday:wkMon,...ref});
-      if(!r.ok) errors.push("Reflection: "+r.msg);
+    const dk=PFX+"wkrefDirty:"+coord;
+    let dirtyWeeks=[];
+    try{ dirtyWeeks=JSON.parse(localStorage.getItem(dk)||"[]"); }catch(e){}
+    const wkMonNow=mondayOf(S.date);
+    if(!dirtyWeeks.includes(wkMonNow)) dirtyWeeks.push(wkMonNow);
+    const stillDirty=[];
+    for (const wkMon of dirtyWeeks) {
+      let ref={wr1:"",wr2:"",wr3:""};
+      try{const rv=localStorage.getItem(PFX+"wkref:"+coord+":"+wkMon);if(rv)ref=JSON.parse(rv);}catch(e){}
+      if(!(ref.wr1||ref.wr2||ref.wr3)) continue;
+      try {
+        const r=await post("push_reflection",{coord,weekMonday:wkMon,...ref});
+        if(!r.ok){ errors.push("Reflection ("+wkMon+"): "+r.msg); stillDirty.push(wkMon); }
+      } catch(e){ errors.push("Reflection ("+wkMon+"): "+friendlyError_(e)); stillDirty.push(wkMon); }
     }
+    try{ localStorage.setItem(dk,JSON.stringify(stillDirty)); }catch(e){}
   } catch(e){ errors.push("Reflection: "+friendlyError_(e)); }
 
   if(errors.length>0){
@@ -9655,7 +9754,7 @@ async function pullFollowups(coord, state) {
       const idx=day.activities.findIndex(x=>x.id===a.id);
       if(idx>=0) {
         const existing=day.activities[idx];
-        const locallyClosed = existing.status==="Completed"||existing.status==="Closed";
+        const locallyClosed = existing.status==="Completed"||existing.status==="Closed"||existing.status==="On hold";
         if (locallyClosed) {
           locallyClosedIds.add(a.id);
           retryFollowupClose_(coord, existing);
@@ -9727,7 +9826,7 @@ async function pullFollowups(coord, state) {
         let changed=false;
         day.activities.forEach(a=>{
           if(!a.followUpDate) return;
-          if(a.status==="Completed"||a.status==="Closed") return;
+          if(a.status==="Completed"||a.status==="Closed"||a.status==="On hold") return;
           if(serverIds.has(a.id)) return; // still open server-side
           if(locallyClosedIds.has(a.id)) return; // handled above already
           // Locally still "open" with a follow-up date, but the server's
