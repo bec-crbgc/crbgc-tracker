@@ -830,6 +830,15 @@ const STANDARD_PACE_METRICS = [
 // isn't one of the 7 standard metrics at all, so it's handled as its own
 // small pace calc via targetKeys/actualFields instead (see
 // computeFocusThresholdMet) — nothing to double-count there.
+//
+// SUPERSEDED IN PART 2026-09-14 per Bec ("can we not have it accumulate -
+// just go by the base of what is expected in a day (as if the pace was
+// on-track)", option confirmed: "Combined + focus (15+3=18)"): the
+// combined+add-on STRUCTURE above still stands, but both halves are now a
+// single day's slice (dayNum=1) and the met-by side counts TODAY's
+// focus-type entries only — see computeFocusThresholdMet's pace branch
+// and dayPaceActuals_. The week-to-date/proration description above is
+// kept for the history of how the numbers were derived.
 const FOCUS_PACE_METRICS = {
   "Employer call campaign":       {actualFields:["call_attempted"],                          standardLabels:["Employer calls"]},
   "Employer site visits":         {actualFields:["site_employers"],                          standardLabels:["Site visits"]},
@@ -1034,6 +1043,12 @@ let S = {
   okrLoading: false,
   okrAttempted: {},
   okrError: null,
+  // 2026-09-23 — YTD Position vs Budgeted Starters (Bec's workbook).
+  // Same per-asOf attempted-once gate class as okr/regReco/commReco.
+  ytd: null,
+  ytdLoading: false,
+  ytdAttempted: {},
+  ytdError: null,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -2082,6 +2097,41 @@ function weeklyPaceActuals(coord, ds){
   return T;
 }
 
+// 2026-09-14 per Bec ("can we not have it accumulate - just go by the base
+// of what is expected in a day"): single-DAY version of weeklyPaceActuals
+// — identical counting rules (effContactType credit for closed follow-ups,
+// the enrolment moved-to-Enrolled rule, unique-student lead rule), scoped
+// to one day only. Used by computeFocusThresholdMet's pace branch so a
+// focus is met by TODAY's own entries, not the week's running total.
+function dayPaceActuals_(coord, ds){
+  const T = {commencement:0, registration:0, enrolment:0, acap_contact_attempted:0, event:0, call_attempted:0, site_employers:0, new_employer_met:0, lead:0};
+  const origActLookup = {};
+  allDays(coord).forEach(function(d){
+    const dd = loadDay(coord, d);
+    (dd.activities||[]).forEach(function(a){ if(a.id) origActLookup[a.id]=a; });
+  });
+  const effContactType = a => {
+    if(a.type!=="follow_up_closed") return a.type;
+    if(a.origType) return a.origType;
+    const orig = a._closedFromId ? origActLookup[a._closedFromId] : null;
+    return orig ? orig.type : "";
+  };
+  const day = loadDay(coord, ds);
+  realDayActivities(day).forEach(a=>{
+    const effType = effContactType(a);
+    if(a.type==="commencement") T.commencement++;
+    if(isRegistrationReached_(a)) T.registration++;
+    if(a.type==="enrolment_pipeline" && a.newStage==="Enrolled" && a.prevStage!=="Enrolled") T.enrolment++;
+    if(effType==="acap_contact"||effType==="acap_f2f") T.acap_contact_attempted++;
+    if(effType==="event") T.event++;
+    if(effType==="employer_call") T.call_attempted++;
+    if(effType==="site_visit") T.site_employers++;
+    if(effType==="new_employer_met") T.new_employer_met++;
+  });
+  T.lead = uniqueNewLeadCount_(coord, ds, ds);
+  return T;
+}
+
 // How many of the 7 STANDARD_PACE_METRICS are behind (pct<0.7 of their
 // day-prorated pace target) — the exact same "behind" bucket
 // computeDailyPaceDetails classifies (pct>=1 "on", pct>=0.7 "amber", else
@@ -2160,12 +2210,15 @@ function computePipelineConversionMet(day){
 //    own %-of-open-leads model).
 //  - Any focus in FOCUS_PACE_METRICS (Employer call campaign, Employer
 //    site visits, ACAP engagement, Sign-ups and registrations, Events):
-//    week-to-date actual (focus-specific only) vs. a COMBINED minimum —
-//    the sum of every STANDARD_PACE_METRICS metric's currently-needed
-//    amount (the same total shown at the top of the Daily Pace card) PLUS
-//    the focus's own needed amount again on top. See the long note on
-//    FOCUS_PACE_METRICS for Bec's worked example (15 combined + 3
-//    Employer-calls-specific = 18).
+//    REDESIGNED 2026-09-14 per Bec ("can we not have it accumulate - just
+//    go by the base of what is expected in a day") — a FIXED daily
+//    minimum, identical every day of the week: the sum of all 7 standard
+//    metrics' single-day targets PLUS the focus's own single-day slice
+//    again on top (her 15+3=18 structure, frozen at one day), met by THAT
+//    DAY's focus-type entries only (dayPaceActuals_). No week-to-date
+//    accumulation and no day-of-week proration — do not reintroduce
+//    either without Bec asking; the old cumulative model is exactly what
+//    she removed.
 //  - The 3 focuses Bec's redesign didn't touch (New employer acquisition/
 //    Existing employer engagement/Employer meetings): unchanged, the
 //    original day-only "N of these types, today" model, still crediting
@@ -2184,53 +2237,50 @@ function computeFocusThresholdMet(day){
   const paceCfg = FOCUS_PACE_METRICS[day.focus];
   if(paceCfg){
     const state = STATES[day.coord];
-    const T = weeklyPaceActuals(day.coord, day.date);
-    const dayNum = weekPaceDayNum(day.date);
-
-    // Combined total — every one of the 7 standard metrics' currently-
-    // needed amount, summed. Identical math/inputs to what
-    // renderDailyPaceCard's "Needs attention" rows show, just computed off
-    // weeklyPaceActuals (not weeklyTotals) to avoid recursion.
+    // REDESIGNED 2026-09-14 per Bec: "can we not have it accumulate - just
+    // go by the base of what is expected in a day (as if the pace was
+    // on-track)" — confirmed as keeping her 15+3=18 STRUCTURE but frozen
+    // at one day's worth, the SAME bar every day of the week:
+    //   combined = the sum of ALL 7 standard metrics' single-day targets
+    //              (weekly target ÷ 5, leave-adjusted) — the "15";
+    //   add-on   = the focus's own single-day slice again on top — the
+    //              "+3" (still never reduced by actuals: the Wayne fix);
+    //   met by   = THAT DAY's entries of the focus's own type(s) only
+    //              (dayPaceActuals_, not the week-to-date total).
+    // No week-to-date actuals or day-of-week proration anywhere in this
+    // branch any more — being ahead or behind on the week changes nothing.
     let combinedNeeded=0;
     STANDARD_PACE_METRICS.forEach(m=>{
       const weekly=weeklyTargetFor_((WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0, day.coord, day.date);
-      if(weekly>0) combinedNeeded += paceNeeded(T[m.actualField]||0, weekly, dayNum);
+      if(weekly>0) combinedNeeded += paceTargetFlat(weekly, 1);
     });
 
-    // The selected focus's own add-on, counted again on top of whatever it
-    // already contributed to combinedNeeded above (deliberate — see Bec's
-    // 15+3=18 example). UPDATED 2026-08 per Bec: this add-on is always the
-    // focus's full day's pace amount (paceTargetFlat), NOT reduced by
-    // actual — otherwise a coordinator who already logged enough of their
-    // focus's own metric to clear that one sub-target would see the add-on
-    // silently drop to 0 (Wayne's case: 4 ACAP contacts on a Monday already
-    // exceeded that day's ACAP pace of 3, zeroing the "+3" Bec expected to
-    // still be added).
     let focusNeeded=0;
     if(paceCfg.standardLabels){
       paceCfg.standardLabels.forEach(label=>{
         const m = STANDARD_PACE_METRICS.find(sm=>sm.label===label);
         if(!m) return;
         const weekly=weeklyTargetFor_((WEEKLY_TARGETS[m.targetKey]&&WEEKLY_TARGETS[m.targetKey][state])||0, day.coord, day.date);
-        if(weekly>0) focusNeeded += paceTargetFlat(weekly, dayNum);
+        if(weekly>0) focusNeeded += paceTargetFlat(weekly, 1);
       });
     } else if(paceCfg.targetKeys){
       // Events — not one of the 7 standard Daily Pace metrics, so nothing
-      // to double-count; computed as its own small pace figure.
+      // to double-count; its own single-day slice.
       let weeklySum=0;
       paceCfg.targetKeys.forEach(k=>{ weeklySum += weeklyTargetFor_((WEEKLY_TARGETS[k]&&WEEKLY_TARGETS[k][state])||0, day.coord, day.date); });
-      focusNeeded = paceTargetFlat(weeklySum, dayNum);
+      focusNeeded = paceTargetFlat(weeklySum, 1);
     }
 
-    // What counts toward MEETING the combined minimum stays focus-specific
-    // only, per Bec: "Only the focus's own type(s)".
+    // What counts toward MEETING the minimum stays focus-specific only,
+    // per Bec: "Only the focus's own type(s)" — and now TODAY only.
+    const T = dayPaceActuals_(day.coord, day.date);
     let actual=0;
     paceCfg.actualFields.forEach(f=>{ actual += T[f]||0; });
 
     const minActivities = combinedNeeded + focusNeeded;
     return {
       met:actual>=minActivities, count:actual, minActivities,
-      mode:"pace", combinedNeeded, focusNeeded, dayNum
+      mode:"pace", combinedNeeded, focusNeeded, dayNum:1
     };
   }
 
@@ -2278,13 +2328,15 @@ function focusThresholdShortfallHeadline(day, ft){
     return `Only ${ft.progressedCount}/${ft.openCount} open pipeline leads (${pctTxt}%) have progressed — below the ${ft.minPercent}% minimum for "${day.focus}"`;
   }
   if(ft.mode==="pace"){
-    return `This week's total for "${day.focus}" hasn't reached this week's pace minimum yet (${ft.count}/${ft.minActivities} so far this week)`;
+    // 2026-09-14 per Bec: day-based wording — the bar is a fixed daily
+    // minimum now, met by today's own focus-type entries.
+    return `Today's "${day.focus}" activity hasn't reached the daily minimum (${ft.count}/${ft.minActivities} today — ${ft.combinedNeeded} combined daily targets + ${ft.focusNeeded} for this focus)`;
   }
   return `Today's activity didn't meet the minimum for "${day.focus}" (${ft.count}/${ft.minActivities})`;
 }
 function focusThresholdShortfallPrompt(day, ft){
   if(ft.mode==="percent") return 'Please explain why "'+day.focus+'" hasn\'t reached the '+ft.minPercent+'% open-pipeline-progression minimum before marking the day complete.';
-  if(ft.mode==="pace") return 'Please explain why this week\'s "'+day.focus+'" total hasn\'t reached this week\'s pace minimum before marking the day complete.';
+  if(ft.mode==="pace") return 'Please explain why today\'s "'+day.focus+'" activity hasn\'t reached the daily minimum before marking the day complete.';
   return 'Please explain why today\'s activity didn\'t meet the minimum for "'+day.focus+'" before marking the day complete.';
 }
 
@@ -4097,9 +4149,9 @@ function renderApp(){
   // (full dashboard view) and for James & Johnson only (pipeline entry +
   // weekly check-in) — Wayne's tab set is untouched per Bec's access choice.
   const tabs = isManager
-    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers","qldgrowth","okr"])
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers","qldgrowth","okr","ytd"])
     : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
-  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth",okr:"OKR Scorecard"};
+  const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth",okr:"OKR Scorecard",ytd:"YTD Position"};
 
   let h=`<div class="hdr">
     <div class="hdr-top">
@@ -4162,6 +4214,7 @@ function renderApp(){
   if(S.tab==="trainers"){ h+=renderTrainerCapacities_(); }
   if(S.tab==="qldgrowth"){ h+=renderQldGrowth_(); }
   if(S.tab==="okr"){ h+=renderOkrScorecard_(); }
+  if(S.tab==="ytd"){ h+=renderYtdPosition_(); }
 
   // Push FAB
   h+=`<button class="push-fab" onclick="pushData()" ${S.syncing?"disabled":""}>
@@ -11387,6 +11440,156 @@ function downloadOkrExcel_(){
     a.download = "OKR_Scorecard_"+d.asOf.replace(/-/g,"")+".xlsx";
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// YTD POSITION vs BUDGETED STARTERS (2026-09-23 — Bec's workbook)
+// ═══════════════════════════════════════════════════════════
+// Manager-only tab: apprenticeship registrations (CPC30220/CPC30320/
+// RII30920 + tracker-logged) and starter actuals against the monthly
+// Budgeted Starters grid, per state + combined, plus a separate
+// non-apprenticeship registrations section. Data: get_ytd_position →
+// the editable "Budgeted Starters 2026" grid + the "Registrations 2026"
+// tab (VETtrak export, auto-appended by tracker logs, re-trued by
+// pasting a fresh export) + the Commencements databases for starters.
+const YTD_MONTHS_ = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+async function refreshYtdPosition_(){
+  const asOf = recoveryAsOf_();
+  S.ytdLoading = true;
+  S.ytdAttempted[asOf] = true;
+  if (S.tab==="ytd") render();
+  try {
+    const data = await jsonpFetch(WEBAPP_URL+"?action=get_ytd_position&asOf="+encodeURIComponent(asOf));
+    if (data && data.ok) { S.ytd = data; S.ytdError = null; }
+    else S.ytdError = (data && data.msg) || "Unknown error";
+  } catch(e) {
+    S.ytdError = "Network error: " + (e && e.message ? e.message : e);
+  }
+  S.ytdLoading = false;
+  render();
+}
+
+function renderYtdPosition_(){
+  const asOf = recoveryAsOf_();
+  if ((!S.ytd || S.ytd.asOf!==asOf) && !S.ytdLoading && !S.ytdAttempted[asOf]) refreshYtdPosition_();
+  if (!S.ytd) {
+    return `<div class="card"><div class="card-title"><i class="ti ti-chart-line"></i> YTD Position</div>
+      ${S.ytdLoading ? "Loading…" : `Not loaded${S.ytdError?` — <span style="color:var(--redt)">${S.ytdError}</span>`:""}. <a href="#" onclick="event.preventDefault();refreshYtdPosition_()">Retry</a>`}</div>`;
+  }
+  const d = S.ytd, STATES3 = ["VIC","NSW","QLD"];
+  let h = `<div class="card" style="padding:10px 14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+      <div class="card-title" style="margin:0"><i class="ti ti-chart-line"></i> YTD Position — Registrations vs Budgeted Starters</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:var(--tm)">As at ${d.asOf} · <a href="#" onclick="event.preventDefault();refreshYtdPosition_()">Refresh</a></span>
+        <button onclick="downloadYtdPDF_()" style="font-size:11px;padding:4px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">PDF</button>
+        <button onclick="downloadYtdExcel_()" style="font-size:11px;padding:4px 10px;background:#1C3C6B;color:#fff;border:none;border-radius:var(--r);cursor:pointer">Excel</button>
+      </div>
+    </div></div>`;
+  if (!d.seeded) {
+    h += `<div class="card" style="border-color:var(--ambert);background:var(--amber)"><div style="font-size:12px;color:var(--ambert)">
+      The Registrations 2026 tab hasn't been seeded yet — run "Apply YTD-position setup" (WIP Tools menu, or the setup link) and refresh.</div></div>`;
+  }
+  const t = d.total;
+  const tile = (label, val, sub, col) => `<div style="flex:1;min-width:130px;background:var(--s1);border-radius:var(--r);padding:10px 12px">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--tm)">${label}</div>
+    <div style="font-size:22px;font-weight:800;${col?`color:${col}`:""}">${val}</div>
+    ${sub?`<div style="font-size:10px;color:var(--tm)">${sub}</div>`:""}</div>`;
+  h += `<div class="card"><div class="card-title" style="font-size:13px">All states — year to date (whole months)</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${tile("Budgeted starters YTD", t.budget, "Jan–"+YTD_MONTHS_[Number(d.asOf.slice(5,7))-1])}
+      ${tile("Apprenticeship registrations YTD", t.regs, okrVar_(t.regVar)+" vs budget", t.regVar>=0?"var(--greent)":"var(--redt)")}
+      ${tile("Actual starters YTD", t.starters, okrVar_(t.startVar)+" vs budget", t.startVar>=0?"var(--greent)":"var(--redt)")}
+    </div></div>`;
+  STATES3.forEach(st=>{
+    const sd = d.states[st];
+    const rows = sd.months.map(m=>({cells:[
+      YTD_MONTHS_[m.month-1]+(m.inYtd?"":" ·"), m.budget, m.inYtd?m.regs:"—", m.inYtd?m.starters:"—",
+      m.inYtd?okrVar_(m.regs-m.budget):"—"
+    ]}));
+    rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, okrVar_(sd.ytd.regVar)]});
+    rows.push({total:true, cells:["Annual budget", sd.annual.budget, "", "", ""]});
+    h += okrSection_(st+" — monthly position",
+      "Registrations = apprenticeship quals only · months after "+d.asOf.slice(0,7)+" shown as budget-only (·)",
+      okrTable_(["Month","Budget","Registrations","Starters","Reg var"], rows));
+  });
+  const nq = Object.keys(d.nonApp.byQual);
+  h += okrSection_("Non-apprenticeship registrations",
+    "Every registration outside CPC30220 / CPC30320 / RII30920 — kept out of the apprenticeship numbers above",
+    nq.length===0 ? `<div class="small muted">None recorded this year.</div>` :
+    okrTable_(["Qualification","Name","Count"],
+      nq.map(q=>({cells:[q, d.nonApp.byQual[q].name, d.nonApp.byQual[q].count]}))
+      .concat([{total:true, cells:["Total","",d.nonApp.total]}]))
+    + `<div style="font-size:11px;color:var(--tm);margin-top:6px">By state: ${Object.keys(d.nonApp.byState).map(st=>st+" "+d.nonApp.byState[st]).join(" · ")||"—"}</div>`);
+  return h;
+}
+
+function downloadYtdPDF_(){
+  if (!S.ytd) { alert("YTD data hasn't loaded yet — open the tab first."); return; }
+  const d = S.ytd, STATES3 = ["VIC","NSW","QLD"];
+  let b = `<div class="rpt-section"><div class="rpt-section-hdr">All states — YTD</div>
+    <table class="rpt-table"><tr><th style="text-align:left">Measure</th><th>Value</th><th>vs budget</th></tr>
+    <tr><td>Budgeted starters YTD</td><td style="text-align:right">${d.total.budget}</td><td></td></tr>
+    <tr><td>Apprenticeship registrations YTD</td><td style="text-align:right">${d.total.regs}</td><td style="text-align:right">${d.total.regVar>0?"+":""}${d.total.regVar}</td></tr>
+    <tr><td>Actual starters YTD</td><td style="text-align:right">${d.total.starters}</td><td style="text-align:right">${d.total.startVar>0?"+":""}${d.total.startVar}</td></tr></table></div>`;
+  STATES3.forEach(st=>{
+    const sd = d.states[st];
+    b += `<div class="rpt-section"><div class="rpt-section-hdr">${st} — monthly position</div>
+      <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>Reg var</th></tr>
+      ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?((m.regs-m.budget>0?"+":"")+(m.regs-m.budget)):"—"}</td></tr>`).join("")}
+      <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.regVar>0?"+":""}${sd.ytd.regVar}</td></tr></table></div>`;
+  });
+  const nq = Object.keys(d.nonApp.byQual);
+  b += `<div class="rpt-section"><div class="rpt-section-hdr">Non-apprenticeship registrations</div>
+    <table class="rpt-table"><tr><th style="text-align:left">Qualification</th><th style="text-align:left">Name</th><th>Count</th></tr>
+    ${nq.map(q=>`<tr><td>${q}</td><td>${d.nonApp.byQual[q].name}</td><td style="text-align:right">${d.nonApp.byQual[q].count}</td></tr>`).join("")}
+    <tr style="font-weight:700"><td>Total</td><td></td><td style="text-align:right">${d.nonApp.total}</td></tr></table></div>`;
+  openPdfReportWindow_("CRBGC YTD Position — as at "+d.asOf, b);
+}
+
+function downloadYtdExcel_(){
+  if (!S.ytd) { alert("YTD data hasn't loaded yet — open the tab first."); return; }
+  const d = S.ytd, STATES3 = ["VIC","NSW","QLD"];
+  const loadExcelJS = function(cb) {
+    if (window.ExcelJS) { cb(); return; }
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js";
+    s.onload = cb;
+    s.onerror = function(){ alert("Could not load ExcelJS library"); };
+    document.head.appendChild(s);
+  };
+  loadExcelJS(async function(){
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("YTD Position");
+    const hdr = cols => { const r = ws.addRow(cols); r.font={bold:true,color:{argb:"FFFFFFFF"}}; r.eachCell(c=>{c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};}); };
+    ws.addRow(["CRBGC YTD Position — Registrations vs Budgeted Starters — as at "+d.asOf]).font={bold:true,size:14};
+    ws.addRow([]);
+    hdr(["All states","Budget YTD","Registrations YTD","Reg var","Starters YTD","Starter var"]);
+    ws.addRow(["TOTAL", d.total.budget, d.total.regs, d.total.regVar, d.total.starters, d.total.startVar]).font={bold:true};
+    ws.addRow([]);
+    STATES3.forEach(st=>{
+      const sd = d.states[st];
+      ws.addRow([st]).font={bold:true,size:12,color:{argb:"FF085041"}};
+      hdr(["Month","Budget","Registrations","Starters","Reg var"]);
+      sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.regs-m.budget):null]); });
+      ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, sd.ytd.regVar]).font={bold:true};
+      ws.addRow(["Annual budget", sd.annual.budget]).font={bold:true};
+      ws.addRow([]);
+    });
+    ws.addRow(["Non-apprenticeship registrations"]).font={bold:true,size:12,color:{argb:"FF085041"}};
+    hdr(["Qualification","Name","Count"]);
+    Object.keys(d.nonApp.byQual).forEach(q=>{ ws.addRow([q, d.nonApp.byQual[q].name, d.nonApp.byQual[q].count]); });
+    ws.addRow(["Total","",d.nonApp.total]).font={bold:true};
+    ws.columns.forEach(c=>{ c.width = 16; });
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "CRBGC_YTD_Position_"+d.asOf+".xlsx";
+    a.click();
   });
 }
 
