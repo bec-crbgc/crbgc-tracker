@@ -955,7 +955,11 @@ const TODAY = toLocalYMD(new Date());
 let S = {
   user: lsGet("user") || null,   // {coord, isManager}
   date: TODAY,
-  tab: "today",
+  // 2026-09-23 per Bec ("put this dashboard before the registration
+  // dashboard"): managers land on the YTD Position tab; the tab bar also
+  // lists it first. Coordinators still land on Today. The ternary runs at
+  // startup off the stored user; switchToCoord/detail mode are untouched.
+  tab: (lsGet("user") && lsGet("user").isManager) ? "ytd" : "today",
   modal: null,
   syncing: false,
   loading: false,      // fetching from cloud
@@ -4149,7 +4153,7 @@ function renderApp(){
   // (full dashboard view) and for James & Johnson only (pipeline entry +
   // weekly check-in) — Wayne's tab set is untouched per Bec's access choice.
   const tabs = isManager
-    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["dashboard","weekly","daily","trend","trainers","qldgrowth","okr","ytd"])
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["ytd","dashboard","weekly","daily","trend","trainers","qldgrowth","okr"])
     : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
   const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth",okr:"OKR Scorecard",ytd:"YTD Position"};
 
@@ -4269,6 +4273,7 @@ function confirmUser(){
   if(coordEl.value==="manager"){
     if(!codeEl||codeEl.value!==MANAGER_CODE){alert("Incorrect access code");return;}
     S.user={coord:COORDS[0],isManager:true};
+    S.tab="ytd"; // 2026-09-23: managers land on YTD Position
   } else {
     S.user={coord:coordEl.value,isManager:false};
   }
@@ -11502,7 +11507,7 @@ function renderYtdPosition_(){
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       ${tile("Budgeted starters YTD", t.budget, "Jan–"+YTD_MONTHS_[Number(d.asOf.slice(5,7))-1])}
       ${tile("Apprenticeship registrations YTD", t.regs, okrVar_(t.regVar)+" vs budget", t.regVar>=0?"var(--greent)":"var(--redt)")}
-      ${tile("Actual starters YTD", t.starters, okrVar_(t.startVar)+" vs budget", t.startVar>=0?"var(--greent)":"var(--redt)")}
+      ${tile("Actual starters YTD", t.starters, okrVar_(t.startVar)+" vs budget · new-enrolment recs, excl. CoE &amp; cancelled", t.startVar>=0?"var(--greent)":"var(--redt)")}
     </div></div>`;
   STATES3.forEach(st=>{
     const sd = d.states[st];
