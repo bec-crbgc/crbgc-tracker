@@ -11527,13 +11527,28 @@ function renderYtdPosition_(){
       okrTable_(["Month","Budget","Registrations","Starters","Variance (starters vs budget)"], rows));
   });
   const nq = Object.keys(d.nonApp.byQual);
+  // 2026-09-23 per Bec: this card is broken down BY TEAM MEMBER (not by
+  // state), with apprenticeship registration numbers per team member
+  // highlighted alongside the non-apprenticeship ones.
+  const coords = Object.keys(d.byCoord||{}).sort();
+  const coordRows = coords.map(c=>({cells:[c,
+    `<span style="font-weight:700;color:var(--greent)">${d.byCoord[c].app}</span>`,
+    d.byCoord[c].nonApp||0,
+    d.byCoord[c].app + (d.byCoord[c].nonApp||0)]}));
+  coordRows.push({total:true, cells:["Total",
+    coords.reduce((a,c)=>a+d.byCoord[c].app,0),
+    coords.reduce((a,c)=>a+(d.byCoord[c].nonApp||0),0),
+    coords.reduce((a,c)=>a+d.byCoord[c].app+(d.byCoord[c].nonApp||0),0)]});
+  h += okrSection_("Registrations by team member — YTD",
+    "Apprenticeship = CPC30220 / CPC30320 / RII30920 (+ tracker-logged) · Non-apprenticeship = everything else",
+    okrTable_(["Team member","Apprenticeship","Non-apprenticeship","All"], coordRows));
   h += okrSection_("Non-apprenticeship registrations",
     "Every registration outside CPC30220 / CPC30320 / RII30920 — kept out of the apprenticeship numbers above",
     nq.length===0 ? `<div class="small muted">None recorded this year.</div>` :
     okrTable_(["Qualification","Name","Count"],
       nq.map(q=>({cells:[q, d.nonApp.byQual[q].name, d.nonApp.byQual[q].count]}))
       .concat([{total:true, cells:["Total","",d.nonApp.total]}]))
-    + `<div style="font-size:11px;color:var(--tm);margin-top:6px">By state: ${Object.keys(d.nonApp.byState).map(st=>st+" "+d.nonApp.byState[st]).join(" · ")||"—"}</div>`);
+    + `<div style="font-size:11px;color:var(--tm);margin-top:6px">By team member: ${Object.keys(d.nonApp.byCoord||{}).map(c=>c.split(" ")[0]+" "+d.nonApp.byCoord[c]).join(" · ")||"—"}</div>`);
   return h;
 }
 
@@ -11554,6 +11569,11 @@ function downloadYtdPDF_(){
       <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.startVar>0?"+":""}${sd.ytd.startVar}</td></tr></table></div>`;
   });
   const nq = Object.keys(d.nonApp.byQual);
+  const coordsP = Object.keys(d.byCoord||{}).sort();
+  b += `<div class="rpt-section"><div class="rpt-section-hdr">Registrations by team member — YTD</div>
+    <table class="rpt-table"><tr><th style="text-align:left">Team member</th><th>Apprenticeship</th><th>Non-apprenticeship</th><th>All</th></tr>
+    ${coordsP.map(c=>`<tr><td>${c}</td><td style="text-align:right;font-weight:700">${d.byCoord[c].app}</td><td style="text-align:right">${d.byCoord[c].nonApp||0}</td><td style="text-align:right">${d.byCoord[c].app+(d.byCoord[c].nonApp||0)}</td></tr>`).join("")}
+    <tr style="font-weight:700"><td>Total</td><td style="text-align:right">${coordsP.reduce((a,c)=>a+d.byCoord[c].app,0)}</td><td style="text-align:right">${coordsP.reduce((a,c)=>a+(d.byCoord[c].nonApp||0),0)}</td><td style="text-align:right">${coordsP.reduce((a,c)=>a+d.byCoord[c].app+(d.byCoord[c].nonApp||0),0)}</td></tr></table></div>`;
   b += `<div class="rpt-section"><div class="rpt-section-hdr">Non-apprenticeship registrations</div>
     <table class="rpt-table"><tr><th style="text-align:left">Qualification</th><th style="text-align:left">Name</th><th>Count</th></tr>
     ${nq.map(q=>`<tr><td>${q}</td><td>${d.nonApp.byQual[q].name}</td><td style="text-align:right">${d.nonApp.byQual[q].count}</td></tr>`).join("")}
@@ -11591,6 +11611,10 @@ function downloadYtdExcel_(){
       ws.addRow(["Annual budget", sd.annual.budget]).font={bold:true};
       ws.addRow([]);
     });
+    ws.addRow(["Registrations by team member — YTD"]).font={bold:true,size:12,color:{argb:"FF085041"}};
+    hdr(["Team member","Apprenticeship","Non-apprenticeship","All"]);
+    Object.keys(d.byCoord||{}).sort().forEach(c=>{ ws.addRow([c, d.byCoord[c].app, d.byCoord[c].nonApp||0, d.byCoord[c].app+(d.byCoord[c].nonApp||0)]); });
+    ws.addRow([]);
     ws.addRow(["Non-apprenticeship registrations"]).font={bold:true,size:12,color:{argb:"FF085041"}};
     hdr(["Qualification","Name","Count"]);
     Object.keys(d.nonApp.byQual).forEach(q=>{ ws.addRow([q, d.nonApp.byQual[q].name, d.nonApp.byQual[q].count]); });
