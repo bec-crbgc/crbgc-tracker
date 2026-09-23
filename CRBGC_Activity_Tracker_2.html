@@ -11510,10 +11510,11 @@ function renderYtdPosition_(){
       YTD_MONTHS_[m.month-1]+(m.inYtd?"":" ·"), m.budget, m.inYtd?m.regs:"—", m.inYtd?m.starters:"—",
       m.inYtd?okrVar_(m.regs-m.budget):"—"
     ]}));
+    if (sd.startersUndated) rows.push({cells:["Booked, not yet dated","—","—",sd.startersUndated,"—"]});
     rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, okrVar_(sd.ytd.regVar)]});
     rows.push({total:true, cells:["Annual budget", sd.annual.budget, "", "", ""]});
     h += okrSection_(st+" — monthly position",
-      "Registrations = apprenticeship quals only · months after "+d.asOf.slice(0,7)+" shown as budget-only (·)",
+      "Registrations = apprenticeship quals only · Starters = new-enrolment records excl. Change of Employer & cancelled · months after "+d.asOf.slice(0,7)+" shown as budget-only (·)",
       okrTable_(["Month","Budget","Registrations","Starters","Reg var"], rows));
   });
   const nq = Object.keys(d.nonApp.byQual);
@@ -11540,6 +11541,7 @@ function downloadYtdPDF_(){
     b += `<div class="rpt-section"><div class="rpt-section-hdr">${st} — monthly position</div>
       <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>Reg var</th></tr>
       ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?((m.regs-m.budget>0?"+":"")+(m.regs-m.budget)):"—"}</td></tr>`).join("")}
+      ${sd.startersUndated?`<tr><td>Booked, not yet dated</td><td></td><td></td><td style="text-align:right">${sd.startersUndated}</td><td></td></tr>`:""}
       <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.regVar>0?"+":""}${sd.ytd.regVar}</td></tr></table></div>`;
   });
   const nq = Object.keys(d.nonApp.byQual);
@@ -11575,6 +11577,7 @@ function downloadYtdExcel_(){
       ws.addRow([st]).font={bold:true,size:12,color:{argb:"FF085041"}};
       hdr(["Month","Budget","Registrations","Starters","Reg var"]);
       sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.regs-m.budget):null]); });
+      if (sd.startersUndated) ws.addRow(["Booked, not yet dated", null, null, sd.startersUndated, null]);
       ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, sd.ytd.regVar]).font={bold:true};
       ws.addRow(["Annual budget", sd.annual.budget]).font={bold:true};
       ws.addRow([]);
