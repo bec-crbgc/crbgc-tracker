@@ -11522,7 +11522,7 @@ function renderYtdPosition_(){
     if (sd.startersUndated) rows.push({cells:["Booked, not yet dated","—","—",sd.startersUndated,"—"]});
     // 2026-09-23 per Bec: pipeline forward-visibility — same idea as the
     // undated line; snapshot counts, never added to the YTD totals.
-    rows.push({cells:[`<span style="color:var(--tm)">In Enrolment Pipeline (open)</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.enrol)||0}</span>`,"—"]});
+    rows.push({cells:[`<span style="color:var(--tm)">In Enrolment Pipeline (Registered)</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.enrol)||0}</span>`,"—"]});
     rows.push({cells:[`<span style="color:var(--tm)">Open Student Leads</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.leads)||0}</span>`,"—"]});
     rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, okrVar_(sd.ytd.startVar)]});
     rows.push({total:true, cells:["Annual budget", sd.annual.budget, "", "", ""]});
@@ -11570,7 +11570,7 @@ function downloadYtdPDF_(){
       <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>Variance (starters vs budget)</th></tr>
       ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?((m.starters-m.budget>0?"+":"")+(m.starters-m.budget)):"—"}</td></tr>`).join("")}
       ${sd.startersUndated?`<tr><td>Booked, not yet dated</td><td></td><td></td><td style="text-align:right">${sd.startersUndated}</td><td></td></tr>`:""}
-      <tr style="color:#777"><td>In Enrolment Pipeline (open)</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.enrol)||0}</td><td></td></tr>
+      <tr style="color:#777"><td>In Enrolment Pipeline (Registered)</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.enrol)||0}</td><td></td></tr>
       <tr style="color:#777"><td>Open Student Leads</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.leads)||0}</td><td></td></tr>
       <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.startVar>0?"+":""}${sd.ytd.startVar}</td></tr></table></div>`;
   });
@@ -11613,7 +11613,7 @@ function downloadYtdExcel_(){
       hdr(["Month","Budget","Registrations","Starters","Variance (starters vs budget)"]);
       sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.starters-m.budget):null]); });
       if (sd.startersUndated) ws.addRow(["Booked, not yet dated", null, null, sd.startersUndated, null]);
-      ws.addRow(["In Enrolment Pipeline (open)", null, null, (sd.pipeline&&sd.pipeline.enrol)||0, null]);
+      ws.addRow(["In Enrolment Pipeline (Registered)", null, null, (sd.pipeline&&sd.pipeline.enrol)||0, null]);
       ws.addRow(["Open Student Leads", null, null, (sd.pipeline&&sd.pipeline.leads)||0, null]);
       ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, sd.ytd.startVar]).font={bold:true};
       ws.addRow(["Annual budget", sd.annual.budget]).font={bold:true};
