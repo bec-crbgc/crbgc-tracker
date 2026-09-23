@@ -11506,21 +11506,25 @@ function renderYtdPosition_(){
   h += `<div class="card"><div class="card-title" style="font-size:13px">All states — year to date (whole months)</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       ${tile("Budgeted starters YTD", t.budget, "Jan–"+YTD_MONTHS_[Number(d.asOf.slice(5,7))-1])}
-      ${tile("Apprenticeship registrations YTD", t.regs, okrVar_(t.regVar)+" vs budget", t.regVar>=0?"var(--greent)":"var(--redt)")}
+      ${tile("Apprenticeship registrations YTD", t.regs, "leading indicator")}
       ${tile("Actual starters YTD", t.starters, okrVar_(t.startVar)+" vs budget · new-enrolment recs, excl. CoE &amp; cancelled", t.startVar>=0?"var(--greent)":"var(--redt)")}
     </div></div>`;
   STATES3.forEach(st=>{
     const sd = d.states[st];
+    // 2026-09-23 per Bec: "the variance in the YTD Position tab tiles
+    // should be against Budget vs starters" — every variance on this tab
+    // is now Starters − Budget; registrations display as the leading
+    // indicator with no variance of their own.
     const rows = sd.months.map(m=>({cells:[
       YTD_MONTHS_[m.month-1]+(m.inYtd?"":" ·"), m.budget, m.inYtd?m.regs:"—", m.inYtd?m.starters:"—",
-      m.inYtd?okrVar_(m.regs-m.budget):"—"
+      m.inYtd?okrVar_(m.starters-m.budget):"—"
     ]}));
     if (sd.startersUndated) rows.push({cells:["Booked, not yet dated","—","—",sd.startersUndated,"—"]});
-    rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, okrVar_(sd.ytd.regVar)]});
+    rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, okrVar_(sd.ytd.startVar)]});
     rows.push({total:true, cells:["Annual budget", sd.annual.budget, "", "", ""]});
     h += okrSection_(st+" — monthly position",
       "Registrations = apprenticeship quals only · Starters = new-enrolment records excl. Change of Employer & cancelled · months after "+d.asOf.slice(0,7)+" shown as budget-only (·)",
-      okrTable_(["Month","Budget","Registrations","Starters","Reg var"], rows));
+      okrTable_(["Month","Budget","Registrations","Starters","Variance (starters vs budget)"], rows));
   });
   const nq = Object.keys(d.nonApp.byQual);
   h += okrSection_("Non-apprenticeship registrations",
@@ -11544,10 +11548,10 @@ function downloadYtdPDF_(){
   STATES3.forEach(st=>{
     const sd = d.states[st];
     b += `<div class="rpt-section"><div class="rpt-section-hdr">${st} — monthly position</div>
-      <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>Reg var</th></tr>
-      ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?((m.regs-m.budget>0?"+":"")+(m.regs-m.budget)):"—"}</td></tr>`).join("")}
+      <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>Variance (starters vs budget)</th></tr>
+      ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?((m.starters-m.budget>0?"+":"")+(m.starters-m.budget)):"—"}</td></tr>`).join("")}
       ${sd.startersUndated?`<tr><td>Booked, not yet dated</td><td></td><td></td><td style="text-align:right">${sd.startersUndated}</td><td></td></tr>`:""}
-      <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.regVar>0?"+":""}${sd.ytd.regVar}</td></tr></table></div>`;
+      <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.startVar>0?"+":""}${sd.ytd.startVar}</td></tr></table></div>`;
   });
   const nq = Object.keys(d.nonApp.byQual);
   b += `<div class="rpt-section"><div class="rpt-section-hdr">Non-apprenticeship registrations</div>
@@ -11580,10 +11584,10 @@ function downloadYtdExcel_(){
     STATES3.forEach(st=>{
       const sd = d.states[st];
       ws.addRow([st]).font={bold:true,size:12,color:{argb:"FF085041"}};
-      hdr(["Month","Budget","Registrations","Starters","Reg var"]);
-      sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.regs-m.budget):null]); });
+      hdr(["Month","Budget","Registrations","Starters","Variance (starters vs budget)"]);
+      sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.starters-m.budget):null]); });
       if (sd.startersUndated) ws.addRow(["Booked, not yet dated", null, null, sd.startersUndated, null]);
-      ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, sd.ytd.regVar]).font={bold:true};
+      ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, sd.ytd.startVar]).font={bold:true};
       ws.addRow(["Annual budget", sd.annual.budget]).font={bold:true};
       ws.addRow([]);
     });
