@@ -7350,7 +7350,18 @@ function renderActivityModal(type,data){
     fields+='<input type="hidden" id="reg_contact_id" value="">';
     fields+='<div id="reg_newfields" style="display:none;border:1px dashed var(--bd, #ccc);border-radius:var(--r);padding:8px;margin-bottom:8px;background:var(--bg2, #f7f7f7)">'+
       '<div class="small muted" style="margin-bottom:4px">New student — complete for a full record:</div>'+
-      newContactFieldsHtml("reg_newfields","student")+'</div>';
+      newContactFieldsHtml("reg_newfields","student")+
+      // 2026-09-24 (Bec: "the registration pipeline tile [needs] to be able
+      // to input all columns in the Source sheet"): every remaining source
+      // sheet column, rendered from the sheet's own header row (served by
+      // get_reg_source_fields). ALL optional — the required fields above
+      // stay the only required ones.
+      '<div id="reg_src_section">'+regSrcFieldsHtml()+'</div></div>';
+    // 2026-09-24 (Bec follow-up): the same source-sheet columns for an
+    // EXISTING student — prefilled with the current source values, any
+    // edit is written back to the source sheet on save. Populated async
+    // by loadRegSrcExisting() when an exact student match is selected.
+    fields+='<div id="reg_src_existing"></div>';
     fields+=fld("Trade / qualification","reg_trade","select",data.trade||"",["",...TRADE_OPTIONS]);
     fields+=fldRow([
       fld("Previous stage","reg_prev","select",data.prevStage||"",["",...EARLY_PIPELINE_STAGES]),
@@ -8010,6 +8021,10 @@ function ensureReflectionFromCloud_(coord, wkMon){
 
 function openActivityModal(type){
   S.modal={type:"activity",actType:type,data:{}};
+  // 2026-09-24: fetch the Registration Pipeline source sheet's column list
+  // (best-effort, cached 24h) so the "+ new student" block can offer every
+  // source column as an optional field by the time it's needed.
+  if(type==="registration"){ try{ refreshRegSrcFields(STATES[S.user.coord]); }catch(e){} }
   render();
 }
 function closeModal(){
@@ -8082,7 +8097,15 @@ function saveActivityFromModal_(type){
     const regNewFields=document.getElementById("reg_newfields");
     if(regNewFields && regNewFields.style.display!=="none"){
       act.newContactDetails=readNewContactFields("reg_newfields");
+      // 2026-09-24 (Bec): optional extra source-sheet columns — travel with
+      // the new-contact details and land on the source row via the push.
+      const srcExtra=readRegSrcFields();
+      if(srcExtra) act.newContactDetails.srcExtra=srcExtra;
     }
+    // 2026-09-24 (Bec follow-up): edited source columns for an EXISTING
+    // student — only fields actually changed from their current values.
+    const srcUpd=readRegSrcUpdates();
+    if(srcUpd) act.srcUpdate=srcUpd;
     // New-list item 5: optional employer link.
     const regLink=readEmployerLink("reg");
     if(regLink){ act.employerLink=regLink; act.linkedEmployer=regLink.name; act.linkedEmployerContact=regLink.contactName||""; }
@@ -8954,6 +8977,105 @@ function onRegNameInput(val){
   if(idField) idField.value=exactStudent&&exactStudent.contactId?exactStudent.contactId:"";
   const newFields=document.getElementById("reg_newfields");
   if(newFields) newFields.style.display=(!exactStudent&&(val||"").trim())?"block":"none";
+  // 2026-09-24 (Bec follow-up): existing student selected → load their
+  // current source-sheet values into an editable section; cleared when the
+  // name no longer matches anyone.
+  const exBox=document.getElementById("reg_src_existing");
+  if(exactStudent){ loadRegSrcExisting(exactStudent); }
+  else if(exBox){ exBox.innerHTML=""; }
+}
+
+// ── 2026-09-24 (Bec): Registration Pipeline tile — full source-sheet
+// column capture. The backend's get_reg_source_fields serves the source
+// sheet's OWN header row (minus the columns the push already fills from
+// the tile's core fields), so the tile can offer an optional input for
+// every remaining column. Cached per state in localStorage, refreshed at
+// most every 24h. Everything here is OPTIONAL — the tile's existing
+// required fields are unchanged.
+function getRegSrcFieldsCache(state){
+  const c=lsGet("regSrcFields_"+state);
+  return (c&&c.fields&&c.fields.length)?c:null;
+}
+async function refreshRegSrcFields(state){
+  const cached=getRegSrcFieldsCache(state);
+  if(cached && cached.ts && (Date.now()-cached.ts) < 24*3600*1000) return; // fresh enough
+  try{
+    const data=await jsonpFetch(WEBAPP_URL+"?action=get_reg_source_fields&state="+encodeURIComponent(state));
+    if(data && data.ok && data.fields && data.fields.length){
+      lsSet("regSrcFields_"+state,{fields:data.fields,ts:Date.now()});
+      // If the registration modal is open right now, fill the section in.
+      const sec=document.getElementById("reg_src_section");
+      if(sec) sec.innerHTML=regSrcFieldsHtml();
+    }
+  }catch(e){/* best-effort — the section just stays collapsed/empty */}
+}
+function regSrcFieldsHtml(){
+  const state=STATES[S.user&&S.user.coord]||"";
+  const cache=getRegSrcFieldsCache(state);
+  if(!cache) return '<div class="small muted" style="margin-top:4px">Loading extra source-sheet columns…</div>';
+  const inputs=cache.fields.map(function(f){
+    const safe=String(f.label||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");
+    return '<div class="field"><label>'+safe+'</label>'+
+      '<input id="reg_src_c'+f.col+'" data-srccol="'+f.col+'" placeholder="Optional"></div>';
+  }).join("");
+  return '<details style="margin-top:6px"><summary class="small" style="cursor:pointer;color:var(--o2t)">'+
+    'More source-sheet details ('+cache.fields.length+' columns — all optional)</summary>'+
+    '<div style="margin-top:6px">'+inputs+'</div></details>';
+}
+function readRegSrcFields(){
+  const out={};
+  let any=false;
+  document.querySelectorAll('#reg_src_section input[data-srccol]').forEach(function(el){
+    const v=(el.value||"").trim();
+    if(v){ out[el.getAttribute("data-srccol")]=v; any=true; }
+  });
+  return any?out:null;
+}
+
+// 2026-09-24 (Bec follow-up): existing-student version of the section —
+// prefilled with the row's CURRENT source-sheet values (get_reg_source_row).
+// On save, only fields the coordinator actually CHANGED are sent (compared
+// against data-orig), and blanking a field is deliberately ignored — the
+// tracker never clears a source cell, it only fills or corrects one.
+let regSrcExistingReq=0;
+async function loadRegSrcExisting(student){
+  const box=document.getElementById("reg_src_existing");
+  if(!box || !student) return;
+  const state=STATES[S.user.coord];
+  box.innerHTML='<div class="small muted" style="margin:4px 0"><i class="ti ti-loader"></i> Loading source-sheet details…</div>';
+  const reqId=++regSrcExistingReq;
+  try{
+    await refreshRegSrcFields(state);
+    const url=WEBAPP_URL+"?action=get_reg_source_row&state="+encodeURIComponent(state)+
+      "&name="+encodeURIComponent(student.name||"")+"&phone="+encodeURIComponent(student.phone||"");
+    const data=await jsonpFetch(url);
+    if(reqId!==regSrcExistingReq) return; // a newer selection superseded this fetch
+    const fields=((getRegSrcFieldsCache(state)||{}).fields)||[];
+    if(!data||!data.ok||!fields.length){ box.innerHTML=""; return; }
+    if(!data.found){
+      box.innerHTML='<div class="small muted" style="margin:4px 0">Not found on the source sheet yet — extra source columns can\'t be updated for this student.</div>';
+      return;
+    }
+    const esc=function(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;"); };
+    const inputs=fields.map(function(f){
+      const cur=String((data.values||{})[f.col]||"");
+      return '<div class="field"><label>'+esc(f.label)+'</label>'+
+        '<input id="reg_srcu_c'+f.col+'" data-srcucol="'+f.col+'" data-orig="'+esc(cur)+'" value="'+esc(cur)+'" placeholder="Optional"></div>';
+    }).join("");
+    box.innerHTML='<details style="margin:6px 0"><summary class="small" style="cursor:pointer;color:var(--o2t)">'+
+      'Source-sheet details — current values ('+fields.length+' columns; edit any to update the source sheet)</summary>'+
+      '<div style="margin-top:6px">'+inputs+'</div></details>';
+  }catch(e){ if(reqId===regSrcExistingReq) box.innerHTML=""; }
+}
+function readRegSrcUpdates(){
+  const out={};
+  let any=false;
+  document.querySelectorAll('#reg_src_existing input[data-srcucol]').forEach(function(el){
+    const v=(el.value||"").trim();
+    const orig=(el.getAttribute("data-orig")||"").trim();
+    if(v && v!==orig){ out[el.getAttribute("data-srcucol")]=v; any=true; }
+  });
+  return any?out:null;
 }
 
 function renderCommDropdown(filterText){
@@ -9416,6 +9538,9 @@ async function pushData() {
   // as above — lets the backend match by ID (unambiguous) instead of name
   // alone when logging Registration/Enrolment Pipeline activity.
   const leadContactIdByRowId={};
+  // 2026-09-24 (Bec follow-up): edited source-sheet columns for an existing
+  // student, same id-keyed-map pattern — written onto their source row.
+  const srcUpdateByRowId={};
   // Batch 8 item 11: deliberate email/phone edits for an EXISTING contact —
   // same id-keyed-map pattern as above. Only ever present when the
   // coordinator actually changed a pre-filled value (see readContactEdit).
@@ -9443,6 +9568,9 @@ async function pushData() {
       }
       if(a.leadContactId && a.id){
         leadContactIdByRowId[a.id]=a.leadContactId;
+      }
+      if(a.srcUpdate && a.id){ // 2026-09-24 (Bec follow-up)
+        srcUpdateByRowId[a.id]=a.srcUpdate;
       }
       if(a.contactEdit && a.id){
         contactEditByRowId[a.id]=a.contactEdit;
@@ -9485,8 +9613,25 @@ async function pushData() {
   // Push activities
   const deletedIds = getPendingDeletes(coord);
   try {
-    const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows,deletedIds,newContactDetailsByRowId,leadContactIdByRowId,contactEditByRowId,employerLinkByRowId});
-    if(r.ok) { pushed+=actRows.length; clearPendingDeletes(coord, deletedIds); }
+    const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows,deletedIds,newContactDetailsByRowId,leadContactIdByRowId,contactEditByRowId,employerLinkByRowId,srcUpdateByRowId});
+    if(r.ok) {
+      pushed+=actRows.length; clearPendingDeletes(coord, deletedIds);
+      // 2026-09-24 (Bec follow-up): source-column edits are ONE-SHOT —
+      // strip them from the stored activities once the server has applied
+      // them. Every push re-sends the whole week's rows, so leaving them
+      // on the activity would rewrite the same source cells on every
+      // subsequent auto-push — silently undoing any later manual edit made
+      // directly on the source sheet (the exact bug class the v73 EP
+      // status overwrite already taught us about).
+      if(Object.keys(srcUpdateByRowId).length){
+        days.forEach(d=>{
+          const day=loadDay(coord,d);
+          let changed=false;
+          (day.activities||[]).forEach(a=>{ if(a.srcUpdate && srcUpdateByRowId[a.id]){ delete a.srcUpdate; changed=true; } });
+          if(changed) saveDay(day);
+        });
+      }
+    }
     else errors.push("Activities: "+r.msg);
   } catch(e){ errors.push("Activities: "+friendlyError_(e)); }
 
