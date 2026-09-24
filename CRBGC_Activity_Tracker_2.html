@@ -10036,8 +10036,16 @@ async function loadFromCloud() {
   // the open card re-fetches fresh figures on its next render.
   S.regRecoAttempted = {};  S.regRecoAsOf = null;
   S.commRecoAttempted = {}; S.commRecoAsOf = null;
-  S.okrAttempted = {};      if (S.okr) S.okr.asOf = null;
-  S.ytdAttempted = {};      if (S.ytd) S.ytd.asOf = null;
+  // FIXED 2026-09-24 (Bec's "Cannot read properties of null (reading
+  // 'slice')" crash in renderYtdPosition_): these two previously marked
+  // the payload stale by nulling its asOf FIELD (`S.ytd.asOf = null`) —
+  // but the card renders the stale payload while the re-fetch is in
+  // flight, and its own code reads d.asOf (e.g. d.asOf.slice(5,7)), so
+  // every render crashed until the fresh payload arrived. Null the WHOLE
+  // payload instead: the card shows its normal "Loading…" state for the
+  // moment the re-fetch takes, exactly like first open.
+  S.okrAttempted = {};      S.okr = null;
+  S.ytdAttempted = {};      S.ytd = null;
   S.trainerCapAttempted = false; S.trainerCap = null;   // gate is `!S.trainerCap && !attempted` — must clear both
   S.qldGrowthAttempted = false;  S.qldGrowth = null;    // same gate shape
   refreshOfficialEvents_(); // 2026-09-24: official reg/starter events — best-effort background refresh
