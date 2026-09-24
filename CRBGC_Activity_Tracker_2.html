@@ -3094,9 +3094,21 @@ const SHARED_TREND_METRICS_ = [
   {label:"New Student Leads",            fn:function(T){return T.tiles.leads;},                 tgtKey:"lead_generated"},
   {label:"Events",                       fn:function(T){return T.tiles.events;},                tgtKey:"event"},
   {label:"New Opportunity",              fn:function(T){return T.tiles.newOpportunity;}},
-  {label:"Overdue follow-ups",           fn:function(T){return T.followup_overdue;}, warn:true},
+  // 2026-09-24 (Bec's WIP Update report, data-integrity item 8): overdue
+  // follow-ups are a LIVE snapshot — no historical weekly value was ever
+  // captured, so the old row repeated today's count under every past
+  // week's column (154 across "eight weeks" in the report), which read as
+  // a static trend. currentOnly shows the live value in the latest week
+  // only; past weeks render "—" and the trend arrow stays neutral.
+  {label:"Overdue follow-ups (current)", fn:function(T){return T.followup_overdue;}, warn:true, currentOnly:true},
   {label:"Productive days",              fn:function(T){return T.days_productive;}},
 ];
+// 2026-09-24: nulls the non-current weeks of a currentOnly metric's value
+// series (index 0 = latest week in every trend renderer).
+function trendVals_(metric, vals){
+  if(metric.currentOnly) for(let i=1;i<vals.length;i++) vals[i]=null;
+  return vals;
+}
 function trendWeekTotals_(coord, mon){
   return Object.assign({}, weeklyTotals(coord, mon), {tiles: weeklyTileMetrics(coord, mon)});
 }
@@ -3216,16 +3228,16 @@ function downloadTrendExcel() {
         const rowBgHex = mi%2===0?"FFF8F9FA":"FFFFFFFF";
 
         // Calculate combined vals across coordList
-        const vals = weeks.map(function(mon) {
+        const vals = trendVals_(metric, weeks.map(function(mon) {
           return coordList.reduce(function(sum,coord){ return sum+metric.fn(data[coord][mon]); },0);
-        });
+        }));
 
         // Combined weekly target
         const combinedTgt = coordList.reduce(function(sum,coord){
           return sum + getWeeklyTgt(metric, STATES[coord], coord);
         },0);
 
-        const latest = vals[0]||0, prev = vals[1]||0;
+        const latest = vals[0]||0, prev = vals[1]==null ? latest : (vals[1]||0); // currentOnly: no history → neutral trend
         const diff = latest - prev;
         const trendTxt = diff>0?"↑ +"+diff : diff<0?"↓ "+diff : "→";
         const trendCol = metric.warn
@@ -3250,7 +3262,7 @@ function downloadTrendExcel() {
         vals.forEach(function(v, vi) {
           const cell = row.getCell(3+vi);
           const isLatest = vi===0;
-          cell.value = v;
+          cell.value = v==null ? "—" : v; // currentOnly metric: no historical value
           cell.alignment = {horizontal:"center",vertical:"middle"};
 
           if (isLatest) {
@@ -3594,10 +3606,10 @@ function downloadTrendPDF() {
     <table class="trend-table">
       <tr><th>Metric</th><th>↑↓</th><th>${weekHdrs}</th></tr>
       ${TREND_METRICS.map(function(metric, mi) {
-        const vals = weeks.map(function(mon) {
+        const vals = trendVals_(metric, weeks.map(function(mon) {
           return coordsToShow.reduce(function(sum,coord){ return sum+metric.fn(data[coord][mon]); },0);
-        });
-        const latest=vals[0], prev=vals[1]||0;
+        }));
+        const latest=vals[0], prev=vals[1]==null?latest:(vals[1]||0);
         const trend = latest>prev?"↑":latest<prev?"↓":"→";
         const tCol  = metric.warn?(latest>prev?"#9C0006":latest<prev?"#375623":"#888"):(latest>prev?"#375623":latest<prev?"#9C0006":"#888");
         const rowBg = mi%2===0?"#f8f9fa":"#fff";
@@ -3606,7 +3618,7 @@ function downloadTrendPDF() {
           <td style="font-weight:700;font-size:16px;color:${tCol};text-align:center">${trend}</td>
           ${vals.map(function(v,vi){
             const isLatest=vi===0;
-            return `<td style="text-align:center;font-weight:${isLatest?700:400};background:${isLatest?"#EEF4FF":rowBg};color:${v===0?"#aaa":"#1a1a1a"}">${v}</td>`;
+            return `<td style="text-align:center;font-weight:${isLatest?700:400};background:${isLatest?"#EEF4FF":rowBg};color:${v==null||v===0?"#aaa":"#1a1a1a"}">${v==null?"—":v}</td>`;
           }).join("")}
         </tr>`;
       }).join("")}
@@ -3621,8 +3633,8 @@ function downloadTrendPDF() {
     <table class="trend-table">
       <tr><th>Metric</th><th>↑↓</th><th>Target</th><th>${weekHdrs}</th></tr>
       ${TREND_METRICS.map(function(metric, mi) {
-        const vals = weeks.map(function(mon){ return metric.fn(data[coord][mon]); });
-        const latest=vals[0], prev=vals[1]||0;
+        const vals = trendVals_(metric, weeks.map(function(mon){ return metric.fn(data[coord][mon]); }));
+        const latest=vals[0], prev=vals[1]==null?latest:(vals[1]||0);
         const trend = latest>prev?"↑":latest<prev?"↓":"→";
         const tCol  = metric.warn?(latest>prev?"#9C0006":latest<prev?"#375623":"#888"):(latest>prev?"#375623":latest<prev?"#9C0006":"#888");
         const rowBg = mi%2===0?"#f8f9fa":"#fff";
@@ -3634,8 +3646,8 @@ function downloadTrendPDF() {
           ${vals.map(function(v,vi){
             const isLatest=vi===0;
             const atTgt = weeklyTgt>0&&v>=weeklyTgt;
-            const vCol = v===0?"#aaa":atTgt?"#375623":isLatest?"#1a1a1a":"#555";
-            return `<td style="text-align:center;font-weight:${isLatest?700:400};background:${isLatest?"#EEF4FF":rowBg};color:${vCol}">${v}</td>`;
+            const vCol = v==null||v===0?"#aaa":atTgt?"#375623":isLatest?"#1a1a1a":"#555";
+            return `<td style="text-align:center;font-weight:${isLatest?700:400};background:${isLatest?"#EEF4FF":rowBg};color:${vCol}">${v==null?"—":v}</td>`;
           }).join("")}
         </tr>`;
       }).join("")}
@@ -5704,11 +5716,11 @@ function renderTrendDashboard() {
         </tr>
         ${TREND_METRICS.map(function(metric, mi) {
           const rowBg = mi%2===0?"var(--s1)":"#fff";
-          const vals = weeks.map(function(mon) {
+          const vals = trendVals_(metric, weeks.map(function(mon) {
             return coordsToShow.reduce(function(sum,coord){ return sum + metric.fn(data[coord][mon]); }, 0);
-          });
+          }));
           const latest = vals[0];
-          const prev   = vals[1]||0;
+          const prev   = vals[1]==null ? latest : (vals[1]||0);
           const trend  = latest > prev ? "↑" : latest < prev ? "↓" : "→";
           const trendCol = metric.warn
             ? (latest>prev?"var(--redt)":latest<prev?"var(--greent)":"var(--tm)")
@@ -5719,6 +5731,7 @@ function renderTrendDashboard() {
             <td style="padding:6px 8px;font-weight:600;background:${rowBg};color:${metric.warn?"var(--redt)":"var(--tp)"}">${metric.label}</td>
             <td style="text-align:center;padding:6px 4px;background:${rowBg};font-size:16px;font-weight:700;color:${trendCol}">${trend}</td>
             ${vals.map(function(v, vi) {
+              if (v==null) return `<td style="text-align:center;padding:6px 4px;background:${rowBg};color:var(--tm)">—</td>`; // currentOnly: no history
               const isLatest = vi === 0;
               const barH = Math.round((v/max)*24);
               // Team table - RAG vs combined target across all shown coords
@@ -5778,9 +5791,9 @@ function renderTrendDashboard() {
         </tr>
         ${TREND_METRICS.map(function(metric, mi) {
           const rowBg = mi%2===0?"var(--s1)":"#fff";
-          const vals = weeks.map(function(mon){ return metric.fn(data[coord][mon]); });
+          const vals = trendVals_(metric, weeks.map(function(mon){ return metric.fn(data[coord][mon]); }));
           const latest = vals[0];
-          const prev   = vals[1]||0;
+          const prev   = vals[1]==null ? latest : (vals[1]||0);
           const trend  = latest > prev ? "↑" : latest < prev ? "↓" : "→";
           const trendCol = metric.warn
             ? (latest>prev?"var(--redt)":latest<prev?"var(--greent)":"var(--tm)")
@@ -5794,6 +5807,7 @@ function renderTrendDashboard() {
             </td>
             <td style="text-align:center;padding:6px 4px;background:${rowBg};font-size:16px;font-weight:700;color:${trendCol}">${trend}</td>
             ${vals.map(function(v, vi) {
+              if (v==null) return `<td style="text-align:center;padding:6px 4px;background:${rowBg};color:var(--tm)">—</td>`; // currentOnly: no history
               const isLatest = vi === 0;
               const barH = Math.round((v/max)*28);
               // RAG colouring vs weekly target
