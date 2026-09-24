@@ -1090,6 +1090,15 @@ let S = {
   ytdLoading: false,
   ytdAttempted: {},
   ytdError: null,
+
+  // 2026-09-24 (Bec: "Anywhere registrations are reporting needs to match
+  // with the YTD Position TAB..."): the official per-coordinator event
+  // lists — registrations from the Registrations 2026 tab, starters from
+  // the Commencements source tabs (see officialCount_). While loaded, the
+  // Weekly/Daily/Trend registration & commencement figures count from
+  // these; until then they fall back to the activity-log counts.
+  official: null,
+  officialLoading: false,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -2597,6 +2606,14 @@ function weeklyTotals(coord,ds){
   // 2026-08-20 per Bec: unique first-time students, not raw lead rows.
   T.lead = uniqueNewLeadCount_(coord, days[0], days[days.length-1]);
 
+  // 2026-09-24 (Bec): registrations & commencements from the official
+  // sources (Registrations 2026 tab / Commencements tabs) so this agrees
+  // with the YTD Position tab; activity-log counts only until loaded.
+  const offReg_ = officialCount_("regs", coord, days[0], days[days.length-1]);
+  if(offReg_!=null) T.registration = offReg_;
+  const offComm_ = officialCount_("starters", coord, days[0], days[days.length-1]);
+  if(offComm_!=null) T.commencement = offComm_;
+
   const allOpenFu = getAllOpenFollowupsForDash(coord);
   T.followup_open = allOpenFu.length;
   T.followup_overdue = allOpenFu.filter(function(f){ return f.followUpDate && isOverdue(f.followUpDate); }).length;
@@ -2734,10 +2751,8 @@ function downloadDailyExcel() {
       ws.getRow(r).height = 16; r++;
 
       const metrics = [
-        {label:"Commencements",         val:acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.commencement[s],coord,date))),  obj:"o1"},
-        // 2026-08-06: only a brand-new person (newContactDetails set) counts
-        // as a new registration — see weeklyTotals()'s matching fix.
-        {label:"Registrations",          val:acts.filter(isRegistrationReached_).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.registration[s],coord,date))),  obj:"o1"},
+        {label:"Commencements",         val:officialCount_("starters",coord,date,date) ?? acts.filter(function(a){return a.type==="commencement";}).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.commencement[s],coord,date))),  obj:"o1"}, // 2026-09-24: official source, see officialCount_
+        {label:"Registrations",          val:officialCount_("regs",coord,date,date) ?? acts.filter(isRegistrationReached_).length,       tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.registration[s],coord,date))),  obj:"o1"},
         {label:"ACAP contacts",          val:acts.filter(function(a){return a.type==="acap_contact"||a.type==="acap_f2f";}).length, tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.acap_contact[s],coord,date))), obj:"o2"},
         {label:"ACAP F2F visits",        val:acts.filter(function(a){return a.type==="acap_f2f";}).length,            tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.acap_f2f[s],coord,date))),      obj:"o2"},
         {label:"Events",                 val:acts.filter(function(a){return a.type==="event";}).length,               tgt:Math.round(paceTarget(weeklyTargetFor_(tgt.event[s],coord,date))),          obj:"o2"},
@@ -3914,10 +3929,8 @@ function downloadDashboardPDF() {
       const status = dayStatus(day);
       const statusLabel = status==="productive"?"✅ Productive day":status==="partial"?"◐ Partial activity":"○ No meaningful activity";
 
-      const commencements    = acts.filter(a=>a.type==="commencement").length;
-      // 2026-08-06: only a brand-new person (newContactDetails set) counts
-      // as a new registration — see weeklyTotals()'s matching fix.
-      const registrations    = acts.filter(isRegistrationReached_).length;
+      const commencements    = officialCount_("starters",coord,date,date) ?? acts.filter(a=>a.type==="commencement").length; // 2026-09-24: official source
+      const registrations    = officialCount_("regs",coord,date,date) ?? acts.filter(isRegistrationReached_).length;
       const acapContacts     = acts.filter(a=>a.type==="acap_contact"||a.type==="acap_f2f").length;
       const callsAttempted   = acts.filter(a=>a.type==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))).length;
       const callsMeaningful  = acts.filter(isMeaningfulCall).length;
@@ -5362,6 +5375,37 @@ function uniqueNewLeadCount_(coord, startDs, endDs){
   }).length;
 }
 
+// ── 2026-09-24 (Bec): official registration & starter counts ─────────────
+// "Anywhere registrations are reporting needs to match with the YTD
+// Position TAB and the dates recorded against the registrations in the
+// WIPs Registrations 2026 TAB. Anywhere starters/Commencements are
+// reporting needs to match the YTD Position TAB and the dates recorded
+// in the Commencements Source TABs."
+// officialCount_ counts the backend-served official events (kind "regs" |
+// "starters") for one coordinator across a date range — the same rows,
+// same dates, the YTD Position tab counts. Returns null while the list
+// hasn't loaded yet, so every call site falls back to its activity-log
+// count rather than showing a false zero. The FOCUS/pace system is
+// deliberately NOT rewired — it measures the coordinator's logged effort
+// on the day, which is a different question from when the official
+// registration/commencement date fell.
+function officialCount_(kind, coord, startDs, endDs){
+  if(!S.official || !S.official[kind]) return null;
+  const fn=(coord||"").split(" ")[0];
+  let n=0;
+  S.official[kind].forEach(function(e){ if(e.c===fn && e.d>=startDs && e.d<=endDs) n++; });
+  return n;
+}
+async function refreshOfficialEvents_(){
+  if(S.officialLoading || !WEBAPP_URL) return;
+  S.officialLoading=true;
+  try{
+    const data=await jsonpFetch(WEBAPP_URL+"?action=get_official_events");
+    if(data && data.ok){ S.official={regs:data.regs||[], starters:data.starters||[]}; render(); }
+  }catch(e){/* best-effort — activity-log fallback stays in place */}
+  S.officialLoading=false;
+}
+
 function weeklyTileMetrics(coord, targetDate){
   const days = weekDaysMF(targetDate);
   const acts = days.reduce((all,d)=>all.concat(realDayActivities(loadDay(coord,d))), []);
@@ -5388,13 +5432,11 @@ function weeklyTileMetrics(coord, targetDate){
   };
 
   return {
-    commencements:       acts.filter(a=>a.type==="commencement").length,
-    // FIXED 2026-08-06 per Bec: only a brand-new person (Registration
-    // form's "+ new student" capture used, i.e. act.newContactDetails set)
-    // counts as a new registration — see weeklyTotals()'s matching fix for
-    // the full rationale. An existing lead being progressed through the
-    // pipeline no longer inflates this tile.
-    registrations:       acts.filter(isRegistrationReached_).length,
+    // 2026-09-24 (Bec): official sources first — Commencements tabs /
+    // Registrations 2026 tab, matching the YTD Position tab — with the
+    // activity-log count as the not-yet-loaded fallback.
+    commencements:       officialCount_("starters", coord, days[0], days[days.length-1]) ?? acts.filter(a=>a.type==="commencement").length,
+    registrations:       officialCount_("regs", coord, days[0], days[days.length-1]) ?? acts.filter(isRegistrationReached_).length,
     // 2026-08-19 per Bec: Enrolments count ONLY Enrolment Pipeline entries moved to stage "Enrolled" — the standalone "enrolment" activity type no longer counts (was double-crediting the same enrolment when both were logged).
     enrolments:          acts.filter(a=>a.type==="enrolment_pipeline"&&a.newStage==="Enrolled"&&a.prevStage!=="Enrolled").length, // 2026-08-19 per Bec ("only the ones moved to enrolled within that week"): a re-touch of an already-Enrolled entry (prevStage also "Enrolled") must not re-count in a later week — only the actual transition INTO Enrolled counts, in the week it happened.
     // FIXED 2026-08-06 per Bec: "Pipeline progression attempts should show
@@ -5490,7 +5532,7 @@ function renderDailyDashboard(){
       return orig ? (orig.relType||"") : "";
     };
 
-    const commencements       = acts.filter(a=>a.type==="commencement").length; // logged as commenced (commencements can never have a follow-up, so no closure ever attributes here)
+    const commencements       = officialCount_("starters",coord,date,date) ?? acts.filter(a=>a.type==="commencement").length; // 2026-09-24: official source (Commencements tabs), activity log until loaded
     // FIXED 2026-08-06 per Bec: "registrations should only pull new
     // registrations logged for the day, not existing registration
     // activities" — only a brand-new person (Registration form's "+ new
@@ -5500,7 +5542,7 @@ function renderDailyDashboard(){
     // rationale, including why contactOutcome==="Registered" was the
     // wrong signal — that's the outcome of TODAY's contact, not whether
     // this was a brand-new person).
-    const registrations       = acts.filter(isRegistrationReached_).length;
+    const registrations       = officialCount_("regs",coord,date,date) ?? acts.filter(isRegistrationReached_).length; // 2026-09-24: official source (Registrations 2026 tab), activity log until loaded
     // 2026-08-19 per Bec: Enrolments count ONLY Enrolment Pipeline entries moved to stage "Enrolled" — the standalone "enrolment" activity type no longer counts (was double-crediting the same enrolment when both were logged).
     const enrolments          = acts.filter(a=>a.type==="enrolment_pipeline"&&a.newStage==="Enrolled"&&a.prevStage!=="Enrolled").length; // 2026-08-19 per Bec ("only the ones moved to enrolled within that week"): a re-touch of an already-Enrolled entry (prevStage also "Enrolled") must not re-count in a later week — only the actual transition INTO Enrolled counts, in the week it happened.
     // FIXED 2026-08-05 per Bec: "Pipeline Progression Attempts" only ever
@@ -9988,6 +10030,7 @@ async function loadFromCloud() {
   S.ytdAttempted = {};      if (S.ytd) S.ytd.asOf = null;
   S.trainerCapAttempted = false; S.trainerCap = null;   // gate is `!S.trainerCap && !attempted` — must clear both
   S.qldGrowthAttempted = false;  S.qldGrowth = null;    // same gate shape
+  refreshOfficialEvents_(); // 2026-09-24: official reg/starter events — best-effort background refresh
   // If we pushed recently, cloud may not have rebuilt yet — skip week pull
   // to avoid overwriting locally-saved activities with stale cloud data.
   // FIXED 2026-08: this comment always said "still refresh followups/
