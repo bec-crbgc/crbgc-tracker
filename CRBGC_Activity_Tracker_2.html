@@ -9568,6 +9568,22 @@ async function post(type, payload) {
   return {ok:true, msg:"Pushed (no-cors mode)"};
 }
 
+// 2026-09-24 ("sync is taking too long"): content hash for skip-if-
+// unchanged pushes — djb2 over the serialized payload. Not cryptographic;
+// it only needs to answer "did this row change since the last confirmed
+// push?".
+function rowHash_(v){
+  const s=JSON.stringify(v); let h=5381;
+  for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; }
+  return String(h);
+}
+// True only for a CONFIRMED server response. The no-cors fallback and the
+// unreadable-response case return ok:true blindly — after those we must
+// NOT record "pushed" hashes, or a genuinely lost push would never be
+// re-sent.
+function genuineOk_(r){
+  return !!(r && r.ok && !(typeof r.msg==="string" && (r.msg.indexOf("no-cors")!==-1 || r.msg.indexOf("response unreadable")!==-1)));
+}
 async function pushData() {
   if(S.syncing) return;
   S.syncing=true; S.status={ok:true,msg:"Syncing…"}; if(!S.modal) render();
@@ -9663,11 +9679,41 @@ async function pushData() {
   });
 
   // Push activities
+  // ── 2026-09-24 (Bec: "the sync is taking too long") ────────────────────
+  // Previously EVERY sync re-sent the entire week's activities, and the
+  // backend re-processed every one of them (Employer DB matching, ACAP,
+  // Student Leads, notes merging) even though nothing had changed on most
+  // rows — so syncs grew slower all week. The backend merges by ID
+  // ("Only rows explicitly present in idsToReplace get removed"), so
+  // sending only the rows that actually CHANGED since the last confirmed
+  // push is safe: unchanged rows stay untouched on the server. Change
+  // detection hashes each row's final serialized content (actToRow
+  // output), so every mutation path — edits, snoozes, follow-up closes —
+  // is caught automatically, with no per-site dirty flags to forget.
+  // Hashes are only recorded after a GENUINE confirmed response (never
+  // the blind no-cors fallback), so an unconfirmed push re-sends
+  // everything next time, exactly like before this change.
   const deletedIds = getPendingDeletes(coord);
-  try {
-    const r=await post("push_activities",{coord,state,mondayStr:monday,rows:actRows,deletedIds,newContactDetailsByRowId,leadContactIdByRowId,contactEditByRowId,employerLinkByRowId,srcUpdateByRowId});
+  const actHashKey="pushedHashes:"+coord+":"+monday;
+  const prevActHashes=lsGet(actHashKey)||{};
+  const changedActRows=actRows.filter(r=>{
+    const id=String(r[0]||"").trim();
+    // A pending source-column edit (srcUpdate) travels as a sibling map,
+    // not as row content — its row must ship even if the row itself is
+    // byte-identical, or the one-shot edit would be stripped unapplied.
+    return !id || prevActHashes[id]!==rowHash_(r) || !!srcUpdateByRowId[id];
+  });
+  if(changedActRows.length===0 && deletedIds.length===0){
+    // nothing new — skip the round-trip (and the server-side lock) entirely
+  } else try {
+    const r=await post("push_activities",{coord,state,mondayStr:monday,rows:changedActRows,deletedIds,newContactDetailsByRowId,leadContactIdByRowId,contactEditByRowId,employerLinkByRowId,srcUpdateByRowId});
     if(r.ok) {
-      pushed+=actRows.length; clearPendingDeletes(coord, deletedIds);
+      pushed+=changedActRows.length; clearPendingDeletes(coord, deletedIds);
+      if(genuineOk_(r)){
+        changedActRows.forEach(r2=>{ const id=String(r2[0]||"").trim(); if(id) prevActHashes[id]=rowHash_(r2); });
+        deletedIds.forEach(id=>{ delete prevActHashes[String(id||"").trim()]; });
+        lsSet(actHashKey, prevActHashes);
+      }
       // 2026-09-24 (Bec follow-up): source-column edits are ONE-SHOT —
       // strip them from the stored activities once the server has applied
       // them. Every push re-sends the whole week's rows, so leaving them
@@ -9687,22 +9733,33 @@ async function pushData() {
     else errors.push("Activities: "+r.msg);
   } catch(e){ errors.push("Activities: "+friendlyError_(e)); }
 
-  // Push day meta (focus, EOD, notes)
-  try {
+  // Push day meta (focus, EOD, notes) — same skip-if-unchanged idea as
+  // activities above, one hash for the whole week's payload (2026-09-24).
+  const dmHashKey="pushedDayMeta:"+coord+":"+monday;
+  const dmHash=rowHash_(dayMetaArr);
+  if(lsGet(dmHashKey)!==dmHash) try {
     const r=await post("push_day_meta",{coord,days:dayMetaArr});
     if(!r.ok) errors.push("Day meta: "+r.msg);
+    else if(genuineOk_(r)) lsSet(dmHashKey, dmHash);
   } catch(e){ errors.push("Day meta: "+friendlyError_(e)); }
 
-  // Push leads
-  try {
+  // Push leads — skipped when nothing changed since the last confirmed
+  // push (2026-09-24; any change re-sends the whole set, same as before).
+  const ldHashKey="pushedLeads:"+coord+":"+monday;
+  const ldHash=rowHash_([leadRows,leadEmployerLinks]);
+  if(leadRows.length>0 && lsGet(ldHashKey)!==ldHash) try {
     const r=await post("push_leads",{coord,state,mondayStr:monday,rows:leadRows,employerLinks:leadEmployerLinks});
     if(!r.ok) errors.push("Leads: "+r.msg);
+    else if(genuineOk_(r)) lsSet(ldHashKey, ldHash);
   } catch(e){ errors.push("Leads: "+friendlyError_(e)); }
 
-  // Push employers
-  try {
+  // Push employers — same skip-if-unchanged (2026-09-24).
+  const empHashKey="pushedEmps:"+coord+":"+monday;
+  const empHash=rowHash_(empRows);
+  if(empRows.length>0 && lsGet(empHashKey)!==empHash) try {
     const r=await post("push_employers",{coord,state,mondayStr:monday,rows:empRows});
     if(!r.ok) errors.push("Employers: "+r.msg);
+    else if(genuineOk_(r)) lsSet(empHashKey, empHash);
   } catch(e){ errors.push("Employers: "+friendlyError_(e)); }
 
   // Push weekly reflection(s)
@@ -9733,7 +9790,7 @@ async function pushData() {
     S.status={ok:false,msg:"Errors: "+errors.join(" | ")};
     S.unsyncedChanges=true;
   } else {
-    S.status={ok:true,msg:"✓ Synced — "+actRows.length+" activities · "+leadRows.length+" leads · "+empRows.length+" employers"};
+    S.status={ok:true,msg:"✓ Synced — "+changedActRows.length+" of "+actRows.length+" activities updated · "+leadRows.length+" leads · "+empRows.length+" employers"};
     S.unsyncedChanges=false;
     S.lastSynced=new Date().toISOString();
     lsSet("lastSynced:"+coord,S.lastSynced);
