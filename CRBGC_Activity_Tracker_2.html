@@ -4154,7 +4154,11 @@ function renderApp(){
   // weekly check-in) — Wayne's tab set is untouched per Bec's access choice.
   const tabs = isManager
     ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["ytd","dashboard","weekly","daily","trend","trainers","qldgrowth","okr"])
-    : ["today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
+    // 2026-09-24 per Bec: YTD Position is the FIRST tab for Wayne, James
+    // and Johnson too (read-only view — the PDF/Excel download buttons on
+    // it are manager-only, see renderYtdPosition_). They still LAND on
+    // Today, so daily logging is unchanged.
+    : ["ytd","today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
   const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth",okr:"OKR Scorecard",ytd:"YTD Position"};
 
   let h=`<div class="hdr">
@@ -11635,8 +11639,8 @@ function renderYtdPosition_(){
       <div class="card-title" style="margin:0"><i class="ti ti-chart-line"></i> YTD Position — Registrations vs Budgeted Starters</div>
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:11px;color:var(--tm)">As at ${d.asOf} · <a href="#" onclick="event.preventDefault();refreshYtdPosition_()">Refresh</a></span>
-        <button onclick="downloadYtdPDF_()" style="font-size:11px;padding:4px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">PDF</button>
-        <button onclick="downloadYtdExcel_()" style="font-size:11px;padding:4px 10px;background:#1C3C6B;color:#fff;border:none;border-radius:var(--r);cursor:pointer">Excel</button>
+        ${S.user.isManager?`<button onclick="downloadYtdPDF_()" style="font-size:11px;padding:4px 10px;background:#085041;color:#fff;border:none;border-radius:var(--r);cursor:pointer">PDF</button>
+        <button onclick="downloadYtdExcel_()" style="font-size:11px;padding:4px 10px;background:#1C3C6B;color:#fff;border:none;border-radius:var(--r);cursor:pointer">Excel</button>`:""}
       </div>
     </div></div>`;
   if (!d.seeded) {
