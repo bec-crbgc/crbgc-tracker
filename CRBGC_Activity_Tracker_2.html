@@ -9802,7 +9802,21 @@ async function jsonpFetch(url, retries) {
     const cleanup = function(err) {
       if (done) return;
       done = true;
-      delete window[cbName];
+      // FIXED 2026-09-24 (Bec: repeated masked "Script error." alerts —
+      // 38 in one sitting): this used to `delete window[cbName]` on
+      // timeout. But removing the <script> element does NOT abort a JSONP
+      // request already in flight — when the slow Apps Script response
+      // finally arrived (the dashboard endpoints can legitimately run
+      // past the timeout), it still called window.cb_xxx(...), which was
+      // now undefined → a ReferenceError inside a cross-origin script,
+      // which browsers mask to exactly "Script error." — and the global
+      // error alert then fired for EVERY late response, original and
+      // retries alike. Leave a self-removing no-op stub instead, so a
+      // late response is silently discarded.
+      window[cbName] = function(){
+        try { delete window[cbName]; } catch(_e) {}
+        try { if(document.body.contains(script)) document.body.removeChild(script); } catch(_e2) {}
+      };
       if(document.body.contains(script)) document.body.removeChild(script);
       if (retries < 2) {
         setTimeout(function() {
@@ -9813,7 +9827,11 @@ async function jsonpFetch(url, retries) {
       }
     };
     script.onerror = function() { cleanup("Script load failed"); };
-    setTimeout(function() { cleanup("Timeout"); }, 15000);
+    // 2026-09-24: 15s → 25s — the manager endpoints (YTD position,
+    // recovery cards) now read the external source workbooks and can
+    // genuinely take longer than 15s; a too-short timeout caused a
+    // retry storm on top of the late-response errors above.
+    setTimeout(function() { cleanup("Timeout"); }, 25000);
     script.src = fullUrl;
     document.body.appendChild(script);
   });
@@ -10853,17 +10871,31 @@ function downloadWeeklyNotes(){
 // log, since silent JS errors on mobile are otherwise invisible to us.
 // ═══════════════════════════════════════════════════════════
 window._errorLog = [];
+// 2026-09-24 (Bec: the same alert firing dozens of times in a row): the
+// popup is throttled to at most one per minute — EVERY error still lands
+// in the error log (Settings → 'Show error log'), only the alert spam is
+// suppressed. The masked "Script error." (an error from a cross-origin
+// script, e.g. a late JSONP response) is additionally log-only: it
+// carries no detail a user could act on, and its root cause is handled
+// in jsonpFetch's timeout cleanup.
+window._lastErrAlert_ = 0;
+function maybeErrorAlert_(text){
+  if (Date.now() - window._lastErrAlert_ < 60000) return;
+  window._lastErrAlert_ = Date.now();
+  alert(text);
+}
 window.addEventListener("error", function(e){
   const msg = (e.error && e.error.stack) ? e.error.stack : e.message;
   window._errorLog.push(new Date().toLocaleTimeString()+" | "+msg);
   try{ lsSet("errorLog", window._errorLog); }catch(e_){}
-  alert("⚠ App error caught:\n\n"+msg+"\n\nThe app state was NOT reset — check if your form data is still there. If not, use Settings → 'Show error log' and share it.");
+  if (String(msg||"").indexOf("Script error") !== -1) return; // masked cross-origin error — log-only
+  maybeErrorAlert_("⚠ App error caught:\n\n"+msg+"\n\nThe app state was NOT reset — check if your form data is still there. If not, use Settings → 'Show error log' and share it.");
 });
 window.addEventListener("unhandledrejection", function(e){
   const msg = e.reason && e.reason.message ? e.reason.message : String(e.reason);
   window._errorLog.push(new Date().toLocaleTimeString()+" | (promise) "+msg);
   try{ lsSet("errorLog", window._errorLog); }catch(e_){}
-  alert("⚠ App error caught (async):\n\n"+msg);
+  maybeErrorAlert_("⚠ App error caught (async):\n\n"+msg);
 });
 function showErrorLog(){
   const log = lsGet("errorLog") || [];
