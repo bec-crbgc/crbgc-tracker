@@ -9973,6 +9973,21 @@ function mergeCloudData(cloudData, coord) {
 // ── Auto-load from cloud on open/date change ─────────────────────────────
 async function loadFromCloud() {
   if(!S.user||!WEBAPP_URL) return;
+  // 2026-09-24 (Bec: edited the Registrations 2026 tab, "but it is not
+  // syncing with the tracker"): the dashboard payloads (Registration/
+  // Starter Recovery, OKR, YTD Position, Trainer Capacities, QLD Growth)
+  // are fetched ONCE per session per as-of date (the attempted-once gates
+  // below — see refreshRegistrationRecovery_'s bugfix comment), so a
+  // sheet edit made after that first fetch never appeared without a full
+  // page reload. The manual cloud-refresh button (and any loadFromCloud
+  // call) now clears those gates and marks the loaded payloads stale, so
+  // the open card re-fetches fresh figures on its next render.
+  S.regRecoAttempted = {};  S.regRecoAsOf = null;
+  S.commRecoAttempted = {}; S.commRecoAsOf = null;
+  S.okrAttempted = {};      if (S.okr) S.okr.asOf = null;
+  S.ytdAttempted = {};      if (S.ytd) S.ytd.asOf = null;
+  S.trainerCapAttempted = false; S.trainerCap = null;   // gate is `!S.trainerCap && !attempted` — must clear both
+  S.qldGrowthAttempted = false;  S.qldGrowth = null;    // same gate shape
   // If we pushed recently, cloud may not have rebuilt yet — skip week pull
   // to avoid overwriting locally-saved activities with stale cloud data.
   // FIXED 2026-08: this comment always said "still refresh followups/
