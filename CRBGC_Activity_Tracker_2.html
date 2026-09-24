@@ -4215,12 +4215,22 @@ function renderApp(){
   // (full dashboard view) and for James & Johnson only (pipeline entry +
   // weekly check-in) — Wayne's tab set is untouched per Bec's access choice.
   const tabs = isManager
-    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["ytd","dashboard","weekly","daily","trend","trainers","qldgrowth","okr"])
+    // 2026-09-24 per Bec: QLD Growth ARCHIVED — the 4-week sprint is done,
+    // so "qldgrowth" is removed from both tab lists (manager + James/
+    // Johnson). Everything behind it is deliberately kept: the WIP "QLD
+    // Growth Pipeline"/Actions/Check-Ins tabs stay untouched as the
+    // archive, the employers already synced into Johnson's Employer
+    // Database keep their rows/follow-ups exactly as they are (that sync
+    // only ever ADDED/merged — archiving the tab writes nothing), pipeline
+    // entries that reached Registration stage still count in the QLD
+    // registration figures, and renderQldGrowth_/the backend handlers
+    // remain in place so restoring the tab is a one-line change.
+    ? (inCoordDetailMode ? ["dashboard"].concat(CR_DETAIL_TABS) : ["ytd","dashboard","weekly","daily","trend","trainers","okr"])
     // 2026-09-24 per Bec: YTD Position is the FIRST tab for Wayne, James
     // and Johnson too (read-only view — the PDF/Excel download buttons on
     // it are manager-only, see renderYtdPosition_). They still LAND on
     // Today, so daily logging is unchanged.
-    : ["ytd","today","calls","visits","pipeline","notes","thisweek","wknotes","history"].concat(QLD_TEAM_.includes(coord)?["qldgrowth"]:[]);
+    : ["ytd","today","calls","visits","pipeline","notes","thisweek","wknotes","history"]; // 2026-09-24: QLD Growth archived — see the manager-tabs note above
   const tabLabels={today:"Today",calls:"Employer Calls",visits:"Site Visits",pipeline:"Pipeline",notes:"Daily Notes",thisweek:"This Week",wknotes:"Wk Notes",history:"History",dashboard:"Dashboard",weekly:"Weekly",daily:"Daily",trend:"Trend",trainers:"Trainer Capacities",qldgrowth:"QLD Growth",okr:"OKR Scorecard",ytd:"YTD Position"};
 
   let h=`<div class="hdr">
