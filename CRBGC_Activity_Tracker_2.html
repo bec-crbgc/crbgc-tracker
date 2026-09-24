@@ -3357,7 +3357,7 @@ function downloadRegistrationExcel_() {
     ws1.getColumn(1).width = 26; ws1.getColumn(2).width = 16;
     let r = 1;
     ws1.mergeCells(r,1,r,2);
-    ws1.getCell(r,1).value = "2026 Registration Performance — As of "+d.asOf+" ("+d.weeksRemaining+" week(s) to 31 Dec)";
+    ws1.getCell(r,1).value = "2026 Registration Performance — As of "+d.asOf+" ("+d.weeksRemaining+" working week(s) to 18 Dec — Xmas shutdown excluded)";
     ws1.getCell(r,1).fill = HDR; ws1.getCell(r,1).font = {bold:true,size:13,color:{argb:"FFFFFFFF"}};
     ws1.getRow(r).height = 22; r += 2;
     const summaryRows = [
@@ -3457,7 +3457,7 @@ function downloadCommencementExcel_() {
     ws1.getColumn(1).width = 26; ws1.getColumn(2).width = 16;
     let r = 1;
     ws1.mergeCells(r,1,r,2);
-    ws1.getCell(r,1).value = "2026 Starter Performance — As of "+d.asOf+" ("+d.weeksRemaining+" week(s) to 31 Dec)";
+    ws1.getCell(r,1).value = "2026 Starter Performance — As of "+d.asOf+" ("+d.weeksRemaining+" working week(s) to 18 Dec — Xmas shutdown excluded)";
     ws1.getCell(r,1).fill = HDR; ws1.getCell(r,1).font = {bold:true,size:13,color:{argb:"FFFFFFFF"}};
     ws1.getRow(r).height = 22; r += 2;
     const summaryRows = [
@@ -3773,7 +3773,7 @@ function downloadRegistrationPDF_() {
 
   const body = `
   <div class="rpt-section">
-    <div class="rpt-section-hdr">2026 Registration Performance — As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</div>
+    <div class="rpt-section-hdr">2026 Registration Performance — As of ${d.asOf} · ${d.weeksRemaining} working week(s) to 18 Dec (shutdown 19 Dec – 3 Jan, back Mon 4 Jan)</div>
     <div class="rpt-tiles">${summaryTiles.map(x=>`<div class="rpt-tile"><div class="lbl">${x.lbl}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join("")}</div>
     <div style="text-align:center;padding-bottom:12px">${pdfStatusBadge_(t.status)} <span style="font-size:10px;color:#888;margin-left:6px">National pace status this week</span></div>
   </div>
@@ -3823,7 +3823,7 @@ function downloadCommencementPDF_() {
 
   let body = `
   <div class="rpt-section">
-    <div class="rpt-section-hdr">2026 Starter Performance — As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</div>
+    <div class="rpt-section-hdr">2026 Starter Performance — As of ${d.asOf} · ${d.weeksRemaining} working week(s) to 18 Dec (shutdown 19 Dec – 3 Jan, back Mon 4 Jan)</div>
     <div class="rpt-tiles">${summaryTiles.map(x=>`<div class="rpt-tile"><div class="lbl">${x.lbl}</div><div class="val ${x.cls||''}">${x.val}</div></div>`).join("")}</div>
     <div style="text-align:center;padding-bottom:12px">${pdfStatusBadge_(t.status)} <span style="font-size:10px;color:#888;margin-left:6px">National pace status this week</span></div>
   </div>
@@ -6471,7 +6471,7 @@ function renderRegistrationRecovery_(){
 
   let h = `<div class="card">
     <div class="card-title"><i class="ti ti-target-arrow"></i> 2026 Registration Performance
-      <span style="margin-left:auto;font-size:11px;color:var(--tm);font-weight:400">As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--tm);font-weight:400">As of ${d.asOf} · ${d.weeksRemaining} working week(s) to 18 Dec (shutdown 19 Dec – 3 Jan, back Mon 4 Jan)</span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px">
       ${summaryTiles.map(x=>`<div style="text-align:center;padding:8px 4px;background:var(--o2);border-radius:var(--r)">
@@ -6659,7 +6659,7 @@ function renderCommencementRecovery_(){
 
   let h = `<div class="card">
     <div class="card-title"><i class="ti ti-school"></i> 2026 Starter Performance
-      <span style="margin-left:auto;font-size:11px;color:var(--tm);font-weight:400">As of ${d.asOf} · ${d.weeksRemaining} week(s) to 31 Dec</span>
+      <span style="margin-left:auto;font-size:11px;color:var(--tm);font-weight:400">As of ${d.asOf} · ${d.weeksRemaining} working week(s) to 18 Dec (shutdown 19 Dec – 3 Jan, back Mon 4 Jan)</span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin-bottom:12px">
       ${summaryTiles.map(x=>`<div style="text-align:center;padding:8px 4px;background:var(--o1);border-radius:var(--r)">
