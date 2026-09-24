@@ -608,11 +608,23 @@ const PRIMARY_FOCUS = [
 
 const TRADE_OPTIONS = ["Carpentry","Concreting","Civil","Other"];
 
+// 2026-09-24 per Bec: "add an outcome to the Follow-ups & overdue
+// follow-ups called 'Follow-up On Hold - No Trainer Capacity' and this needs to
+// auto generate next follow-up date for 3 months' time". Unlike the
+// employer-only "On hold — no capacity" (which PARKS a record: Status "On
+// hold", no date, excluded from every follow-up list), this one keeps the
+// record ACTIVE — Status stays "Open" and the Follow-up date auto-fills
+// to today + 3 months, so it resurfaces in the follow-up lists then.
+// Deliberately added to the shared lists (employer call, student lead,
+// pipeline, ACAP, site visit) since any follow-up type can be put on a
+// 3-month hold. The auto-date lives in the shared outcome "change"
+// listener below (see FU_ONHOLD_NOCAP_ handling).
+const FU_ONHOLD_NOCAP_ = "Follow-up On Hold - No Trainer Capacity";
 const CALL_OUTCOMES = [
   "Connected – meaningful conversation","Connected – no current opportunity",
   "No answer","Voicemail left","Follow-up message sent",
   "Callback requested","Incorrect details","Not interested",
-  "Do not contact — removed from list","New Contact Added","Other"
+  "Do not contact — removed from list",FU_ONHOLD_NOCAP_,"New Contact Added","Other"
 ];
 
 // 2026-08-05 per Bec: "Add 'future opportunity' to the outcome selection
@@ -660,7 +672,7 @@ const ACTIVITY_OUTCOMES = [
 // Registration/Enrolment Pipeline tiles instead, not from a site visit log.
 const SITE_VISIT_OUTCOMES = ACTIVITY_OUTCOMES.filter(function(o){
   return !["Sign-up booked","Sign-up completed","Registration submitted","Registration completed"].includes(o);
-});
+}).concat([FU_ONHOLD_NOCAP_]); // 2026-09-24 per Bec — 3-month hold, see FU_ONHOLD_NOCAP_
 
 // 2026-08-05 per Bec: powers the new "New Opportunity" Manager Dashboard
 // tile — "logs any opportunities logged against all contact types -
@@ -750,10 +762,35 @@ const OUTCOME_AUTO_STATUS = {
 };
 const OUTCOME_SELECT_IDS_ = ["slead_outcome","reg_contact","acap_outcome",
   "ec_outcome","ec_actout","sv_outcome","ne_outcome","ep_contact","pl_contact"];
+// 2026-09-24 per Bec (FU_ONHOLD_NOCAP_): calendar-aware "+3 months",
+// clamped to the last day of the target month (e.g. 30 Nov + 3mo → 28/29
+// Feb, never a phantom 30 Feb). Returns yyyy-mm-dd for the date input.
+function addMonths_(ds,n){
+  const d=new Date(ds+"T00:00:00");
+  const day=d.getDate();
+  d.setMonth(d.getMonth()+n);
+  if(d.getDate()!==day) d.setDate(0); // rolled over — clamp to month end
+  const p=x=>String(x).padStart(2,"0");
+  return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+}
 document.addEventListener("change", function(e){
   const t=e.target; if(!t||!t.id) return;
   if(t.id==="cm_status"){ t.dataset.autoset=""; return; } // manual pick — stop auto-managing
+  if(t.id==="cm_fudate"){ t.dataset.autofu=""; return; }  // manual date pick — stop auto-managing
   if(!OUTCOME_SELECT_IDS_.includes(t.id)) return;
+  // 2026-09-24 per Bec: "Follow-up On Hold - No Trainer Capacity" auto-generates
+  // the next follow-up date 3 months out. Only ever fills a BLANK date or
+  // one this rule itself set (tracked via data-autofu) — a date the
+  // coordinator typed is never overwritten; switching to a different
+  // outcome clears an auto-set date back to blank. Status deliberately
+  // stays "Open" (this is a live hold that must resurface, unlike the
+  // parked "On hold — no capacity").
+  const fu=document.getElementById("cm_fudate");
+  if(fu){
+    if(t.value===FU_ONHOLD_NOCAP_){
+      if(!fu.value || fu.dataset.autofu==="1"){ fu.value=addMonths_(TODAY,3); fu.dataset.autofu="1"; }
+    } else if(fu.dataset.autofu==="1"){ fu.value=""; fu.dataset.autofu=""; }
+  }
   const st=document.getElementById("cm_status"); if(!st) return;
   const mapped=OUTCOME_AUTO_STATUS[t.value]||"";
   if(mapped){
@@ -7475,7 +7512,7 @@ function renderActivityModal(type,data){
     const ACAP_OUTCOMES=["","Connected — discussed partnership opportunity","Connected — existing referral pathway confirmed",
       "Connected — new referral pathway agreed","Meeting booked","Event collaboration agreed",
       "No opportunity identified","No answer","Voicemail left","Not interested",
-      "Do not contact — removed from list","New Contact Added","Other"];
+      "Do not contact — removed from list",FU_ONHOLD_NOCAP_,"New Contact Added","Other"]; // 2026-09-24 per Bec — 3-month hold
     fields+=fld("Outcome","acap_outcome","select",data.activityOutcome||"",ACAP_OUTCOMES,"true");
     fields+=`<div id="acap_meaningful_hint" style="font-size:11px;padding:4px 8px;border-radius:4px;margin-bottom:8px;display:none"></div>`;
     // 2026-07-30: Profile Builder is a required-for-complete-record column on
@@ -8265,7 +8302,18 @@ function saveActivityFromModal_(type){
   // this field (Registration, Pipeline, Enrolment Pipeline). Not added to
   // other types, which don't have this field on their form at all.
   if(["registration","pipeline","enrolment_pipeline"].includes(type) && !act.actionToday) errors.push("Action completed today is required");
-  if(type!=="event" && ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
+  // 2026-09-24 per Bec: Employer Call and Site Visit no longer force a
+  // Follow-up date for ACT_OUTCOME_NEEDS_FOLLOWUP outcomes — the backend
+  // auto-generates one when it's left blank (defaultNextContactDate_: +6
+  // weeks, pushed to the next working day) and flips Follow-Up Required to
+  // "Yes", so the record is never left dateless. The requirement stays on
+  // the other forms (e.g. New Employer Met), which is where a genuinely
+  // dateless "Sign-up booked"-type outcome would otherwise slip through.
+  if(!["event","employer_call","site_visit"].includes(type) && ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
+  // 2026-09-24 per Bec: "Follow-up On Hold - No Trainer Capacity" exists to push
+  // the follow-up 3 months out — a date is auto-filled on selection, so
+  // this only fires if the coordinator deliberately cleared it.
+  if(type!=="event" && [act.activityOutcome,act.callOutcome,act.contactOutcome].includes(FU_ONHOLD_NOCAP_) && !act.followUpDate) errors.push("Follow-up date is required for '"+FU_ONHOLD_NOCAP_+"' (auto-set to 3 months — reselect the outcome to refill it)");
   // 2026-07-28: basic format checks — none of these existed before.
   if(!isValidEmail_(act.email)) errors.push("Email address doesn't look valid");
   if(!isValidPhone_(act.mobile)) errors.push("Mobile number doesn't look valid");
