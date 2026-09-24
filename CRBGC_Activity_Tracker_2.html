@@ -3517,7 +3517,7 @@ function downloadCommencementExcel_() {
 
     // ── Confirmed Future Starters sheet ──
     const ws4 = wb.addWorksheet("Confirmed Future");
-    const cfHeaders = ["State","Next 7 Days","Next 30 Days","Beyond 30 Days","Total"];
+    const cfHeaders = ["State","Next 7 Days","Next 30 Days","Beyond 30 Days","Not Yet Dated","Total"]; // 2026-09-24 v89: undated enrolled students are future starters
     cfHeaders.forEach(function(h,i){ ws4.getColumn(i+1).width = i===0?10:16; });
     const hRow4 = ws4.getRow(1);
     cfHeaders.forEach(function(h,i){ const c=hRow4.getCell(i+1); c.value=h; c.fill=HDR; c.font={bold:true,color:{argb:"FFFFFFFF"}}; });
@@ -3525,11 +3525,11 @@ function downloadCommencementExcel_() {
     ["VIC","NSW","QLD"].forEach(function(s){
       const rec = d.states[s];
       const row = ws4.getRow(rr4);
-      [s, rec.confirmedFuture7, rec.confirmedFuture30, rec.confirmedFutureBeyond30, rec.confirmedFutureTotal].forEach(function(v,ci){ row.getCell(ci+1).value = v; });
+      [s, rec.confirmedFuture7, rec.confirmedFuture30, rec.confirmedFutureBeyond30, rec.confirmedFutureUndated??0, rec.confirmedFutureTotal].forEach(function(v,ci){ row.getCell(ci+1).value = v; });
       rr4++;
     });
     const cfTot = ws4.getRow(rr4);
-    ["TOTAL", t.confirmedFuture7, t.confirmedFuture30, t.confirmedFutureBeyond30, t.confirmedFutureTotal].forEach(function(v,ci){ const c=cfTot.getCell(ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE1F5EE"}}; });
+    ["TOTAL", t.confirmedFuture7, t.confirmedFuture30, t.confirmedFutureBeyond30, t.confirmedFutureUndated??0, t.confirmedFutureTotal].forEach(function(v,ci){ const c=cfTot.getCell(ci+1); c.value=v; c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFE1F5EE"}}; });
 
     // ── Registration Pipeline sheet (Not Guaranteed — 2026-08-07 addition) ──
     const ws4b = wb.addWorksheet("Registration Pipeline");
@@ -3852,10 +3852,10 @@ function downloadCommencementPDF_() {
   </div>
   <div class="rpt-section">
     <div class="rpt-section-hdr">Confirmed Future Starters</div>
-    <table class="rpt-table"><thead><tr><th>State</th><th>Next 7 Days</th><th>Next 30 Days</th><th>Beyond 30 Days</th><th>Total</th></tr></thead>
+    <table class="rpt-table"><thead><tr><th>State</th><th>Next 7 Days</th><th>Next 30 Days</th><th>Beyond 30 Days</th><th>Not Yet Dated</th><th>Total</th></tr></thead>
     <tbody>
-      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr><td>${s}</td><td>${r.confirmedFuture7}</td><td>${r.confirmedFuture30}</td><td>${r.confirmedFutureBeyond30}</td><td>${r.confirmedFutureTotal}</td></tr>`; }).join("")}
-      <tr class="total"><td>TOTAL</td><td>${t.confirmedFuture7}</td><td>${t.confirmedFuture30}</td><td>${t.confirmedFutureBeyond30}</td><td>${t.confirmedFutureTotal}</td></tr>
+      ${["VIC","NSW","QLD"].map(function(s){ const r=d.states[s]; return `<tr><td>${s}</td><td>${r.confirmedFuture7}</td><td>${r.confirmedFuture30}</td><td>${r.confirmedFutureBeyond30}</td><td>${r.confirmedFutureUndated??0}</td><td>${r.confirmedFutureTotal}</td></tr>`; }).join("")}
+      <tr class="total"><td>TOTAL</td><td>${t.confirmedFuture7}</td><td>${t.confirmedFuture30}</td><td>${t.confirmedFutureBeyond30}</td><td>${t.confirmedFutureUndated??0}</td><td>${t.confirmedFutureTotal}</td></tr>
     </tbody></table>
     <div class="rpt-note">Sourced from each state's Commencements tab (Commencement Date × Induction Status) — booked/expected, not yet actually started.</div>
   </div>`;
@@ -6772,6 +6772,7 @@ function renderCommencementRecovery_(){
         <th style="text-align:right;padding:6px 6px">Next 7 Days</th>
         <th style="text-align:right;padding:6px 6px">Next 30 Days</th>
         <th style="text-align:right;padding:6px 6px">Beyond 30 Days</th>
+        <th style="text-align:right;padding:6px 6px">Not Yet Dated</th>
         <th style="text-align:right;padding:6px 6px">Total</th>
       </tr></thead>
       <tbody>
@@ -6782,6 +6783,7 @@ function renderCommencementRecovery_(){
             <td style="text-align:right;padding:6px 6px">${r.confirmedFuture7}</td>
             <td style="text-align:right;padding:6px 6px">${r.confirmedFuture30}</td>
             <td style="text-align:right;padding:6px 6px">${r.confirmedFutureBeyond30}</td>
+            <td style="text-align:right;padding:6px 6px">${r.confirmedFutureUndated??0}</td>
             <td style="text-align:right;padding:6px 6px;font-weight:600">${r.confirmedFutureTotal}</td>
           </tr>`;
         }).join("")}
@@ -6790,12 +6792,13 @@ function renderCommencementRecovery_(){
           <td style="text-align:right;padding:6px 6px">${t.confirmedFuture7}</td>
           <td style="text-align:right;padding:6px 6px">${t.confirmedFuture30}</td>
           <td style="text-align:right;padding:6px 6px">${t.confirmedFutureBeyond30}</td>
+          <td style="text-align:right;padding:6px 6px">${t.confirmedFutureUndated??0}</td>
           <td style="text-align:right;padding:6px 6px">${t.confirmedFutureTotal}</td>
         </tr>
       </tbody>
     </table>
     </div>
-    <div style="font-size:10px;color:var(--tm);margin-top:8px">Sourced from each state's Commencements tab (Commencement Date × Induction Status) — these are booked/expected, not yet actually started, so they never count toward YTD Actual above until they do.</div>
+    <div style="font-size:10px;color:var(--tm);margin-top:8px">Sourced from each state's Commencements tab. “Not Yet Dated” are enrolled students awaiting an induction/commencement date — per the confirmed-future-starter definition (24/09) they count here, NOT in YTD Actual, until their date passes.</div>
   </div>
 
   <div class="card">
