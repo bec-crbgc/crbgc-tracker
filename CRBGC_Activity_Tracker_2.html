@@ -11630,8 +11630,8 @@ function renderOkrScorecard_(){
       STATES3.map(st=>{ const k=d.states[st].kr11; return {cells: k ? [st,k.thisWeekActual,k.weeklyTarget,okrVar_(k.weeklyVariance),k.ytdActual,k.ytdBudget,okrVar_(k.ytdVariance),k.annualTarget,k.pctAchieved+"%",k.remaining,k.forecastYearEnd] : [st,"—","—","—","—","—","—","—","—","—","—"]}; })));
 
   h += okrSection_("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)",
-    "Open student leads by age since Date Added — a lead older than "+d.slaDays+" days without converting has breached the SLA.",
-    okrTable_(["State","Within SLA","Breached (>"+d.slaDays+"d)","Total Active Leads"],
+    "Open Enrolment Pipeline entries by age since entering the pipeline — a registered student older than "+d.slaDays+" days without enrolling has breached the SLA.", // 2026-09-24 per Bec: EP, not the lead pipeline
+    okrTable_(["State","Within SLA","Breached (>"+d.slaDays+"d)","Open in Enrolment Pipeline"],
       STATES3.map(st=>{ const k=d.states[st].kr12; return {cells:[st, `${k.withinPct}% (${k.withinSla})`, `<span style="color:${k.breached?"var(--redt)":"var(--greent)"};font-weight:700">${k.breachedPct}% (${k.breached})</span>`, k.totalActive]}; })));
 
   h += okrSection_("KR 1.3 — Employer Introduction Call Compliance",
@@ -11709,7 +11709,7 @@ function downloadOkrPDF_(){
   body += tbl("KR 1.1 — State Performance Snapshots","YTD Budget = pro-rata of annual target by elapsed days.",
     ["State","This Wk","Wk Target","Wk Var","YTD Actual","YTD Budget","YTD Var","Annual Tgt","% Done","Remaining","Forecast"],
     STATES3.map(st=>{ const k=d.states[st].kr11||{}; return {cells:[st,k.thisWeekActual,k.weeklyTarget,v(k.weeklyVariance||0),k.ytdActual,k.ytdBudget,v(k.ytdVariance||0),k.annualTarget,(k.pctAchieved||0)+"%",k.remaining,k.forecastYearEnd]}; }));
-  body += tbl("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)","Open student leads by age since Date Added.",
+  body += tbl("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)","Open Enrolment Pipeline entries by age since entering the pipeline.",
     ["State","Within SLA","Breached","Total Active Leads"],
     STATES3.map(st=>{ const k=d.states[st].kr12; return {cells:[st,`${k.withinPct}% (${k.withinSla})`,`${k.breachedPct}% (${k.breached})`,k.totalActive]}; }));
   body += tbl("KR 1.3 — Employer Introduction Call Compliance (YTD)","",
@@ -11767,7 +11767,7 @@ function downloadOkrExcel_(){
     STATES3.forEach(st=>{ const k=d.states[st].kr11||{}; ws.addRow([st,k.thisWeekActual,k.weeklyTarget,k.weeklyVariance,k.ytdActual,k.ytdBudget,k.ytdVariance,k.annualTarget,k.pctAchieved,k.remaining,k.forecastYearEnd]); });
     ws.addRow([]);
     sec("KR 1.2 — Conversion Velocity ("+d.slaDays+"-day SLA)");
-    hdr(["State","Within SLA","Within %","Breached","Breached %","Total Active Leads"]);
+    hdr(["State","Within SLA","Within %","Breached","Breached %","Open in Enrolment Pipeline"]);
     STATES3.forEach(st=>{ const k=d.states[st].kr12; ws.addRow([st,k.withinSla,k.withinPct,k.breached,k.breachedPct,k.totalActive]); });
     ws.addRow([]);
     sec("KR 1.3 — Intro Call Compliance (YTD)");
