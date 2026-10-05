@@ -1099,6 +1099,12 @@ let S = {
   // these; until then they fall back to the activity-log counts.
   official: null,
   officialLoading: false,
+
+  // 2026-10-05 change spec: On hold + No-further-action report lines
+  // (get_followup_hygiene). Same attempted-once gate class as trainerCap.
+  hygiene: null,
+  hygieneLoading: false,
+  hygieneAttempted: false,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -2067,6 +2073,7 @@ function activityLabel(type){
     event:"Event",employer_call:"Employer Call",site_visit:"Site Visit - Existing Employer",
     new_employer_met:"Site Visit - New Employer",new_employer_db:"Add Employer",add_employer:"Add Employer",
     pipeline:"Pipeline",lead:"Student Lead",enrolment_pipeline:"Enrolment Pipeline Follow-up",add_acap:"Add ACAP",follow_up_closed:"Follow-up Closed",
+    partnership_dev:"Partnership Development",marketing_content:"Marketing / Content",training_coord:"Training Coordination", // 2026-10-05 change spec, Change 5
   };
   return labels[type]||type;
 }
@@ -3687,6 +3694,7 @@ function downloadTrendPDF() {
   <div class="report-hdr">
     <h1>Week-on-Week Trend Report</h1>
     <p>Last 8 weeks · Latest week first · Generated ${new Date().toLocaleDateString("en-AU",{day:"numeric",month:"long",year:"numeric"})} at ${new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})}</p>
+    <p style="font-size:10px;color:#9C6B00">Note: overdue definition updated 05/10/2026 — duplicate follow-ups are merged and On-hold items are excluded, so a one-off fall in the overdue figure around this date reflects the clean-up, not a jump in performance.</p>
   </div>
   ${body}
   <div class="footer">CRBGC Activity Tracker · Builders Academy Australia & CWBTS</div>
@@ -4595,6 +4603,12 @@ function renderToday(coord,state,day){
       {type:"new_employer_db", label:"Add Employer",    icon:"ti-database-plus",bg:"var(--o3)",col:"var(--o3t)"},
       {type:"lead",            label:"Add Student Lead",icon:"ti-user-star",    bg:"var(--o3)",col:"var(--o3t)"},
       {type:"add_acap",        label:"Add ACAP",        icon:"ti-users-plus",   bg:"var(--o2)",col:"var(--o2t)"},
+      // 2026-10-05 change spec, Change 5: partnership/marketing/training
+      // work now logs as its own activity types — counts toward the day's
+      // activity, never toward the registration funnel or contact counts.
+      {type:"partnership_dev", label:"Partnership Development", icon:"ti-heart-handshake", bg:"var(--o2)",col:"var(--o2t)"},
+      {type:"marketing_content",label:"Marketing / Content",    icon:"ti-speakerphone",    bg:"var(--o2)",col:"var(--o2t)"},
+      {type:"training_coord",  label:"Training Coordination",   icon:"ti-school",          bg:"var(--o2)",col:"var(--o2t)"},
     ].map(btn=>`<button onclick="openActivityModal('${btn.type}')" style="background:${btn.bg};color:${btn.col};border:1.5px solid transparent;border-radius:var(--r);padding:12px 8px;text-align:center;font-size:12px;font-weight:600;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">
       <i class="ti ${btn.icon}" style="font-size:20px"></i>${btn.label}</button>`).join("")}
   </div>
@@ -5468,7 +5482,7 @@ function weeklyTileMetrics(coord, targetDate){
     newEmployersAdded:   acts.filter(a=>effContactType(a)==="new_employer_db"||effContactType(a)==="add_employer").length,
     totalContactsAttempted: acts.filter(a=>
       a.type==="follow_up_closed"
-      || !["site_visit","new_employer_met","event"].includes(a.type)
+      || !["site_visit","new_employer_met","event","partnership_dev","marketing_content","training_coord"].includes(a.type) // 2026-10-05: internal work is not a contact attempt
     ).length,
     callsMeaningful:     acts.filter(isMeaningfulCall).length,
     leads:               uniqueNewLeadCount_(coord, days[0], days[days.length-1]), // 2026-08-20: unique first-time students, see uniqueNewLeadCount_
@@ -5987,11 +6001,43 @@ function renderCRTabControls_(viewKey){
   </div>`;
 }
 
+async function refreshFollowupHygiene_(){
+  if(S.hygieneLoading) return;
+  S.hygieneLoading=true; S.hygieneAttempted=true;
+  try{
+    const data=await jsonpFetch(WEBAPP_URL+"?action=get_followup_hygiene");
+    if(data&&data.ok){ S.hygiene=data; render(); }
+  }catch(e){}
+  S.hygieneLoading=false;
+}
+// 2026-10-05 change spec ("What changes in the reports"): On hold by state
+// and reason, and this week's No-further-action closures by reason.
+function renderFollowupHygieneCard_(){
+  if(!S.hygiene){
+    if(!S.hygieneLoading && !S.hygieneAttempted) refreshFollowupHygiene_();
+    return `<div class="card"><div class="card-title"><i class="ti ti-player-pause"></i> On hold & no-further-action</div><div class="small muted">${S.hygieneLoading?"Loading…":"Not loaded yet."}</div></div>`;
+  }
+  const d=S.hygiene;
+  const line=(obj)=>Object.keys(obj||{}).length?Object.keys(obj).map(r=>`${r}: <b>${obj[r]}</b>`).join(" · "):'<span class="muted">none</span>';
+  return `<div class="card">
+    <div class="card-title"><i class="ti ti-player-pause"></i> On hold & no-further-action <span style="margin-left:8px;font-size:10px;font-weight:400;color:var(--tm)">as at ${d.asOf} · excluded from overdue</span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr style="border-bottom:1.5px solid var(--bd)"><th style="text-align:left;padding:4px 6px">State</th><th style="text-align:left;padding:4px 6px">On hold (by reason)</th><th style="text-align:left;padding:4px 6px">"No further action" this week (by reason)</th></tr>
+      ${["VIC","NSW","QLD"].map(st=>`<tr style="border-bottom:.5px solid var(--bd)">
+        <td style="padding:4px 6px;font-weight:600">${st}</td>
+        <td style="padding:4px 6px">${line(d.onHold[st])}</td>
+        <td style="padding:4px 6px">${line(d.nfaWeek[st])}</td>
+      </tr>`).join("")}
+    </table>
+  </div>`;
+}
+
 function renderManagerWeeklyTab_(){
   S.dashView = "weekly";
   const ds = S.dashFilter;
   const targetDate = S.date;
   let h = renderCRTabControls_("weekly");
+  h += renderFollowupHygieneCard_(); // 2026-10-05 change spec report lines
   const coordsToShow = ds.coord==="all" ? COORDS : [ds.coord];
 
   coordsToShow.forEach(coord=>{
@@ -7394,6 +7440,7 @@ function renderActivityModal(type,data){
     event:"Log Event",employer_call:"Log Employer Call",site_visit:"Log Site Visit - Existing Employer",
     new_employer_met:"Log Site Visit - New Employer",new_employer_db:"Add Employer",
     pipeline:"Log Pipeline Contact",lead:"Log Student Lead",enrolment_pipeline:"Log Enrolment Pipeline",
+    partnership_dev:"Log Partnership Development",marketing_content:"Log Marketing / Content",training_coord:"Log Training Coordination",
   };
   const titles = {};
   Object.keys(baseTitles).forEach(k => {
@@ -7405,7 +7452,7 @@ function renderActivityModal(type,data){
   // 2026-08-21 (Bec fix #3): "event" added — the Event log no longer has a
   // Next action / Follow-up date / Status block at all. Any lead met at an
   // event is logged (and followed up) as its own Student Lead entry.
-  const needsFollowup=!["commencement","enrolment","intro_call","event"].includes(type);
+  const needsFollowup=!["commencement","enrolment","intro_call","event","partnership_dev","marketing_content","training_coord"].includes(type); // 2026-10-05: internal work types carry no follow-up
 
   // ── STUDENT/COMMENCEMENT TYPES ─────────────────────────────────────────
   if(type==="commencement"){
@@ -7826,6 +7873,12 @@ function renderActivityModal(type,data){
     fields+=fld("Expected registration date","pl_expreg","date",data.expectedReg||"");
   }
 
+  // ── INTERNAL WORK TYPES (2026-10-05 change spec, Change 5) ─────────────
+  if(["partnership_dev","marketing_content","training_coord"].includes(type)){
+    fields+=fld("What was done","pm_desc","textarea",data.actionToday||"",null,"true");
+    fields+=fld("Reach / outcome (optional — e.g. video 4,500 views; allocation to $35k)","pm_reach","text",data.reach||"");
+  }
+
   // ── COMMON FIELDS ──────────────────────────────────────────────────────
   // Next action & follow-up (for most types)
   if(needsFollowup){
@@ -7835,7 +7888,18 @@ function renderActivityModal(type,data){
       fld("Follow-up date","cm_fudate","date",data.followUpDate||""),
       fld("Responsible","cm_resp","select",data.responsible||S.user.coord,COORDS),
     ]);
+    // 2026-10-05 change spec (Change 2): a structured alternative to a
+    // follow-up date — free-text "None" is no longer accepted as a next
+    // action. "Future opportunity" needs a month and becomes a dated
+    // follow-up for the 1st of that month.
+    fields+=fldRow([
+      fld("No further action — reason (instead of a date)","cm_nfa","select",data.nfaReason||"",["","No opportunity","Future opportunity","Handed to trainer","Handed to enrolments","Duplicate visit"]),
+      fld("Future opportunity — review month","cm_nfa_month","month",data.nfaMonth||""),
+    ]);
     fields+=fld("Status","cm_status","select",data.status||"Open",["Open","Completed","On hold","Closed"]);
+    // 2026-10-05 change spec (Change 3): On hold needs a reason and a
+    // review date (the Follow-up date above, max 90 days out).
+    fields+=fld("On-hold reason (required when Status = On hold)","cm_hold_reason","select",data.holdReason||"",["","Trainer capacity","Employer not ready","Seasonal","Student deferred","Other"]);
   }
   fields+=fld("Notes","cm_notes","textarea",data.notes||"");
 
@@ -8315,6 +8379,32 @@ function saveActivityFromModal_(type){
   act.nextAction=g("cm_next"); act.followUpDate=g("cm_fudate");
   act.responsible=g("cm_resp")||S.user.coord; act.status=g("cm_status")||"Open";
   act.notes=g("cm_notes");
+  // 2026-10-05 change spec, Change 5: internal work types — description is
+  // the action; reach/outcome folds into the notes so it lands on the log.
+  if(["partnership_dev","marketing_content","training_coord"].includes(type)){
+    act.actionToday=g("pm_desc"); act.reach=g("pm_reach");
+    act.nextAction=act.nextAction||"—";
+    act.notes=[g("pm_desc"),act.reach?("Reach/outcome: "+act.reach):"",act.notes].filter(Boolean).join(" — ");
+  }
+  // 2026-10-05 change spec, Change 2: structured No-further-action.
+  act.nfaReason=g("cm_nfa")||"";
+  act.nfaMonth=g("cm_nfa_month")||"";
+  if(act.nfaReason==="Future opportunity"){
+    if(act.nfaMonth){ act.followUpDate=act.nfaMonth+"-01"; }
+    act.nextAction="Future opportunity — review "+(act.nfaMonth||"month TBC");
+  } else if(act.nfaReason){
+    act.nextAction="No further action — "+act.nfaReason;
+    act.followUpDate="";
+    if(!act.status||act.status==="Open") act.status="Completed";
+  }
+  // 2026-10-05 change spec, Change 3: On hold carries its reason + review
+  // date in a notes marker the reports parse ("[On hold: <reason> — review
+  // <date>]"); the Follow-up date doubles as the review date and the
+  // nightly reviveOnHoldItems_ reopens it when that date arrives.
+  act.holdReason=g("cm_hold_reason")||"";
+  if(act.status==="On hold" && act.holdReason && act.followUpDate && act.notes.indexOf("[On hold:")===-1){
+    act.notes=(act.notes?act.notes+" ":"")+"[On hold: "+act.holdReason+" — review "+act.followUpDate+"]";
+  }
 
   // Validation
   const errors=[];
@@ -8366,7 +8456,22 @@ function saveActivityFromModal_(type){
   // UNSAVEABLE — the errors named fields the form no longer has. "event"
   // is now excluded from both checks; keep this list in sync with
   // needsFollowup's own exclusion list in renderActivityModal.
-  if(!["commencement","enrolment","intro_call","event"].includes(type) && !act.nextAction) errors.push("Next action is required");
+  if(!["commencement","enrolment","intro_call","event","partnership_dev","marketing_content","training_coord"].includes(type) && !act.nextAction) errors.push("Next action is required");
+  // 2026-10-05 change spec (Change 2): free-text "None" is no longer a
+  // valid next action anywhere — pick a No-further-action reason instead.
+  if(/^(none|n\/?a\.?|nil|nothing|-+)\.?$/i.test(String(act.nextAction||"").trim())) errors.push('"None" is not a next action — pick a "No further action" reason instead (it records WHY nothing more is needed).');
+  // Site visits must end with a date or a recorded reason.
+  if(["site_visit","new_employer_met"].includes(type) && !act.followUpDate && !act.nfaReason) errors.push("Site visits need either a Follow-up date or a No-further-action reason.");
+  if(act.nfaReason==="Future opportunity" && !act.nfaMonth) errors.push("Future opportunity needs a review month (it becomes a dated follow-up).");
+  // 2026-10-05 change spec (Change 3): On hold needs a reason + review date ≤ 90 days.
+  if(act.status==="On hold"){
+    if(!act.holdReason) errors.push("On hold needs a reason (trainer capacity / employer not ready / seasonal / student deferred / other).");
+    if(!act.followUpDate) errors.push("On hold needs a review date (set the Follow-up date — max 90 days out).");
+    else {
+      const max90=(function(){const d=new Date(TODAY+"T00:00:00");d.setDate(d.getDate()+90);const p=x=>String(x).padStart(2,"0");return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());})();
+      if(act.followUpDate>max90) errors.push("On-hold review date can be at most 90 days away ("+max90+").");
+    }
+  }
   // Action Completed Today — mandatory on the 3 forms that already have
   // this field (Registration, Pipeline, Enrolment Pipeline). Not added to
   // other types, which don't have this field on their form at all.
@@ -8390,6 +8495,29 @@ function saveActivityFromModal_(type){
 
   if(errors.length>0){ showModalErrors(errors); return; }
   showModalErrors([]); // clear any previous error banner on a successful pass
+
+  // 2026-10-05 change spec (Change 1): before creating a NEW follow-up,
+  // check for an open one on the same person/company and prompt. Only
+  // when this save sets a date, isn't itself a follow-up close or an
+  // edit, and the person confirms do we proceed (completing either entry
+  // later closes the other via the existing sibling-close).
+  if(!closingFollowup && !isEdit && act.followUpDate){
+    try{
+      const dKind=(type==="acap_contact"||type==="acap_f2f"||type==="add_acap")?"acap"
+        :(type==="lead"||type==="pipeline"||type==="registration"||type==="enrolment_pipeline")?"student":"employer";
+      const dName=normalizeNameForMatch_(dKind==="acap"?(act.acapOrg||""):dKind==="student"?(act.studentName||act.leadName||""):(act.bizName||""));
+      if(dName){
+        const dup=getAllOpenFollowupsForDash(S.user.coord).find(function(a){
+          const aKind=(a.type==="acap_contact"||a.type==="acap_f2f"||String(a.id||"").indexOf("auto_acap_")===0)?"acap"
+            :(a.type==="lead"||a.type==="pipeline"||a.type==="registration"||a.type==="enrolment_pipeline"||String(a.id||"").indexOf("sl_")===0)?"student":"employer";
+          if(aKind!==dKind||!a.followUpDate) return false;
+          const aName=normalizeNameForMatch_(aKind==="acap"?(a.acapOrg||""):aKind==="student"?(a.studentName||a.leadName||""):(a.bizName||""));
+          return aName===dName;
+        });
+        if(dup && !confirm("An open follow-up already exists for this "+(dKind==="acap"?"ACAP":dKind)+" (due "+dup.followUpDate+").\n\nOK = save this one anyway (closing either later also closes the other).\nCancel = go back — close or update the existing follow-up instead.")) return;
+      }
+    }catch(e_){}
+  }
 
   // 2026-07-28: confirm before letting a pipeline-style stage move
   // backward — previously any stage could be silently overwritten either
@@ -8507,7 +8635,7 @@ function saveActivityFromModal_(type){
           const dd = loadDay(closingFollowup.coord, d);
           let changed = false;
           (dd.activities||[]).forEach(function(a){
-            if (isSibling(a)) { a.status="Completed"; a.closedDate=todayCut; changed = true; }
+            if (isSibling(a)) { a.status="Completed"; a.closedDate=todayCut; a.notes=(a.notes?a.notes+" | ":"")+"Duplicate follow-up — closed with ["+closingFollowup.id+"]"; changed = true; } // 2026-10-05 change spec, Change 1
           });
           if (changed) saveDay(dd);
         });
@@ -9856,8 +9984,16 @@ async function pushData() {
   } catch(e){ errors.push("Reflection: "+friendlyError_(e)); }
 
   if(errors.length>0){
-    S.status={ok:false,msg:"Errors: "+errors.join(" | ")};
+    S.status={ok:false,msg:"Not saved – retry: "+errors.join(" | ")+" (your text is kept on this device — nothing is lost)"};
     S.unsyncedChanges=true;
+    // 2026-10-05 change spec (Change 4): every failed save is logged with
+    // user, time and what failed — Settings → "Show error log" shows these,
+    // so a lost-note report can be traced instead of guessed at.
+    try{
+      const entry=new Date().toLocaleTimeString()+" | SAVE FAILED ("+coord+") — "+errors.join(" | ");
+      window._errorLog.push(entry);
+      lsSet("errorLog", window._errorLog);
+    }catch(e_){}
   } else {
     S.status={ok:true,msg:"✓ Synced — "+changedActRows.length+" of "+actRows.length+" activities updated · "+leadRows.length+" leads · "+empRows.length+" employers"};
     S.unsyncedChanges=false;
@@ -10051,6 +10187,7 @@ async function loadFromCloud() {
   S.ytdAttempted = {};      S.ytd = null;
   S.trainerCapAttempted = false; S.trainerCap = null;   // gate is `!S.trainerCap && !attempted` — must clear both
   S.qldGrowthAttempted = false;  S.qldGrowth = null;    // same gate shape
+  S.hygieneAttempted = false;    S.hygiene = null;      // 2026-10-05 change spec
   refreshOfficialEvents_(); // 2026-09-24: official reg/starter events — best-effort background refresh
   // If we pushed recently, cloud may not have rebuilt yet — skip week pull
   // to avoid overwriting locally-saved activities with stale cloud data.
