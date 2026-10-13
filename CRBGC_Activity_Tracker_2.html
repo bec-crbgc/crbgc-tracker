@@ -1301,6 +1301,67 @@ function groupByOrg(list, nameField) {
 // empty state if orgName doesn't match a known org yet — i.e. this looks
 // like a brand new organisation, in which case the caller falls back to a
 // plain text contact-name field instead of showing this picker at all).
+// v97 ("Allow changes to be made against already entered fields when logging
+// contact entry"): the full set of WIP detail columns a coordinator can
+// deliberately update for an EXISTING contact straight from a call-logging
+// form. One def list per database kind — keys must match what the backend's
+// updateEmployerDatabase/updateAcapDatabase existing-row branches apply
+// (contactEdit.<key>), and each key must also exist in contactEditValues_'s
+// source map so data-orig baselining works. Facebook/Instagram are the one
+// pair deliberately left out: getEmployerDatabase doesn't read those columns
+// back, so there's no on-file baseline to diff a deliberate edit against.
+const CONTACT_EDIT_KEYS = ["contactName","position","email","phone","website","region","address","postcode"];
+const CONTACT_EDIT_FIELD_DEFS = {
+  employer: [
+    {key:"contactName", label:"Contact name",   type:"text"},
+    {key:"position",    label:"Position",       type:"text"},
+    {key:"email",       label:"Email",          type:"email"},
+    {key:"phone",       label:"Phone",          type:"tel"},
+    {key:"website",     label:"Website",        type:"text"},
+    {key:"region",      label:"Region",         type:"text"},
+    {key:"address",     label:"Address",        type:"text"},
+    {key:"postcode",    label:"Postcode",       type:"text"},
+  ],
+  acap: [
+    {key:"contactName", label:"Contact name",   type:"text"},
+    {key:"position",    label:"Position",       type:"text"},
+    {key:"email",       label:"Email",          type:"email"},
+    {key:"phone",       label:"Mobile",         type:"tel"},
+    {key:"region",      label:"Region",         type:"text"},
+    {key:"address",     label:"Office address", type:"text"},
+  ],
+};
+// "employer_sv" (Site Visit / Intro Call) gets the same editable set as
+// "employer": their always-visible Mobile/Email inputs only ever feed
+// BRAND-NEW rows on the backend, so without this block an existing
+// contact's details could never be corrected from those forms at all.
+// "employer_link" (the registration/enrolment "linked employer" picker)
+// gets none — its save path never reads the edit block back.
+function contactEditDefsForKind_(kind){
+  if (kind==="employer" || kind==="employer_sv") return CONTACT_EDIT_FIELD_DEFS.employer;
+  if (kind==="acap") return CONTACT_EDIT_FIELD_DEFS.acap;
+  return null;
+}
+// The on-file value for each editable key of this kind, for a given cached
+// contact record (employer cache uses .phone, ACAP cache uses .mobile).
+function contactEditValues_(kind, c){
+  const defs = contactEditDefsForKind_(kind);
+  if (!defs || !c) return {};
+  const src = {
+    contactName: c.contactName||"",
+    position:    c.position||"",
+    email:       c.email||"",
+    phone:       c.phone||c.mobile||"",
+    website:     c.website||"",
+    region:      c.region||"",
+    address:     c.address||"",
+    postcode:    c.postcode||"",
+  };
+  const out = {};
+  defs.forEach(function(d){ out[d.key]=src[d.key]||""; });
+  return out;
+}
+
 function contactPickerHtml(pickerId, newFieldId, group, contactField, currentContactName, syncFnName, newFieldsKind, newFieldsData, relFieldId) {
   if (!group || !group.contacts.length) return "";
   const sync = syncFnName ? `${syncFnName}();` : "";
@@ -1312,10 +1373,13 @@ function contactPickerHtml(pickerId, newFieldId, group, contactField, currentCon
     const label = (c[contactField]||"(no name on file)") + (c.position ? " ("+c.position+")" : "") + (relLabel?" — "+relLabel:"") + (c.isPrimary==="Y" ? " ⭐ Primary" : "");
     const selected = currentContactName && c[contactField]===currentContactName ? " selected" : "";
     const rel = relLabel.replace(/"/g,"&quot;");
-    const optEmail = (c.email||"").replace(/"/g,"&quot;");
-    const optPhone = (c.phone||c.mobile||"").replace(/"/g,"&quot;");
     const optPosition = (c.position||"").replace(/"/g,"&quot;");
-    return `<option value="${(c[contactField]||"").replace(/"/g,"&quot;")}"${selected} data-rel="${rel}" data-email="${optEmail}" data-phone="${optPhone}" data-position="${optPosition}">${label}</option>`;
+    // v97: every on-file value the edit block can update travels on the
+    // option itself, so onContactPickerChange can re-baseline data-orig for
+    // ALL editable fields when the selected contact changes — not just
+    // email/phone as before.
+    const optEdit = JSON.stringify(contactEditValues_(newFieldsKind, c)).replace(/"/g,"&quot;");
+    return `<option value="${(c[contactField]||"").replace(/"/g,"&quot;")}"${selected} data-rel="${rel}" data-position="${optPosition}" data-edit="${optEdit}">${label}</option>`;
   }).join("");
   const isNew = currentContactName && !group.contacts.some(function(c){return c[contactField]===currentContactName;});
   const initialMatch = currentContactName ? group.contacts.find(function(c){return c[contactField]===currentContactName;}) : null;
@@ -1338,26 +1402,36 @@ function contactPickerHtml(pickerId, newFieldId, group, contactField, currentCon
       newContactFieldsHtml(pickerId, newFieldsKind, newFieldsData)+
       `</div>`
     : "";
-  // Batch 8 tweak-list item 11 / new-list item 1: editable Email/Phone for
-  // whichever EXISTING contact is currently selected. These fields start
-  // BLANK — they are not auto-pulled from the WIP record — and only exist
-  // to capture a deliberate update; the placeholder shows what's currently
-  // on file for context only, never as a submitted value. Only shown for
-  // "employer"/"acap" kinds (Site Visit already has its own always-visible
-  // Email/Mobile fields, handled separately in syncSvContact). Left
+  // Batch 8 tweak-list item 11 / new-list item 1, widened in v97 ("Allow
+  // changes to be made against already entered fields when logging contact
+  // entry"): editable fields for whichever EXISTING contact is currently
+  // selected — no longer just Email/Phone, but every detail column the WIP
+  // record carries for that contact (name, position, email, phone, website,
+  // region, address, postcode — see CONTACT_EDIT_FIELD_DEFS). These fields
+  // start BLANK — they are not auto-pulled from the WIP record — and only
+  // exist to capture a deliberate update; the placeholder shows what's
+  // currently on file for context only, never as a submitted value. Shown
+  // for "employer"/"employer_sv"/"acap" kinds; the registration/enrolment
+  // "linked employer" picker passes "employer_link" precisely so this block
+  // does NOT render there (nothing reads it back on that save path). Left
   // untouched (nothing sent) unless the coordinator actually types a value
   // that differs from what's on file (see onContactPickerChange/readContactEdit).
-  const showEditFields = (newFieldsKind==="employer" || newFieldsKind==="acap") && !isNew;
-  const editPhoneLabel = newFieldsKind==="acap" ? "Mobile" : "Phone";
-  const origEmail = initialMatch ? (initialMatch.email||"").replace(/"/g,"&quot;") : "";
-  const origPhone = initialMatch ? (initialMatch.phone||initialMatch.mobile||"").replace(/"/g,"&quot;") : "";
-  const editFieldsBlock = (newFieldsKind==="employer" || newFieldsKind==="acap")
+  const editDefs = contactEditDefsForKind_(newFieldsKind);
+  const showEditFields = !!editDefs && !isNew;
+  const initEditVals = contactEditValues_(newFieldsKind, initialMatch||null);
+  let editFieldRows = "";
+  if (editDefs) {
+    for (let fi=0; fi<editDefs.length; fi+=2) {
+      editFieldRows += fldRow(editDefs.slice(fi,fi+2).map(function(d){
+        const orig=(initEditVals[d.key]||"").replace(/"/g,"&quot;");
+        return `<div class="field"><label>${d.label}</label><input id="${pickerId}_edit_${d.key}" type="${d.type}" value="" placeholder="${orig||"(Click to Edit)"}" data-orig="${orig}"></div>`;
+      }));
+    }
+  }
+  const editFieldsBlock = editDefs
     ? `<div id="${pickerId}_editfields" style="display:${showEditFields?"block":"none"};margin-top:6px">`+
-      `<div class="small muted" style="margin-bottom:4px">Only fill these in if this contact's details need updating:</div>`+
-      fldRow([
-        `<div class="field"><label>Email</label><input id="${pickerId}_edit_email" type="email" value="" placeholder="${origEmail||"(Click to Edit)"}" data-orig="${origEmail}"></div>`,
-        `<div class="field"><label>${editPhoneLabel}</label><input id="${pickerId}_edit_phone" type="tel" value="" placeholder="${origPhone||"(Click to Edit)"}" data-orig="${origPhone}"></div>`,
-      ])+
+      `<div class="small muted" style="margin-bottom:4px">Only fill these in if this contact's details need updating — anything you type here overwrites what's on file:</div>`+
+      editFieldRows+
       `</div>`
     : "";
   return `<div class="field"><label>Contact<span class="req">*</span></label>`+
@@ -1388,10 +1462,13 @@ function contactPickerHtml(pickerId, newFieldId, group, contactField, currentCon
 // contact's relationship should overwrite rather than fill-if-blank.
 function readContactEdit(pickerId, relFieldId) {
   const out = {};
-  const emailEl = document.getElementById(pickerId+"_edit_email");
-  const phoneEl = document.getElementById(pickerId+"_edit_phone");
-  if (emailEl) { const v=emailEl.value.trim(); if (v && v!==(emailEl.getAttribute("data-orig")||"").trim()) out.email=v; }
-  if (phoneEl) { const v=phoneEl.value.trim(); if (v && v!==(phoneEl.getAttribute("data-orig")||"").trim()) out.phone=v; }
+  // v97: every editable detail field, not just email/phone — same rule for
+  // each: only sent when something was TYPED that differs from what's on
+  // file (data-orig); a blank field never means "clear this value".
+  CONTACT_EDIT_KEYS.forEach(function(k){
+    const el = document.getElementById(pickerId+"_edit_"+k);
+    if (el) { const v=el.value.trim(); if (v && v!==(el.getAttribute("data-orig")||"").trim()) out[k]=v; }
+  });
   if (relFieldId) {
     const relEl = document.getElementById(relFieldId);
     if (relEl) {
@@ -1569,7 +1646,7 @@ function employerLinkHtml(prefix, currentBiz, currentContactName) {
   const groups=groupByOrg(cache,"bizName");
   const group=currentBiz ? groups.find(function(g){ return sameOrgName_(g.name, currentBiz); }) : null;
   const contactBlock = (currentBiz && group)
-    ? contactPickerHtml(prefix+"_emp_contact_picker",prefix+"_emp_contact_newname",group,"contactName",currentContactName||"",null,"employer")
+    ? contactPickerHtml(prefix+"_emp_contact_picker",prefix+"_emp_contact_newname",group,"contactName",currentContactName||"",null,"employer_link")
     : "";
   return '<div class="field"><label>Linked employer (optional)</label>'+
     '<input id="'+prefix+'_emp" list="'+prefix+'_emp_list" value="'+(currentBiz||"").replace(/"/g,"&quot;")+'" '+
@@ -1601,7 +1678,7 @@ function onEmpLinkInput(prefix) {
   if(hint) hint.innerHTML = group ? '<div><i class="ti ti-circle-check"></i> Linked to existing employer</div>'+orgHintLinesHtml(group) : "";
   if(container){
     container.innerHTML = group
-      ? contactPickerHtml(prefix+"_emp_contact_picker",prefix+"_emp_contact_newname",group,"contactName","",null,"employer")
+      ? contactPickerHtml(prefix+"_emp_contact_picker",prefix+"_emp_contact_newname",group,"contactName","",null,"employer_link")
       : "";
   }
   if(newFields) newFields.style.display = (val && !group) ? "block" : "none";
@@ -1693,13 +1770,20 @@ function onContactPickerChange(pickerId, newFieldId, newFieldsId, relFieldId) {
   if (editFields) {
     editFields.style.display = isNew ? "none" : "block";
     if (!isNew) {
+      // v97: re-baseline EVERY editable field from the newly selected
+      // contact's data-edit payload (set in contactPickerHtml), not just
+      // email/phone — same rules as before: clear any half-typed value,
+      // show the on-file value as placeholder only.
       const opt=picker.options[picker.selectedIndex];
-      const optEmail=opt?(opt.getAttribute("data-email")||""):"";
-      const optPhone=opt?(opt.getAttribute("data-phone")||""):"";
-      const emailEl=document.getElementById(pickerId+"_edit_email");
-      const phoneEl=document.getElementById(pickerId+"_edit_phone");
-      if (emailEl) { emailEl.value=""; emailEl.setAttribute("data-orig",optEmail); emailEl.placeholder=optEmail||"(Click to Edit)"; }
-      if (phoneEl) { phoneEl.value=""; phoneEl.setAttribute("data-orig",optPhone); phoneEl.placeholder=optPhone||"(Click to Edit)"; }
+      let editVals={};
+      try { editVals=JSON.parse(opt ? (opt.getAttribute("data-edit")||"{}") : "{}"); } catch(e){ editVals={}; }
+      CONTACT_EDIT_KEYS.forEach(function(k){
+        const el=document.getElementById(pickerId+"_edit_"+k);
+        if (el) {
+          const o=String(editVals[k]||"");
+          el.value=""; el.setAttribute("data-orig",o); el.placeholder=o||"(Click to Edit)";
+        }
+      });
     }
   }
 }
@@ -12028,6 +12112,8 @@ function renderYtdPosition_(){
       ${tile("Budgeted starters YTD", t.budget, "Jan–"+YTD_MONTHS_[Number(d.asOf.slice(5,7))-1])}
       ${tile("Apprenticeship registrations YTD", t.regs, "leading indicator")}
       ${tile("Actual starters YTD", t.starters, okrVar_(t.startVar)+" vs budget · new-enrolment recs, excl. CoE &amp; cancelled", t.startVar>=0?"var(--greent)":"var(--redt)")}
+      ${tile("CoE starters YTD", t.coe??0, "change of employer — on top of the budget figures, never in the variance")}
+      ${tile("All starters incl. CoE", t.allStarters??(t.starters+(t.coe||0)), "new starts + change of employer")}
     </div></div>`;
   STATES3.forEach(st=>{
     const sd = d.states[st];
@@ -12037,18 +12123,20 @@ function renderYtdPosition_(){
     // indicator with no variance of their own.
     const rows = sd.months.map(m=>({cells:[
       YTD_MONTHS_[m.month-1]+(m.inYtd?"":" ·"), m.budget, m.inYtd?m.regs:"—", m.inYtd?m.starters:"—",
+      m.inYtd?(m.coe||0):"—", // v96: CoE starters, outside the variance
       m.inYtd?okrVar_(m.starters-m.budget):"—"
     ]}));
-    if (sd.startersUndated) rows.push({cells:["Booked, not yet dated","—","—",sd.startersUndated,"—"]});
+    if (sd.startersUndated) rows.push({cells:["Booked, not yet dated","—","—",sd.startersUndated,"—","—"]});
+    if (sd.coe&&sd.coe.undated) rows.push({cells:["CoE booked, not yet dated","—","—","—",sd.coe.undated,"—"]});
     // 2026-09-23 per Bec: pipeline forward-visibility — same idea as the
     // undated line; snapshot counts, never added to the YTD totals.
-    rows.push({cells:[`<span style="color:var(--tm)">In Enrolment Pipeline (Registered)</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.enrol)||0}</span>`,"—"]});
-    rows.push({cells:[`<span style="color:var(--tm)">Open Student Leads</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.leads)||0}</span>`,"—"]});
-    rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, okrVar_(sd.ytd.startVar)]});
-    rows.push({total:true, cells:["Annual budget", sd.annual.budget, "", "", ""]});
+    rows.push({cells:[`<span style="color:var(--tm)">In Enrolment Pipeline (Registered)</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.enrol)||0}</span>`,"—","—"]});
+    rows.push({cells:[`<span style="color:var(--tm)">Open Student Leads</span>`,"—","—",`<span style="color:var(--tm)">${(sd.pipeline&&sd.pipeline.leads)||0}</span>`,"—","—"]});
+    rows.push({total:true, cells:["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, (sd.coe&&sd.coe.ytd)||0, okrVar_(sd.ytd.startVar)]});
+    rows.push({total:true, cells:["Annual budget", sd.annual.budget, "", "", "", ""]});
     h += okrSection_(st+" — monthly position",
-      "Registrations = apprenticeship quals only · Starters = new-enrolment records excl. Change of Employer & cancelled · pipeline rows are forward-looking and not in the YTD totals · months after "+d.asOf.slice(0,7)+" shown as budget-only (·)",
-      okrTable_(["Month","Budget","Registrations","Starters","Variance (starters vs budget)"], rows));
+      "Registrations = apprenticeship quals only · Starters = new-enrolment records excl. cancelled · CoE = Change of Employer starters, shown alongside but never in the budget variance · pipeline rows are forward-looking and not in the YTD totals · months after "+d.asOf.slice(0,7)+" shown as budget-only (·)",
+      okrTable_(["Month","Budget","Registrations","Starters","CoE starters","Variance (starters vs budget)"], rows));
   });
   const nq = Object.keys(d.nonApp.byQual);
   // 2026-09-23 per Bec: this card is broken down BY TEAM MEMBER (not by
@@ -12083,16 +12171,19 @@ function downloadYtdPDF_(){
     <table class="rpt-table"><tr><th style="text-align:left">Measure</th><th>Value</th><th>vs budget</th></tr>
     <tr><td>Budgeted starters YTD</td><td style="text-align:right">${d.total.budget}</td><td></td></tr>
     <tr><td>Apprenticeship registrations YTD</td><td style="text-align:right">${d.total.regs}</td><td style="text-align:right">${d.total.regVar>0?"+":""}${d.total.regVar}</td></tr>
-    <tr><td>Actual starters YTD</td><td style="text-align:right">${d.total.starters}</td><td style="text-align:right">${d.total.startVar>0?"+":""}${d.total.startVar}</td></tr></table></div>`;
+    <tr><td>Actual starters YTD</td><td style="text-align:right">${d.total.starters}</td><td style="text-align:right">${d.total.startVar>0?"+":""}${d.total.startVar}</td></tr>
+    <tr><td>Change of Employer starters YTD (on top of budget)</td><td style="text-align:right">${d.total.coe??0}</td><td></td></tr>
+    <tr style="font-weight:700"><td>All starters incl. CoE</td><td style="text-align:right">${d.total.allStarters??(d.total.starters+(d.total.coe||0))}</td><td></td></tr></table></div>`;
   STATES3.forEach(st=>{
     const sd = d.states[st];
     b += `<div class="rpt-section"><div class="rpt-section-hdr">${st} — monthly position</div>
-      <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>Variance (starters vs budget)</th></tr>
-      ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?((m.starters-m.budget>0?"+":"")+(m.starters-m.budget)):"—"}</td></tr>`).join("")}
-      ${sd.startersUndated?`<tr><td>Booked, not yet dated</td><td></td><td></td><td style="text-align:right">${sd.startersUndated}</td><td></td></tr>`:""}
-      <tr style="color:#777"><td>In Enrolment Pipeline (Registered)</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.enrol)||0}</td><td></td></tr>
-      <tr style="color:#777"><td>Open Student Leads</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.leads)||0}</td><td></td></tr>
-      <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${sd.ytd.startVar>0?"+":""}${sd.ytd.startVar}</td></tr></table></div>`;
+      <table class="rpt-table"><tr><th style="text-align:left">Month</th><th>Budget</th><th>Registrations</th><th>Starters</th><th>CoE starters</th><th>Variance (starters vs budget)</th></tr>
+      ${sd.months.map(m=>`<tr><td>${YTD_MONTHS_[m.month-1]}</td><td style="text-align:right">${m.budget}</td><td style="text-align:right">${m.inYtd?m.regs:"—"}</td><td style="text-align:right">${m.inYtd?m.starters:"—"}</td><td style="text-align:right">${m.inYtd?(m.coe||0):"—"}</td><td style="text-align:right">${m.inYtd?((m.starters-m.budget>0?"+":"")+(m.starters-m.budget)):"—"}</td></tr>`).join("")}
+      ${sd.startersUndated?`<tr><td>Booked, not yet dated</td><td></td><td></td><td style="text-align:right">${sd.startersUndated}</td><td></td><td></td></tr>`:""}
+      ${sd.coe&&sd.coe.undated?`<tr><td>CoE booked, not yet dated</td><td></td><td></td><td></td><td style="text-align:right">${sd.coe.undated}</td><td></td></tr>`:""}
+      <tr style="color:#777"><td>In Enrolment Pipeline (Registered)</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.enrol)||0}</td><td></td><td></td></tr>
+      <tr style="color:#777"><td>Open Student Leads</td><td></td><td></td><td style="text-align:right">${(sd.pipeline&&sd.pipeline.leads)||0}</td><td></td><td></td></tr>
+      <tr style="font-weight:700"><td>YTD</td><td style="text-align:right">${sd.ytd.budget}</td><td style="text-align:right">${sd.ytd.regs}</td><td style="text-align:right">${sd.ytd.starters}</td><td style="text-align:right">${(sd.coe&&sd.coe.ytd)||0}</td><td style="text-align:right">${sd.ytd.startVar>0?"+":""}${sd.ytd.startVar}</td></tr></table></div>`;
   });
   const nq = Object.keys(d.nonApp.byQual);
   const coordsP = Object.keys(d.byCoord||{}).sort();
@@ -12124,18 +12215,19 @@ function downloadYtdExcel_(){
     const hdr = cols => { const r = ws.addRow(cols); r.font={bold:true,color:{argb:"FFFFFFFF"}}; r.eachCell(c=>{c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF1C3C6B"}};}); };
     ws.addRow(["CRBGC YTD Position — Registrations vs Budgeted Starters — as at "+d.asOf]).font={bold:true,size:14};
     ws.addRow([]);
-    hdr(["All states","Budget YTD","Registrations YTD","Reg var","Starters YTD","Starter var"]);
-    ws.addRow(["TOTAL", d.total.budget, d.total.regs, d.total.regVar, d.total.starters, d.total.startVar]).font={bold:true};
+    hdr(["All states","Budget YTD","Registrations YTD","Reg var","Starters YTD","Starter var","CoE YTD","All starters incl. CoE"]);
+    ws.addRow(["TOTAL", d.total.budget, d.total.regs, d.total.regVar, d.total.starters, d.total.startVar, d.total.coe??0, d.total.allStarters??(d.total.starters+(d.total.coe||0))]).font={bold:true};
     ws.addRow([]);
     STATES3.forEach(st=>{
       const sd = d.states[st];
       ws.addRow([st]).font={bold:true,size:12,color:{argb:"FF085041"}};
-      hdr(["Month","Budget","Registrations","Starters","Variance (starters vs budget)"]);
-      sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.starters-m.budget):null]); });
-      if (sd.startersUndated) ws.addRow(["Booked, not yet dated", null, null, sd.startersUndated, null]);
-      ws.addRow(["In Enrolment Pipeline (Registered)", null, null, (sd.pipeline&&sd.pipeline.enrol)||0, null]);
-      ws.addRow(["Open Student Leads", null, null, (sd.pipeline&&sd.pipeline.leads)||0, null]);
-      ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, sd.ytd.startVar]).font={bold:true};
+      hdr(["Month","Budget","Registrations","Starters","CoE starters","Variance (starters vs budget)"]);
+      sd.months.forEach(m=>{ ws.addRow([YTD_MONTHS_[m.month-1], m.budget, m.inYtd?m.regs:null, m.inYtd?m.starters:null, m.inYtd?(m.coe||0):null, m.inYtd?(m.starters-m.budget):null]); });
+      if (sd.startersUndated) ws.addRow(["Booked, not yet dated", null, null, sd.startersUndated, null, null]);
+      if (sd.coe&&sd.coe.undated) ws.addRow(["CoE booked, not yet dated", null, null, null, sd.coe.undated, null]);
+      ws.addRow(["In Enrolment Pipeline (Registered)", null, null, (sd.pipeline&&sd.pipeline.enrol)||0, null, null]);
+      ws.addRow(["Open Student Leads", null, null, (sd.pipeline&&sd.pipeline.leads)||0, null, null]);
+      ws.addRow(["YTD", sd.ytd.budget, sd.ytd.regs, sd.ytd.starters, (sd.coe&&sd.coe.ytd)||0, sd.ytd.startVar]).font={bold:true};
       ws.addRow(["Annual budget", sd.annual.budget]).font={bold:true};
       ws.addRow([]);
     });
