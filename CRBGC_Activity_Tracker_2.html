@@ -606,7 +606,11 @@ const PRIMARY_FOCUS = [
   "Administration and follow-up","Other"
 ];
 
-const TRADE_OPTIONS = ["Carpentry","Concreting","Civil","Other"];
+// v98 per Bec (2026-10-14): full qualification names in every Trade/
+// Qualification dropdown (previously short labels Carpentry/Concreting/
+// Civil/Other). Free-text/legacy values already stored keep rendering —
+// fld() only pre-selects when the stored value matches an option exactly.
+const TRADE_OPTIONS = ["Certificate III in Carpentry","Certificate III in Carpentry - SBAT","Certificate III in Concreting","Certificate III in Civil Construction","Other"];
 
 // 2026-09-24 per Bec: "add an outcome to the Follow-ups & overdue
 // follow-ups called 'Follow-up On Hold - No Trainer Capacity' and this needs to
@@ -5565,8 +5569,9 @@ function weeklyTileMetrics(coord, targetDate){
     newEmployerCalls:      acts.filter(a=>effContactType(a)==="employer_call"&&(!a.id||!a.id.startsWith("auto_fu_"))&&NEW_EMPLOYER_STAGE_RELS.includes((effRelType(a)||"").trim())).length,
     newEmployersAdded:   acts.filter(a=>effContactType(a)==="new_employer_db"||effContactType(a)==="add_employer").length,
     totalContactsAttempted: acts.filter(a=>
-      a.type==="follow_up_closed"
-      || !["site_visit","new_employer_met","event","partnership_dev","marketing_content","training_coord"].includes(a.type) // 2026-10-05: internal work is not a contact attempt
+      !String(a.id||"").startsWith("auto_db_") // v98: companion "added to DB" records credit the Added tiles, never a second contact attempt for the same call
+      && (a.type==="follow_up_closed"
+      || !["site_visit","new_employer_met","event","partnership_dev","marketing_content","training_coord"].includes(a.type)) // 2026-10-05: internal work is not a contact attempt
     ).length,
     callsMeaningful:     acts.filter(isMeaningfulCall).length,
     leads:               uniqueNewLeadCount_(coord, days[0], days[days.length-1]), // 2026-08-20: unique first-time students, see uniqueNewLeadCount_
@@ -5694,8 +5699,9 @@ function renderDailyDashboard(){
     // itself an attempted touchpoint, and this is deliberately NOT gated
     // on isMeaningfulCall()/activityOutcome.
     const totalContactsAttempted = acts.filter(a=>
-      a.type==="follow_up_closed"
-      || !["site_visit","new_employer_met","event"].includes(a.type)
+      !String(a.id||"").startsWith("auto_db_") // v98: see weeklyTileMetrics' matching exclusion
+      && (a.type==="follow_up_closed"
+      || !["site_visit","new_employer_met","event"].includes(a.type))
     ).length;
     const callsMeaningful     = acts.filter(isMeaningfulCall).length;
     // CHANGED 2026-08-05 per Bec: "student leads should only count new
@@ -7709,6 +7715,14 @@ function renderActivityModal(type,data){
         : fld("Contact name","acap_contact_newname","text",data.contactName||""))+
       '</div>';
     fields+='<input type="hidden" id="acap_contact" value="'+(data.contactName||"").replace(/"/g,"&quot;")+'">';
+    // v98 per Bec (2026-10-14): same as Employer Call — an ACAP Call/F2F
+    // against an organisation not in the database captures the full new-ACAP
+    // record here and counts as BOTH the contact AND a new ACAP added.
+    const acapIsNewOrg = !!((data.acapOrg||"").trim() && !acapInitialGroup);
+    fields+='<div id="acap_neworg_fields" style="display:'+(acapIsNewOrg?"block":"none")+';border:1px dashed var(--bd, #ccc);border-radius:var(--r);padding:8px;margin-bottom:8px;background:var(--bg2, #f7f7f7)">'+
+      '<div class="small muted" style="margin-bottom:4px"><i class="ti ti-database-plus"></i> Not in your database yet — saving this contact also adds them as a new ACAP contact (and counts as one). Complete for a full WIP record:</div>'+
+      newContactFieldsHtml("acap_neworg","acap",{suppressPrimaryToggle:true})+
+      '</div>';
     const ACAP_OUTCOMES=["","Connected — discussed partnership opportunity","Connected — existing referral pathway confirmed",
       "Connected — new referral pathway agreed","Meeting booked","Event collaboration agreed",
       "No opportunity identified","No answer","Voicemail left","Not interested",
@@ -7770,6 +7784,16 @@ function renderActivityModal(type,data){
       '<select id="ec_rel" data-orig="'+ecRelOrig.replace(/"/g,"&quot;")+'" required>'+
       [""].concat(REL_TYPES).map(function(o){return '<option value="'+o+'"'+(ecRelVal===o?" selected":"")+'>'+(o||"— Select —")+'</option>';}).join("")+
       '</select></div>';
+    // v98 per Bec (2026-10-14): a call against a business that's NOT in the
+    // database yet captures the full new-employer record right here (same
+    // field set as the Add Employer tile) and counts as BOTH an Employer
+    // Call AND a New Employer Added — no need to open the Add Employer tile
+    // first. Shown/hidden live by onEcBizInput as the business name changes.
+    const ecIsNewOrg = !!((data.bizName||"").trim() && !ecInitialGroup);
+    fields+='<div id="ec_neworg_fields" style="display:'+(ecIsNewOrg?"block":"none")+';border:1px dashed var(--bd, #ccc);border-radius:var(--r);padding:8px;margin-bottom:8px;background:var(--bg2, #f7f7f7)">'+
+      '<div class="small muted" style="margin-bottom:4px"><i class="ti ti-database-plus"></i> Not in your database yet — saving this call also adds them as a new employer (and counts as one). Complete for a full WIP record:</div>'+
+      newContactFieldsHtml("ec_neworg","employer",{suppressPrimaryToggle:true})+
+      '</div>';
     fields+=fld("Outcome","ec_outcome","select",data.callOutcome||"",[""].concat(EMPLOYER_CALL_OUTCOMES),"true");
     const meaningful=data.callOutcome==="Connected – meaningful conversation";
     const isDNC=data.callOutcome==="Do not contact — removed from list";
@@ -7941,7 +7965,16 @@ function renderActivityModal(type,data){
   }
 
   if(type==="pipeline"){
-    fields+=fld("Lead / student name","pl_name","text",data.leadName||"",null,"true");
+    // v98 per Bec (2026-10-14): oninput added so the "new student" capture
+    // block below can show/hide live as the name is typed (same pattern as
+    // Registration/Enrolment Pipeline's reg_newfields/ep_newfields).
+    fields+='<div class="field"><label>Lead / student name<span class="req">*</span></label>'+
+      '<input id="pl_name" value="'+(data.leadName||"").replace(/"/g,"&quot;")+'" oninput="onPlNameInput(this.value)" placeholder="Lead / student name..." required></div>';
+    const plIsNewStudent = !!((data.leadName||"").trim() && !findStudentLeadsStudent(S.user.coord, data.leadName||""));
+    fields+='<div id="pl_newfields" style="display:'+(plIsNewStudent?"block":"none")+';border:1px dashed var(--bd, #ccc);border-radius:var(--r);padding:8px;margin-bottom:8px;background:var(--bg2, #f7f7f7)">'+
+      '<div class="small muted" style="margin-bottom:4px"><i class="ti ti-database-plus"></i> Not in your Student Leads yet — saving this contact also adds them as a new student lead (and counts as one):</div>'+
+      fldRow([fld("Mobile","pl_newfields_mobile","tel",data.mobile||""),fld("Email","pl_newfields_email","email",data.email||"")])+
+      '</div>';
     fields+=fldRow([
       fld("State","pl_state","select",data.state||"",["",...Object.values(STATES).filter((v,i,a)=>a.indexOf(v)===i)]),
       fld("Trade / qualification","pl_trade","select",data.trade||"",["",...TRADE_OPTIONS]),
@@ -7992,6 +8025,7 @@ function renderActivityModal(type,data){
     <div class="modal-title"><i class="ti ${closingFollowup?"ti-checkbox":"ti-plus"}"></i> ${closingFollowup?"Close follow-up — "+(titles[type]||type):(titles[type]||type)}</div>
     ${closingFollowup?`<div style="background:var(--o1);padding:8px 12px;border-radius:var(--r);margin-bottom:16px;font-size:12px;color:var(--ts)">
       Closing this follow-up. Fill this in exactly as if logging a fresh ${(titles[type]||type).replace(/^Log /,"").replace(/^Add /,"")} — it'll count as today's activity and be written to the WIP database. Leave Follow-up date blank if this is fully resolved, or set a new one to reschedule instead of closing.
+      ${fuCloseTypeSelectorHtml_(type, baseTitles)}
     </div>`:""}
     <div id="modal_errors"></div>
     ${fields}
@@ -8027,7 +8061,12 @@ function fld(label,id,type,val,options,required){
   const req=required?`<span class="req">*</span>`:"";
   let input;
   if(type==="select"){
-    const optArr=Array.isArray(options)?options:[];
+    let optArr=Array.isArray(options)?options:[];
+    // v98: a stored value that's no longer one of the options (e.g. a trade
+    // logged as "Carpentry" before the dropdown switched to full
+    // qualification names) still renders as selected instead of silently
+    // dropping to blank — so editing an old entry never loses its value.
+    if(val && !optArr.includes(val)) optArr=optArr.concat([val]);
     const opts=optArr.map(o=>`<option value="${o}"${val===o?" selected":""}>${o||"— Select —"}</option>`).join("");
     input=`<select id="${id}" ${required?"required":""}>${opts}</select>`;
   } else if(type==="textarea"){
@@ -8330,6 +8369,14 @@ function saveActivityFromModal_(type){
     ? {...existingAct}  // copy existing, preserve id and timestamp
     : {id:uuid(), type, timestamp:new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"})};
   const g=(id)=>document.getElementById(id)?.value||"";
+  // v98 per Bec (2026-10-14): when a call tile logs against a record that's
+  // not in the database yet, a companion "added to database" activity is
+  // created alongside the call (id-prefixed "auto_db_") so the one save
+  // counts as BOTH the call AND the new employer/ACAP/student-lead added.
+  // The companion is a log/metric record only — the WIP row itself is
+  // created once, by the call activity's own push (backend skips auto_db_
+  // rows in every database-writing path).
+  let companionType=null;
 
   // Collect fields by type
   if(type==="commencement"){
@@ -8404,6 +8451,13 @@ function saveActivityFromModal_(type){
     // pre-filled Email/Mobile for the selected existing contact.
     const acapEdit=readContactEdit("acap_contact_picker");
     if(Object.keys(acapEdit).length) act.contactEdit=acapEdit;
+    // v98: brand-new ACAP organisation — capture the full record and flag
+    // the companion "Add ACAP" credit.
+    const acapNewOrgDiv=document.getElementById("acap_neworg_fields");
+    if(acapNewOrgDiv && acapNewOrgDiv.style.display!=="none" && act.acapOrg){
+      act.newContactDetails=Object.assign(readNewContactFields("acap_neworg"), act.newContactDetails||{});
+      companionType="add_acap";
+    }
   }
   if(type==="event"){ act.eventName=g("ev_name");act.location=g("ev_loc");act.attendees=g("ev_att");act.activityOutcome=g("ev_outcome"); }
   if(type==="employer_call"){ syncEcContact(); act.bizName=g("ec_biz");act.contactName=g("ec_contact");act.relType=g("ec_rel");act.callOutcome=g("ec_outcome");act.meaningfulDiscussion=g("ec_disc");act.activityOutcome=g("ec_actout");act.profileNotes=g("ec_profile");
@@ -8415,6 +8469,13 @@ function saveActivityFromModal_(type){
     // away from its auto-pulled value, for the selected existing contact.
     const ecEdit=readContactEdit("ec_contact_picker","ec_rel");
     if(Object.keys(ecEdit).length) act.contactEdit=ecEdit;
+    // v98: brand-new organisation — capture the full record and flag the
+    // companion "Add Employer" credit.
+    const ecNewOrgDiv=document.getElementById("ec_neworg_fields");
+    if(ecNewOrgDiv && ecNewOrgDiv.style.display!=="none" && act.bizName){
+      act.newContactDetails=Object.assign(readNewContactFields("ec_neworg"), act.newContactDetails||{});
+      companionType="new_employer_db";
+    }
     // If "Do not contact" — mark employer inactive in WIP immediately
     if(act.callOutcome==="Do not contact — removed from list" && act.bizName){
       postBestEffort({type:"update_employer_followup",coord:S.user.coord,
@@ -8457,7 +8518,18 @@ function saveActivityFromModal_(type){
       act.newContactDetails=readNewContactFields("ep_newfields");
     }
   }
-  if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.pipelineType=g("pl_pipeline_type");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg"); }
+  if(type==="pipeline"){ act.leadName=g("pl_name");act.state=g("pl_state");act.trade=g("pl_trade");act.prevStage=g("pl_prev");act.newStage=g("pl_new");act.contactOutcome=g("pl_contact");act.pipelineType=g("pl_pipeline_type");act.barrier=g("pl_barrier");act.actionToday=g("pl_action");act.expectedReg=g("pl_expreg");
+    // v98: brand-new student — capture Mobile/Email (plus the form's own
+    // Trade/State) so the backend creates the Student Leads row
+    // (updateStudentLeadContact's inline-create path), and flag the
+    // companion "Student Lead" credit.
+    const plNewDiv=document.getElementById("pl_newfields");
+    if(plNewDiv && plNewDiv.style.display!=="none" && act.leadName){
+      act.mobile=g("pl_newfields_mobile"); act.email=g("pl_newfields_email");
+      act.newContactDetails={mobile:act.mobile,email:act.email,trade:act.trade,state:act.state};
+      companionType="lead";
+    }
+  }
 
   // Common
   act.nextAction=g("cm_next"); act.followUpDate=g("cm_fudate");
@@ -8544,8 +8616,11 @@ function saveActivityFromModal_(type){
   // 2026-10-05 change spec (Change 2): free-text "None" is no longer a
   // valid next action anywhere — pick a No-further-action reason instead.
   if(/^(none|n\/?a\.?|nil|nothing|-+)\.?$/i.test(String(act.nextAction||"").trim())) errors.push('"None" is not a next action — pick a "No further action" reason instead (it records WHY nothing more is needed).');
-  // Site visits must end with a date or a recorded reason.
-  if(["site_visit","new_employer_met"].includes(type) && !act.followUpDate && !act.nfaReason) errors.push("Site visits need either a Follow-up date or a No-further-action reason.");
+  // v98 per Bec (2026-10-14): "make the follow-up date optional across all
+  // tiles" — the 2026-10-05 rule requiring Site Visits to end with a date
+  // or an NFA reason is removed. The backend still auto-stamps a +6-week
+  // Next Contact Date (defaultNextContactDate_) whenever the date is left
+  // blank, so no record is ever left dateless in the WIP.
   if(act.nfaReason==="Future opportunity" && !act.nfaMonth) errors.push("Future opportunity needs a review month (it becomes a dated follow-up).");
   // 2026-10-05 change spec (Change 3): On hold needs a reason + review date ≤ 90 days.
   if(act.status==="On hold"){
@@ -8564,10 +8639,13 @@ function saveActivityFromModal_(type){
   // Follow-up date for ACT_OUTCOME_NEEDS_FOLLOWUP outcomes — the backend
   // auto-generates one when it's left blank (defaultNextContactDate_: +6
   // weeks, pushed to the next working day) and flips Follow-Up Required to
-  // "Yes", so the record is never left dateless. The requirement stays on
-  // the other forms (e.g. New Employer Met), which is where a genuinely
-  // dateless "Sign-up booked"-type outcome would otherwise slip through.
-  if(!["event","employer_call","site_visit"].includes(type) && ACT_OUTCOME_NEEDS_FOLLOWUP.includes(act.activityOutcome) && !act.followUpDate) errors.push("Follow-up date is required for this outcome");
+  // "Yes", so the record is never left dateless.
+  // v98 per Bec (2026-10-14): extended to EVERY tile ("make the follow-up
+  // date optional across all tiles, currently add new employer is still
+  // mandating a follow-up date") — the requirement is removed entirely.
+  // The two remaining date rules are deliberate and stay: an On-hold
+  // status needs its review date, and the "Follow-up On Hold - No Trainer
+  // Capacity" outcome keeps its auto-filled 3-month date (both below).
   // 2026-09-24 per Bec: "Follow-up On Hold - No Trainer Capacity" exists to push
   // the follow-up 3 months out — a date is auto-filled on selection, so
   // this only fires if the coordinator deliberately cleared it.
@@ -8626,6 +8704,29 @@ function saveActivityFromModal_(type){
     else day.activities.push(act);
   } else {
     day.activities.push(act);
+  }
+  // v98 per Bec (2026-10-14): companion "added to database" record — only
+  // on a fresh save (never an edit resave or a follow-up close, where the
+  // record already exists), and only once per primary activity (guarded by
+  // _companionOf, so a later resave of the same day can't duplicate it).
+  if(companionType && !isEdit && !closingFollowup &&
+     !(day.activities||[]).some(a=>a._companionOf===act.id)){
+    const nd=act.newContactDetails||{};
+    day.activities.push({
+      id:"auto_db_"+uuid(), _companionOf:act.id, type:companionType,
+      timestamp:new Date().toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"}),
+      status:"Completed", nextAction:"", followUpDate:"",
+      notes:"Added via "+activityLabel(type),
+      bizName:act.bizName||"", contactName:act.contactName||"", relType:act.relType||"",
+      acapOrg:act.acapOrg||"", position:nd.position||act.position||"",
+      email:nd.email||act.email||"", phone:nd.phone||act.phone||"", mobile:nd.mobile||act.mobile||"",
+      suburb:nd.region||act.suburb||"", postcode:nd.postcode||act.postcode||"",
+      address:nd.address||act.address||"", website:nd.website||act.website||"",
+      studentName:act.leadName||act.studentName||"", leadName:act.leadName||"",
+      studentState:act.state||act.studentState||"", trade:act.trade||"",
+      newStage:companionType==="lead"?(act.newStage||"New lead"):"",
+      activityOutcome:companionType==="add_acap"?"New Contact Added":"",
+    });
   }
   saveDay(day);
 
@@ -8823,6 +8924,44 @@ function deleteActivity(id, coord){
 // THIS IS A REGRESSION GUARDRAIL — see _test_followup_close_via_type_modal.js.
 // Re-run that test before changing this function, saveActivityFromModal_'s
 // closingFollowup block, or renderActivityModal's per-type field list.
+// v98 per Bec (2026-10-14): "Follow-ups need to have the option to select
+// what type of follow up occurred and log under the correct field, not the
+// same field as the original logged call/site visit." When closing a
+// follow-up, a selector in the banner lets the coordinator switch the form
+// to whatever ACTUALLY happened (e.g. the original was a Site Visit but
+// the follow-up was a phone call → log it as an Employer Call). The saved
+// closure then counts under the chosen type's own tile/metric and routes
+// to the WIP through that type's normal path. Switching is restricted to
+// the same entity kind as the original (employer / ACAP / student), so the
+// closingFollowup bookkeeping (update_employer/acap/student_followup,
+// sibling-close) always still targets the right record.
+const FU_CLOSE_TYPE_GROUPS = [
+  ["employer_call","site_visit","intro_call","new_employer_met"],
+  ["acap_contact","acap_f2f"],
+  ["pipeline","registration","enrolment_pipeline"],
+];
+function fuCloseTypeSelectorHtml_(type, titlesMap){
+  const group = FU_CLOSE_TYPE_GROUPS.find(g=>g.includes(type));
+  if(!group) return "";
+  const opts = group.map(t=>{
+    const label=(titlesMap[t]||t).replace(/^Log /,"").replace(/^Add /,"");
+    return '<option value="'+t+'"'+(t===type?" selected":"")+'>'+label+'</option>';
+  }).join("");
+  return '<div style="margin-top:8px"><label style="display:block;font-weight:600;margin-bottom:3px">What type of follow-up was this?</label>'+
+    '<select id="cm_futype_switch" onchange="switchFollowupCloseType(this.value)" style="width:100%">'+opts+'</select>'+
+    '<div class="small muted" style="margin-top:3px">Pick what actually happened — it logs and counts under that type, not the original one. (Switch before filling in the form: changing it reloads the fields.)</div></div>';
+}
+function switchFollowupCloseType(newType){
+  if(!S.modal || !S.modal.closingFollowup || !newType) return;
+  // Carry the name across the student-form naming split (pipeline reads
+  // data.leadName; registration/enrolment_pipeline read data.studentName).
+  const d = S.modal.data || {};
+  d.leadName = d.leadName || d.studentName || "";
+  d.studentName = d.studentName || d.leadName || "";
+  S.modal.actType = newType;
+  render();
+}
+
 function openCloseFollowupModal(id, date, coord, name) {
   const day = loadDay(coord, date);
   let act = (day.activities||[]).find(a=>a.id===id);
@@ -9158,6 +9297,17 @@ function onEcBizInput(val){
   if(emp){
     const rel=document.getElementById("ec_rel"); if(rel&&!rel.value&&emp.empRelationship) rel.value=emp.empRelationship;
   }
+  // v98: show the "new employer" capture block when the typed business
+  // matches nothing in the database (hide it again the moment it matches).
+  const ecNewOrg=document.getElementById("ec_neworg_fields");
+  if(ecNewOrg) ecNewOrg.style.display = ((val||"").trim() && !group) ? "block" : "none";
+}
+
+// v98: live show/hide for the Pipeline tile's "new student" capture block —
+// same role onRegNameInput/onEpNameInput play for their tiles.
+function onPlNameInput(val){
+  const nf=document.getElementById("pl_newfields");
+  if(nf) nf.style.display = ((val||"").trim() && !findStudentLeadsStudent(S.user.coord, val)) ? "block" : "none";
 }
 
 // Keeps the hidden ec_contact input in sync with whichever Step-2 control
@@ -9463,6 +9613,10 @@ function onAcapOrgInput(val){
   const group=acapGroups.find(function(g){return sameOrgName_(g.name, val||"");});
   if(acap&&hint) hint.innerHTML='<div><i class="ti ti-info-circle"></i> Last contact: '+(acap.lastContact||"—")+" · Next due: "+(acap.nextContact||"—")+'</div>'+orgHintLinesHtml(group);
   else if(hint) hint.innerHTML="";
+  // v98: show the "new ACAP" capture block when the typed organisation
+  // matches nothing in the database.
+  const acapNewOrg=document.getElementById("acap_neworg_fields");
+  if(acapNewOrg) acapNewOrg.style.display = ((val||"").trim() && !group) ? "block" : "none";
   const container=document.getElementById("acap_contact_container");
   if(container){
     container.innerHTML = group
@@ -9927,7 +10081,11 @@ async function pushData() {
       if(a.employerLink && a.id){
         employerLinkByRowId[a.id]=a.employerLink;
       }
-      if(a.type==="lead"){
+      // v98: companion "auto_db_" records are log/metric entries only — the
+      // WIP/leads rows are created by their primary call activity's own
+      // push, so they must never also feed the direct lead/employer pushes
+      // below (that would double-create the record).
+      if(a.type==="lead" && !String(a.id||"").startsWith("auto_db_")){
         const auDate=d.split("-").reverse().join("/");
         // 2026-07-30 bugfix: this array is positional against the Student
         // Leads header row (Date Added, Student Name, Phone, Email, Trade,
@@ -9945,7 +10103,7 @@ async function pushData() {
         // can also write it.
         leadEmployerLinks.push(a.employerLink||null);
       }
-      if(a.type==="new_employer_db"){
+      if(a.type==="new_employer_db" && !String(a.id||"").startsWith("auto_db_")){
         const auDate=d.split("-").reverse().join("/");
         // Columns: A=DateAdded, B=Active, C=EmpRelationship, D=State, E=BizName,
         //          F=ContactName, G=Position, H=Email, I=Phone, J-L=Website/FB/IG,
