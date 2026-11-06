@@ -4386,7 +4386,7 @@ function renderApp(){
   // per-coordinator by loadFromCloud() for the selected date, was fine).
   if(S.tab==="weekly"){ if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerWeeklyTab_(); }
   if(S.tab==="daily"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureManagerWeekData_(); h+=renderManagerDailyTab_();  }
-  if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); h+=renderManagerTrendTab_();  }
+  if(S.tab==="trend"){  if(!S.loading && !S.dashDataAttempted) loadAllForDashboard(); if(!S.loading) ensureTrendRangeData_(); h+=renderManagerTrendTab_();  }
   if(S.tab==="trainers"){ h+=renderTrainerCapacities_(); }
   if(S.tab==="qldgrowth"){ h+=renderQldGrowth_(); }
   if(S.tab==="okr"){ h+=renderOkrScorecard_(); }
@@ -6277,6 +6277,76 @@ function renderManagerDailyTab_(){
   const targetDate = S.date;
   const coordsToShow = ds.coord==="all" ? COORDS : [ds.coord];
   return renderCRTabControls_("daily") + renderDailyDashboard() + renderFilteredActivityLog(coordsToShow,[targetDate]);
+}
+
+// 2026-11-06 (Bec: "the trend tab has not been recording totals across each
+// metric"): the Trend tab (and its Excel/PDF) computes every activity metric
+// from this device's localStorage, but nothing ever pulled PAST weeks for it
+// — get_all_current only covers the current week and ensureManagerWeekData_
+// only the selected week. So every past column showed 0 for everything
+// except Registrations/Commencements (those come from official events).
+// This pulls the whole Trend range per coordinator in ONE get_range call
+// (backend v102+), falling back to one get_week per missing week (3 at a
+// time) on an older backend. Gated per coordinator+range, keys set before
+// the first await — same retry-storm-proofing as ensureManagerWeekData_.
+// Test: _test_v102_trend_history.js.
+async function ensureTrendRangeData_() {
+  if(!S.user?.isManager||!WEBAPP_URL) return;
+  const fromMon=mondayOf(S.trendFrom || addWeeks(S.date,-7));
+  const toMon=mondayOf(S.trendTo || S.date);
+  const weeks=[];
+  let cur=new Date(toMon+"T12:00:00");
+  const fromD=new Date(fromMon+"T12:00:00");
+  while(cur>=fromD && weeks.length<52){ weeks.push(cur.toISOString().substring(0,10)); cur.setDate(cur.getDate()-7); }
+  if(!weeks.length) return;
+  const startMon=weeks[weeks.length-1], endSun=addDays_(toMon,6);
+  S.trendRangeAttempted = S.trendRangeAttempted || {};
+  S.mgrWeekAttempted = S.mgrWeekAttempted || {};
+  const rk=startMon+"|"+endSun;
+  const todo=COORDS.filter(c=>!S.trendRangeAttempted[c+"|"+rk]);
+  if(!todo.length) return;
+  todo.forEach(c=>{ S.trendRangeAttempted[c+"|"+rk]=true; });
+  // Don't let a just-pushed (possibly not-yet-rebuilt) cloud copy overwrite
+  // this device's own current-week edits — same guard as loadFromCloud().
+  const curMon=mondayOf(TODAY);
+  const safeMerge=(data,c)=>{
+    if(recentlyPushed() && S.user && c===S.user.coord){
+      data=Object.assign({},data,{activities:(data.activities||[]).filter(a=>!(a.date>=curMon))});
+    }
+    mergeCloudData(data,c);
+  };
+  S.loading=true; render();
+  let failed=0;
+  try {
+    await Promise.all(todo.map(async c=>{
+      const state=STATES[c];
+      let data=null;
+      try {
+        data=await jsonpFetch(WEBAPP_URL+"?action=get_range&coord="+encodeURIComponent(c)+"&state="+state+"&monday="+startMon+"&from="+startMon+"&to="+endSun);
+      } catch(e){ data=null; }
+      if(data && data.ok){
+        safeMerge(data,c);
+        weeks.forEach(m=>{ S.mgrWeekAttempted[c+"|"+m]=true; });
+        return;
+      }
+      // Fallback (backend older than v102): one get_week per week not yet pulled.
+      const need=weeks.filter(m=>!S.mgrWeekAttempted[c+"|"+m]);
+      need.forEach(m=>{ S.mgrWeekAttempted[c+"|"+m]=true; });
+      for(let i=0;i<need.length;i+=3){
+        await Promise.all(need.slice(i,i+3).map(async m=>{
+          try { safeMerge(await pullWeek(c,m),c); }
+          catch(e){ failed++; delete S.mgrWeekAttempted[c+"|"+m]; }
+        }));
+      }
+    }));
+    S.status = failed
+      ? {ok:false,msg:"Trend history: "+failed+" week(s) failed to load — tap refresh to retry"}
+      : {ok:true,msg:"✓ Trend history loaded ("+weeks.length+" weeks, all coordinators)"};
+  } catch(e){
+    todo.forEach(c=>{ delete S.trendRangeAttempted[c+"|"+rk]; });
+    S.status={ok:false,msg:"Trend history load failed: "+e.message};
+  }
+  S.loading=false; render();
 }
 
 function renderManagerTrendTab_(){
@@ -10430,6 +10500,7 @@ async function loadFromCloud() {
   S.trainerCapAttempted = false; S.trainerCap = null;   // gate is `!S.trainerCap && !attempted` — must clear both
   S.qldGrowthAttempted = false;  S.qldGrowth = null;    // same gate shape
   S.hygieneAttempted = false;    S.hygiene = null;      // 2026-10-05 change spec
+  S.trendRangeAttempted = {};                           // 2026-11-06: Trend history re-pulls on refresh
   refreshOfficialEvents_(); // 2026-09-24: official reg/starter events — best-effort background refresh
   // If we pushed recently, cloud may not have rebuilt yet — skip week pull
   // to avoid overwriting locally-saved activities with stale cloud data.
